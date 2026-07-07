@@ -12,9 +12,11 @@ Port of the Kenney "Starter Kit Racing" Godot 4.6 project to plain JavaScript an
   - `Camera.js` — Camera system
   - `Controls.js` — Input handling
   - `Particles.js` — Smoke trail effects
-  - `Audio.js` — Sound
+  - `Audio.js` — Sound: positional sources on the vehicle, distance lowpass, outdoor reverb; engine and impacts are synthesized, skid is a sample with tone/pitch variation
+  - `EngineWorklet.js` — Procedural engine synth (AudioWorklet)
+  - `ImpactSound.js` — Procedural collision one-shots (rendered into AudioBuffers at init)
 - `models/` — GLB models shared between both versions
-- `audio/` — Audio assets
+- `audio/` — Sample assets (skid.ogg; engine and impacts are synthesized). The synth DSP cores are plain classes importable from Node for offline rendering/analysis.
 - `sprites/` — Sprite assets
 
 ## Key conventions

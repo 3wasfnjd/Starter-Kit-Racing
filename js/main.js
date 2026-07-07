@@ -229,7 +229,7 @@ async function init() {
 	const driftMarks = new DriftMarks( scene, mapParam );
 
 	const audio = new GameAudio();
-	audio.init( cam.camera );
+	audio.init( cam.camera, vehicleGroup );
 
 	const lapTimer = new LapTimer( customCells, mapParam );
 
