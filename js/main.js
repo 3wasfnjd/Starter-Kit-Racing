@@ -1,589 +1,550 @@
 import * as THREE from 'three';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { LightProbeGrid } from 'three/addons/lighting/LightProbeGrid.js';
-import { LightProbeGridHelper } from 'three/addons/helpers/LightProbeGridHelper.js';
-import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
-import { Vehicle, MAX_SPEED } from './Vehicle.js';
-import { Camera } from './Camera.js';
-import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds } from './Track.js';
-import { buildWallColliders, createSphereBody } from './Physics.js';
-import { SmokeTrails } from './Particles.js';
-import { DriftMarks } from './DriftMarks.js';
-import { GameAudio } from './Audio.js';
-import { LapTimer } from './LapTimer.js';
-import { ColorMapGLTFLoader } from './Loader.js';
-import { ARManager } from './ARManager.js';
-
-
-const renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true, outputBufferType: THREE.HalfFloatType } );
-renderer.setSize( window.innerWidth, window.innerHeight );
-renderer.setPixelRatio( window.devicePixelRatio );
-renderer.shadowMap.enabled = true;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
-renderer.xr.enabled = true; // required so main.js can offer AR MODE; NORMAL mode is unaffected
-
-const bloomPass = new UnrealBloomPass( new THREE.Vector2( window.innerWidth, window.innerHeight ) );
-bloomPass.strength = 0.02;
-bloomPass.radius = 0.02;
-bloomPass.threshold = 0.5;
-
-renderer.setEffects( [ bloomPass ] );
-
-document.body.appendChild( renderer.domElement );
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color( 0xadb2ba );
-scene.fog = new THREE.Fog( 0xadb2ba, 30, 55 );
-
-const dirLight = new THREE.DirectionalLight( 0xffffff, 3 );
-dirLight.position.set( 11.4, 15, -5.3 );
-dirLight.castShadow = true;
-dirLight.shadow.mapSize.setScalar( 4096 );
-dirLight.shadow.camera.near = 0.5;
-dirLight.shadow.camera.far = 60;
-dirLight.shadow.radius = 4;
-scene.add( dirLight );
-
-const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 2 );
-hemiLight.position.copy( dirLight.position )
-scene.add( hemiLight );
-
-
-window.addEventListener( 'resize', () => {
-
-	renderer.setSize( window.innerWidth, window.innerHeight );
-
-} );
-
-const loader = new ColorMapGLTFLoader();
-
-const modelNames = [
-	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
-	'track-straight', 'track-corner', 'track-bump', 'track-finish',
-	'decoration-empty', 'decoration-forest', 'decoration-tents',
-];
-
-const models = {};
-
-async function loadModels() {
-
-	const promises = modelNames.map( ( name ) =>
-		new Promise( ( resolve, reject ) => {
-
-			loader.load( `models/${ name }.glb`, ( gltf ) => {
-
-				const meshes = [];
-				gltf.scene.traverse( ( child ) => {
-
-					if ( child.isMesh ) {
-
-						child.material.side = THREE.FrontSide;
-						meshes.push( child );
-
-					}
-
-				} );
-
-				// Godot imports vehicle models at root_scale=0.5
-				if ( name.startsWith( 'vehicle-' ) ) {
-
-					gltf.scene.scale.setScalar( 0.5 );
-
-				}
-
-				if ( meshes.length === 1 ) {
-
-					const mesh = meshes[ 0 ];
-					mesh.removeFromParent();
-					models[ name ] = mesh;
-
-				} else {
-
-					models[ name ] = gltf.scene;
-
-				}
-
-				resolve();
-
-			}, undefined, reject );
-
-		} )
-	);
-
-	await Promise.all( promises );
-
-}
-
-// ─── Mode selection menu ──────────────────────────────────
-// Neither existing markup nor CSS is touched; this overlay is created
-// entirely from main.js so index.html stays untouched too.
-
-function createModeMenu( { arAvailable } ) {
-
-	return new Promise( ( resolve ) => {
-
-		const menu = document.createElement( 'div' );
-		menu.style.cssText = `
-			position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column;
-			align-items: center; justify-content: center; gap: 16px;
-			background: rgba(20,22,26,0.72); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-		`;
-
-		const title = document.createElement( 'div' );
-		title.textContent = 'Choose mode';
-		title.style.cssText = 'color:#fff; font-size:20px; font-weight:600; margin-bottom:8px;';
-		menu.appendChild( title );
-
-		function makeButton( label, enabled ) {
-
-			const btn = document.createElement( 'button' );
-			btn.textContent = label;
-			btn.disabled = ! enabled;
-			btn.style.cssText = `
-				padding: 14px 32px; font-size: 16px; border-radius: 999px; border: none;
-				cursor: ${ enabled ? 'pointer' : 'not-allowed' };
-				background: ${ enabled ? '#15A249' : '#555' }; color: #fff; opacity: ${ enabled ? '1' : '0.6' };
-			`;
-			return btn;
-
-		}
-
-		const normalBtn = makeButton( 'NORMAL MODE', true );
-		const arBtn = makeButton( arAvailable ? 'AR MODE (Meta Quest 3)' : 'AR MODE (not available on this device)', arAvailable );
-
-		normalBtn.addEventListener( 'click', () => {
-
-			menu.remove();
-			resolve( 'normal' );
-
-		} );
-
-		arBtn.addEventListener( 'click', () => {
-
-			menu.remove();
-			resolve( 'ar' );
-
-		} );
-
-		menu.appendChild( normalBtn );
-		menu.appendChild( arBtn );
-		document.body.appendChild( menu );
-
-	} );
-
-}
-
-// ─── Shared physics world setup (used by both modes) ──────
-
-function createPhysicsWorld() {
-
-	const worldSettings = createWorldSettings();
-	worldSettings.gravity = [ 0, - 9.81, 0 ];
-
-	const BPL_MOVING = addBroadphaseLayer( worldSettings );
-	const BPL_STATIC = addBroadphaseLayer( worldSettings );
-	const OL_MOVING = addObjectLayer( worldSettings, BPL_MOVING );
-	const OL_STATIC = addObjectLayer( worldSettings, BPL_STATIC );
-
-	enableCollision( worldSettings, OL_MOVING, OL_STATIC );
-	enableCollision( worldSettings, OL_MOVING, OL_MOVING );
-
-	const world = createWorld( worldSettings );
-	world._OL_MOVING = OL_MOVING;
-	world._OL_STATIC = OL_STATIC;
-
-	return world;
-
-}
-
-// ─── Shared per-frame driving/game-object update, used by ──
-// ─── both NORMAL and AR modes once a vehicle exists.       ──
-
-function updateVehicleAndFx( dt, input, ctx ) {
-
-	const { world, vehicle, particles, driftMarks, audio, lapTimer, contactListener } = ctx;
-
-	updateWorld( world, contactListener, dt );
-	vehicle.update( dt, input );
-
-	particles.update( dt, vehicle );
-	driftMarks.update( dt, vehicle );
-	audio.update( dt, vehicle.linearSpeed / MAX_SPEED, input.z, vehicle.driftIntensity );
-
-	const hasInput = input.touchActive || Math.abs( input.x ) > 0.05 || Math.abs( input.z ) > 0.05;
-	lapTimer.update( dt, vehicle.spherePos, hasInput );
-
-}
-
-// ─── NORMAL MODE (unchanged behavior from the original game) ──
-
-function startNormalMode( { customCells, spawn, mapParam } ) {
-
-	// Compute track bounds and size physics/shadows to fit
-	const bounds = computeTrackBounds( customCells );
-	const hw = bounds.halfWidth;
-	const hd = bounds.halfDepth;
-	const groundSize = Math.max( hw, hd ) * 2 + 20;
-
-	const shadowExtent = Math.max( hw, hd ) + 10;
-	dirLight.shadow.camera.left = - shadowExtent;
-	dirLight.shadow.camera.right = shadowExtent;
-	dirLight.shadow.camera.top = shadowExtent;
-	dirLight.shadow.camera.bottom = - shadowExtent;
-	dirLight.shadow.camera.updateProjectionMatrix();
-
-	scene.fog.near = groundSize * 0.4;
-	scene.fog.far = groundSize * 0.8;
-
-	buildTrack( scene, models, customCells );
-
-	// Probes
-	const probeHeight = 6;
-	const probes = new LightProbeGrid(
-		hw * 2, probeHeight, hd * 2,
-		Math.max( 4, Math.round( hw / 4 ) ),
-		2,
-		Math.max( 4, Math.round( hd / 4 ) ),
-	);
-	probes.position.set( bounds.centerX, probeHeight / 2, bounds.centerZ );
-	probes.bake( renderer, scene, { cubemapSize: 32, near: 0.1, far: groundSize } );
-	scene.add( probes );
-
-	// scene.add( new LightProbeGridHelper( probes, 0.5 ) );
-
-	const world = createPhysicsWorld();
-
-	buildWallColliders( world, null, customCells );
-
-	const roadHalf = groundSize / 2;
-	rigidBody.create( world, {
-		shape: box.create( { halfExtents: [ roadHalf, 0.01, roadHalf ] } ),
-		motionType: MotionType.STATIC,
-		objectLayer: world._OL_STATIC,
-		position: [ bounds.centerX, - 0.125, bounds.centerZ ],
-		friction: 5.0,
-		restitution: 0.0,
-	} );
-
-	const sphereBody = createSphereBody( world, spawn ? spawn.position : null );
-
-	const vehicle = new Vehicle();
-	vehicle.rigidBody = sphereBody;
-	vehicle.physicsWorld = world;
-
-	if ( spawn ) {
-
-		const [ sx, sy, sz ] = spawn.position;
-		vehicle.spherePos.set( sx, sy, sz );
-		vehicle.prevModelPos.set( sx, 0, sz );
-		vehicle.container.rotation.y = spawn.angle;
+import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+import { buildTrack, computeTrackBounds, computeSpawnPosition } from './Track.js';
+import { buildWallColliders, applyArTransform } from './Physics.js';
+import { rigidBody, box, MotionType } from 'crashcat';
+
+// ARManager owns everything about *placing* the track in the real room:
+// requesting the immersive-ar session, passthrough, horizontal-surface
+// hit-testing, the move/rotate/scale preview, and — once confirmed —
+// building the real track (via the untouched buildTrack()) and its static
+// wall colliders (via the untouched buildWallColliders(), using the new
+// optional arTransform parameter) at the chosen spot.
+//
+// It deliberately knows nothing about the Vehicle class or vehicle physics.
+// After placement it only exposes getDriveInput()/isPlaced()/getSpawnWorld()
+// so main.js can spawn and drive the existing Vehicle exactly like in
+// NORMAL mode.
+
+const DEADZONE = 0.15;
+const MOVE_SPEED = 1.5;   // m/s at full stick deflection
+const ROTATE_SPEED = 1.2; // rad/s at full stick deflection
+const SCALE_SPEED = 0.6;  // scale units/s at full stick deflection
+const SCALE_MIN = 0.5;
+const SCALE_MAX = 2.0;
+
+export class ARManager {
+
+	constructor( { renderer, scene, models, customCells } ) {
+
+		this.renderer = renderer;
+		this.scene = scene;
+		this.models = models;
+		this.customCells = customCells;
+
+		this.session = null;
+		this.hitTestSource = null;
+		this.hitTestSourceRequested = false;
+		this.referenceSpace = null;
+
+		this.hasHit = false;
+		this.placed = false;
+
+		this.arPosition = new THREE.Vector3();
+		this.arQuaternion = new THREE.Quaternion();
+		this.arScale = 1;
+
+		this.arTrackRoot = new THREE.Group();
+		this.arTrackRoot.visible = false;
+		this.scene.add( this.arTrackRoot );
+
+		this.world = null; // set by main.js via setWorld() before session start
+		this.spawnLocal = computeSpawnPosition( customCells );
+
+		this.previewGroup = this.buildPreviewMesh(); // uses this.spawnLocal — must come after it's set
+		this.arTrackRoot.add( this.previewGroup );
+
+		this.gamepads = { left: null, right: null };
+		this._prevTrigger = { left: false, right: false };
+
+		this.controllerModelFactory = new XRControllerModelFactory();
+		this._setupControllers();
+
+		this._savedBackground = null;
+		this._savedFog = null;
+
+		this.onPlaced = null; // callback(spawnWorldPos: Vector3, spawnWorldAngle: number)
+
+		this._camForward = new THREE.Vector3();
+		this._camPos = new THREE.Vector3();
 
 	}
 
-	const vehicleGroup = vehicle.init( models[ 'vehicle-truck-yellow' ] );
-	scene.add( vehicleGroup );
+	setWorld( world ) {
 
-	dirLight.target = vehicleGroup;
+		this.world = world;
 
-	const cam = new Camera();
-	scene.add( cam.debug );
+	}
 
-	const controls = new Controls();
+	// ─── UI entry point ───────────────────────────────────
 
-	const particles = new SmokeTrails( scene );
-	const driftMarks = new DriftMarks( scene, mapParam );
+	static async isSupported() {
 
-	const audio = new GameAudio();
-	audio.init( cam.camera, vehicleGroup );
-
-	const lapTimer = new LapTimer( customCells, mapParam );
-
-	const _forward = new THREE.Vector3();
-	const _camLead = new THREE.Vector3();
-
-	const contactListener = {
-		onContactAdded( bodyA, bodyB ) {
-
-			if ( bodyA !== sphereBody && bodyB !== sphereBody ) return;
-
-			_forward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
-			_forward.y = 0;
-			_forward.normalize();
-
-			const impactVelocity = Math.abs( vehicle.modelVelocity.dot( _forward ) );
-			audio.playImpact( impactVelocity );
-
-		}
-	};
-
-	const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer, contactListener };
-
-	return {
-
-		frameUpdate( dt ) {
-
-			const input = controls.update();
-
-			updateVehicleAndFx( dt, input, ctx );
-
-			dirLight.position.set(
-				vehicle.spherePos.x + 11.4,
-				15,
-				vehicle.spherePos.z - 5.3
-			);
-
-			const mv = vehicle.modelVelocity;
-			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
-			cam.update( dt, vehicle.spherePos, _camLead );
-
-			renderer.render( scene, cam.camera );
-
-		}
-
-	};
-
-}
-
-// ─── AR MODE (Meta Quest 3 passthrough) ────────────────────
-
-async function startARMode( { customCells, mapParam } ) {
-
-	const arManager = new ARManager( { renderer, scene, models, customCells } );
-	const world = createPhysicsWorld();
-	arManager.setWorld( world );
-
-	const placeholderCamera = new THREE.PerspectiveCamera(); // pose is overridden by WebXR while presenting
-
-	let gameState = null; // populated once the user confirms track placement
-	const controls = new Controls();
-
-	arManager.onPlaced = ( spawn ) => {
-
-		const sphereBody = createSphereBody( world, [ spawn.position.x, spawn.position.y, spawn.position.z ] );
-
-		const vehicle = new Vehicle();
-		vehicle.rigidBody = sphereBody;
-		vehicle.physicsWorld = world;
-		vehicle.spherePos.copy( spawn.position );
-		vehicle.prevModelPos.set( spawn.position.x, 0, spawn.position.z );
-		vehicle.container.rotation.y = spawn.angle;
-
-		// The vehicle stays a direct child of `scene` (true WebXR world
-		// space), never of arTrackRoot — this matches how physics already
-		// works in NORMAL mode and is why Vehicle.js needs no changes.
-		const vehicleGroup = vehicle.init( models[ 'vehicle-truck-yellow' ] );
-		scene.add( vehicleGroup );
-
-		dirLight.target = vehicleGroup;
-
-		const particles = new SmokeTrails( scene );
-		const driftMarks = new DriftMarks( scene, mapParam );
-
-		const audio = new GameAudio();
-		audio.init( renderer.xr.getCamera(), vehicleGroup ); // XR camera rig instead of the NORMAL-mode chase Camera
-
-		const lapTimer = new LapTimer( customCells, mapParam );
-
-		const _forward = new THREE.Vector3();
-
-		const contactListener = {
-			onContactAdded( bodyA, bodyB ) {
-
-				if ( bodyA !== sphereBody && bodyB !== sphereBody ) return;
-
-				_forward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
-				_forward.y = 0;
-				_forward.normalize();
-
-				const impactVelocity = Math.abs( vehicle.modelVelocity.dot( _forward ) );
-				audio.playImpact( impactVelocity );
-
-			}
-		};
-
-		gameState = { vehicle, particles, driftMarks, audio, lapTimer, contactListener };
-
-	};
-
-	await arManager.requestSession();
-
-	return {
-
-		frameUpdate( dt, timestamp, frame ) {
-
-			try {
-
-				arManager.update( frame, dt );
-
-				if ( gameState ) {
-
-					// Controllers drive the car once the track is locked in;
-					// keyboard/gamepad still work too (e.g. testing on desktop).
-					const kbInput = controls.update();
-					const arInput = arManager.getDriveInput();
-					const input = {
-						x: Math.abs( arInput.x ) > Math.abs( kbInput.x ) ? arInput.x : kbInput.x,
-						z: Math.abs( arInput.z ) > Math.abs( kbInput.z ) ? arInput.z : kbInput.z,
-						touchActive: kbInput.touchActive,
-					};
-
-					updateVehicleAndFx( dt, input, { world, ...gameState } );
-
-					dirLight.position.set(
-						gameState.vehicle.spherePos.x + 11.4,
-						15,
-						gameState.vehicle.spherePos.z - 5.3
-					);
-
-				} else {
-
-					// Placement phase: still step physics so nothing is stale
-					// once the vehicle spawns, but there is no vehicle yet.
-					updateWorld( world, null, dt );
-
-				}
-
-			} catch ( e ) {
-
-				arManager.setDebugText( 'frameUpdate() error:\n' + e.message );
-				console.error( e );
-
-			}
-
-			renderer.render( scene, placeholderCamera );
-
-		}
-
-	};
-
-}
-
-// ─── Shared animate loop ───────────────────────────────────
-
-let activeMode = null;
-const timer = new THREE.Timer();
-
-function animate( timestamp, frame ) {
-
-	timer.update( timestamp );
-	const dt = Math.min( timer.getDelta(), 1 / 30 );
-
-	if ( activeMode ) activeMode.frameUpdate( dt, timestamp, frame );
-
-}
-
-renderer.setAnimationLoop( animate );
-
-function showErrorOverlay( message, stack, onRetry ) {
-
-	const box = document.createElement( 'div' );
-	box.style.cssText = `
-		position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column;
-		align-items: center; justify-content: center; gap: 16px; padding: 24px; text-align: center;
-		background: rgba(20,22,26,0.92); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-	`;
-
-	const title = document.createElement( 'div' );
-	title.textContent = 'AR MODE failed to start';
-	title.style.cssText = 'color:#fff; font-size:18px; font-weight:600;';
-
-	const detail = document.createElement( 'div' );
-	detail.textContent = message;
-	detail.style.cssText = 'color:#ddd; font-size:14px; max-width:640px; white-space:pre-wrap;';
-
-	const stackBox = document.createElement( 'div' );
-	stackBox.textContent = stack ? stack.split( '\n' ).slice( 0, 6 ).join( '\n' ) : '';
-	stackBox.style.cssText = 'color:#999; font-size:11px; max-width:640px; white-space:pre-wrap; text-align:left; font-family:monospace;';
-
-	const retryBtn = document.createElement( 'button' );
-	retryBtn.textContent = 'Back to menu';
-	retryBtn.style.cssText = `
-		padding: 12px 28px; font-size: 15px; border-radius: 999px; border: none;
-		cursor: pointer; background: #15A249; color: #fff;
-	`;
-	retryBtn.addEventListener( 'click', () => {
-
-		box.remove();
-		onRetry();
-
-	} );
-
-	box.appendChild( title );
-	box.appendChild( detail );
-	box.appendChild( stackBox );
-	box.appendChild( retryBtn );
-	document.body.appendChild( box );
-
-	console.error( 'AR MODE failed:', message, stack );
-
-}
-
-async function init() {
-
-	registerAll();
-	await loadModels();
-
-	const mapParam = new URLSearchParams( window.location.search ).get( 'map' );
-	let customCells = null;
-	let spawn = null;
-
-	if ( mapParam ) {
-
+		if ( ! navigator.xr ) return false;
 		try {
 
-			customCells = decodeCells( mapParam );
-			spawn = computeSpawnPosition( customCells );
+			return await navigator.xr.isSessionSupported( 'immersive-ar' );
 
 		} catch ( e ) {
 
-			console.warn( 'Invalid map parameter, using default track' );
+			return false;
 
 		}
 
 	}
 
-	const arAvailable = await ARManager.isSupported();
+	async requestSession() {
 
-	// eslint-disable-next-line no-constant-condition
-	while ( true ) {
+		const session = await navigator.xr.requestSession( 'immersive-ar', {
+			requiredFeatures: [ 'local-floor', 'hit-test' ],
+		} );
 
-		const choice = await createModeMenu( { arAvailable } );
+		this.renderer.xr.setReferenceSpaceType( 'local-floor' );
+		await this.renderer.xr.setSession( session );
 
-		if ( choice === 'ar' ) {
+		this.session = session;
+		session.addEventListener( 'end', () => this._onSessionEnd() );
 
+		this._savedBackground = this.scene.background;
+		this._savedFog = this.scene.fog;
+		this.scene.background = null; // let passthrough show through
+		this.scene.fog = null;
+
+		this.arTrackRoot.visible = true;
+		this.previewGroup.visible = true;
+
+		this._initDebugHUD();
+		this.setDebugText(
+			'AR session started\n' +
+			'environmentBlendMode: ' + session.environmentBlendMode + '\n' +
+			'waiting for hit-test...'
+		);
+
+		return session;
+
+	}
+
+	// ─── In-headset debug HUD ──────────────────────────────
+	// Regular page DOM (menus, error banners) is NOT visible while
+	// immersed in a WebXR session — only 3D scene content is. This renders
+	// status/errors on a small canvas-textured plane that always floats
+	// in front of the XR camera, so problems are visible on-device even
+	// without a console.
+
+	_initDebugHUD() {
+
+		const canvas = document.createElement( 'canvas' );
+		canvas.width = 512;
+		canvas.height = 256;
+		this._debugCtx = canvas.getContext( '2d' );
+		this._debugTexture = new THREE.CanvasTexture( canvas );
+
+		const material = new THREE.MeshBasicMaterial( {
+			map: this._debugTexture, transparent: true, depthTest: false,
+		} );
+		this._debugMesh = new THREE.Mesh( new THREE.PlaneGeometry( 0.7, 0.35 ), material );
+		this._debugMesh.renderOrder = 999;
+		this.scene.add( this._debugMesh );
+
+	}
+
+	setDebugText( text ) {
+
+		if ( ! this._debugCtx ) {
+
+			console.log( '[ARManager]', text );
+			return;
+
+		}
+
+		const ctx = this._debugCtx;
+		ctx.clearRect( 0, 0, 512, 256 );
+		ctx.fillStyle = 'rgba(10,10,10,0.85)';
+		ctx.fillRect( 0, 0, 512, 256 );
+		ctx.fillStyle = '#ffffff';
+		ctx.font = '20px monospace';
+		String( text ).split( '\n' ).forEach( ( line, i ) => {
+
+			ctx.fillText( line, 12, 28 + i * 26 );
+
+		} );
+		this._debugTexture.needsUpdate = true;
+
+	}
+
+	_updateDebugHUDPosition() {
+
+		if ( ! this._debugMesh ) return;
+
+		const xrCam = this.renderer.xr.getCamera();
+		const camPos = new THREE.Vector3().setFromMatrixPosition( xrCam.matrixWorld );
+		const camQuat = new THREE.Quaternion().setFromRotationMatrix( xrCam.matrixWorld );
+		const forward = new THREE.Vector3( 0, 0, -1 ).applyQuaternion( camQuat );
+
+		this._debugMesh.position.copy( camPos ).addScaledVector( forward, 1 );
+		this._debugMesh.quaternion.copy( camQuat );
+
+	}
+
+	// ─── Controllers ──────────────────────────────────────
+
+	_setupControllers() {
+
+		for ( let i = 0; i < 2; i ++ ) {
+
+			const controller = this.renderer.xr.getController( i );
+			controller.addEventListener( 'connected', ( event ) => {
+
+				const hand = event.data.handedness === 'left' ? 'left' : 'right';
+				this.gamepads[ hand ] = event.data.gamepad || null;
+
+			} );
+			controller.addEventListener( 'disconnected', ( event ) => {
+
+				const hand = event.data.handedness === 'left' ? 'left' : 'right';
+				this.gamepads[ hand ] = null;
+
+			} );
+			this.scene.add( controller );
+
+			const grip = this.renderer.xr.getControllerGrip( i );
+			this.scene.add( grip );
+
+			// Cosmetic only (renders a controller model in-view). Never
+			// let a failure here (e.g. the input-profile asset fetch)
+			// break placement or driving.
 			try {
 
-				activeMode = await startARMode( { customCells, mapParam } );
-				break;
+				grip.add( this.controllerModelFactory.createControllerModel( grip ) );
 
 			} catch ( e ) {
 
-				activeMode = null;
-
-				await new Promise( ( resolve ) => {
-
-					showErrorOverlay(
-						( e && e.message ) ? e.message : String( e ),
-						e && e.stack ? e.stack : '',
-						resolve
-					);
-
-				} );
-				continue; // back to the mode menu instead of a silent black screen
+				console.warn( 'Controller model failed to load (non-fatal):', e );
 
 			}
 
-		} else {
+		}
 
-			activeMode = startNormalMode( { customCells, spawn, mapParam } );
-			break;
+	}
+
+	// ─── Preview visuals ──────────────────────────────────
+
+	buildPreviewMesh() {
+
+		const group = new THREE.Group();
+		const bounds = computeTrackBounds( this.customCells );
+
+		const footprint = new THREE.Mesh(
+			new THREE.PlaneGeometry( bounds.halfWidth * 2, bounds.halfDepth * 2 ),
+			new THREE.MeshBasicMaterial( { color: 0x15A249, transparent: true, opacity: 0.35, side: THREE.DoubleSide } )
+		);
+		footprint.rotation.x = - Math.PI / 2;
+		footprint.position.set( bounds.centerX, 0.02, bounds.centerZ );
+		group.add( footprint );
+
+		const outline = new THREE.LineSegments(
+			new THREE.EdgesGeometry( footprint.geometry ),
+			new THREE.LineBasicMaterial( { color: 0x15A249 } )
+		);
+		outline.rotation.copy( footprint.rotation );
+		outline.position.copy( footprint.position );
+		group.add( outline );
+
+		const arrow = new THREE.Mesh(
+			new THREE.ConeGeometry( 0.4, 1.2, 12 ),
+			new THREE.MeshBasicMaterial( { color: 0x159897 } )
+		);
+		arrow.rotation.x = Math.PI / 2;
+		arrow.position.set( this.spawnLocal.position[ 0 ], 0.3, this.spawnLocal.position[ 2 ] );
+		arrow.rotation.z = this.spawnLocal.angle;
+		group.add( arrow );
+
+		group.visible = false;
+		return group;
+
+	}
+
+	// ─── Per-frame update (called from the shared animate loop) ──
+
+	update( frame, dt ) {
+
+		if ( ! this.session || ! frame ) return;
+
+		try {
+
+			this._updateDebugHUDPosition();
+
+			const refSpace = this.renderer.xr.getReferenceSpace();
+
+			if ( ! this.hitTestSourceRequested ) {
+
+				this.hitTestSourceRequested = true;
+				this.session.requestReferenceSpace( 'viewer' ).then( ( viewerSpace ) => {
+
+					this.session.requestHitTestSource( { space: viewerSpace } ).then( ( source ) => {
+
+						this.hitTestSource = source;
+
+					} ).catch( ( e ) => this.setDebugText( 'requestHitTestSource failed:\n' + e.message ) );
+
+				} ).catch( ( e ) => this.setDebugText( 'requestReferenceSpace(viewer) failed:\n' + e.message ) );
+
+			}
+
+			if ( ! this.placed ) {
+
+				this._updatePlacement( frame, refSpace, dt );
+
+			} else {
+
+				this.setDebugText( 'Track placed — driving.\nleft pad: ' + ( !! this.gamepads.left ) + '  right pad: ' + ( !! this.gamepads.right ) );
+
+			}
+
+		} catch ( e ) {
+
+			this.setDebugText( 'update() error:\n' + e.message );
+			console.error( e );
 
 		}
+
+	}
+
+	_updatePlacement( frame, refSpace, dt ) {
+
+		let hitCount = 0;
+
+		// 1) Surface search: while no manual adjustment has happened yet,
+		// keep the preview snapped to the latest hit-test result.
+		if ( this.hitTestSource ) {
+
+			const results = frame.getHitTestResults( this.hitTestSource );
+			hitCount = results.length;
+
+			if ( results.length > 0 ) {
+
+				const pose = results[ 0 ].getPose( refSpace );
+
+				if ( ! this.hasHit ) {
+
+					// First surface found: face the track away from the player.
+					const xrCam = this.renderer.xr.getCamera();
+					this._camPos.setFromMatrixPosition( xrCam.matrixWorld );
+					this._camForward.set( 0, 0, -1 ).transformDirection( xrCam.matrixWorld );
+					const yaw = Math.atan2( this._camForward.x, this._camForward.z );
+					this.arQuaternion.setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), yaw );
+
+				}
+
+				this.arPosition.set(
+					pose.transform.position.x,
+					pose.transform.position.y,
+					pose.transform.position.z
+				);
+
+				this.hasHit = true;
+
+			}
+
+		}
+
+		// 2) Manual adjustment via thumbsticks (only meaningful once we have
+		// an initial hit to adjust from).
+		if ( this.hasHit ) {
+
+			this._applyThumbstickAdjustment( Math.min( dt, 1 / 30 ) );
+
+		}
+
+		this.arTrackRoot.position.copy( this.arPosition );
+		this.arTrackRoot.quaternion.copy( this.arQuaternion );
+		this.arTrackRoot.scale.setScalar( this.arScale );
+
+		this.previewGroup.visible = this.hasHit;
+
+		this.setDebugText(
+			'hitTestSource: ' + ( this.hitTestSource ? 'ready' : 'waiting' ) + '\n' +
+			'hits this frame: ' + hitCount + '\n' +
+			'hasHit: ' + this.hasHit + '\n' +
+			'left pad: ' + ( !! this.gamepads.left ) + '  right pad: ' + ( !! this.gamepads.right ) + '\n' +
+			( this.hasHit ? 'Trigger to confirm placement' : 'Look at the floor to find a surface' )
+		);
+
+		// 3) Confirm / lock
+		if ( this.hasHit && this._triggerPressedEdge() ) {
+
+			this._confirmPlacement();
+
+		}
+
+	}
+
+	_applyThumbstickAdjustment( dt ) {
+
+		const axesR = this.gamepads.right ? this.gamepads.right.axes : [];
+		const axesL = this.gamepads.left ? this.gamepads.left.axes : [];
+
+		const moveX = this._axis( axesR, 2 );
+		const moveY = this._axis( axesR, 3 );
+		const rotX = this._axis( axesL, 2 );
+		const scaleY = this._axis( axesL, 3 );
+
+		if ( moveX !== 0 || moveY !== 0 ) {
+
+			const xrCam = this.renderer.xr.getCamera();
+			const forward = this._camForward.set( 0, 0, -1 ).transformDirection( xrCam.matrixWorld );
+			forward.y = 0;
+			forward.normalize();
+			const right = new THREE.Vector3().crossVectors( forward, new THREE.Vector3( 0, 1, 0 ) ).negate();
+
+			this.arPosition
+				.addScaledVector( right, moveX * MOVE_SPEED * dt )
+				.addScaledVector( forward, - moveY * MOVE_SPEED * dt );
+
+		}
+
+		if ( rotX !== 0 ) {
+
+			const deltaYaw = - rotX * ROTATE_SPEED * dt;
+			const deltaQuat = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), deltaYaw );
+			this.arQuaternion.premultiply( deltaQuat );
+
+		}
+
+		if ( scaleY !== 0 ) {
+
+			this.arScale = THREE.MathUtils.clamp(
+				this.arScale * ( 1 - scaleY * SCALE_SPEED * dt ),
+				SCALE_MIN, SCALE_MAX
+			);
+
+		}
+
+	}
+
+	_axis( axes, index ) {
+
+		const v = axes && axes.length > index ? axes[ index ] : 0;
+		return Math.abs( v ) > DEADZONE ? v : 0;
+
+	}
+
+	_triggerPressedEdge() {
+
+		const rTrig = this.gamepads.right && this.gamepads.right.buttons[ 0 ] ? this.gamepads.right.buttons[ 0 ].pressed : false;
+		const lTrig = this.gamepads.left && this.gamepads.left.buttons[ 0 ] ? this.gamepads.left.buttons[ 0 ].pressed : false;
+
+		const rEdge = rTrig && ! this._prevTrigger.right;
+		const lEdge = lTrig && ! this._prevTrigger.left;
+
+		this._prevTrigger.right = rTrig;
+		this._prevTrigger.left = lTrig;
+
+		return rEdge || lEdge;
+
+	}
+
+	_confirmPlacement() {
+
+		this.placed = true;
+		this.previewGroup.visible = false;
+
+		const arTransform = {
+			position: this.arPosition.clone(),
+			quaternion: this.arQuaternion.clone(),
+			scale: this.arScale,
+		};
+		this.lockedTransform = arTransform;
+
+		buildTrack( this.arTrackRoot, this.models, this.customCells );
+
+		if ( this.world ) {
+
+			buildWallColliders( this.world, null, this.customCells, arTransform );
+
+			const bounds = computeTrackBounds( this.customCells );
+			const roadHalf = Math.max( bounds.halfWidth, bounds.halfDepth ) + 10;
+
+			const { position, quaternion } = applyArTransform(
+				[ bounds.centerX, - 0.125, bounds.centerZ ],
+				[ 0, 0, 0, 1 ],
+				arTransform
+			);
+
+			rigidBody.create( this.world, {
+				shape: box.create( { halfExtents: [ roadHalf * arTransform.scale, 0.01, roadHalf * arTransform.scale ] } ),
+				motionType: MotionType.STATIC,
+				objectLayer: this.world._OL_STATIC,
+				position,
+				quaternion,
+				friction: 5.0,
+				restitution: 0.0,
+			} );
+
+		}
+
+		if ( this.onPlaced ) this.onPlaced( this.getSpawnWorld() );
+
+	}
+
+	// ─── Public queries used by main.js after placement ──
+
+	isPlaced() {
+
+		return this.placed;
+
+	}
+
+	getArTrackRoot() {
+
+		return this.arTrackRoot;
+
+	}
+
+	getSpawnWorld() {
+
+		const t = this.lockedTransform;
+		const local = this.spawnLocal;
+
+		const worldPos = new THREE.Vector3(
+			local.position[ 0 ], local.position[ 1 ], local.position[ 2 ]
+		).multiplyScalar( t.scale ).applyQuaternion( t.quaternion ).add( t.position );
+
+		const yaw = new THREE.Euler().setFromQuaternion( t.quaternion, 'YXZ' ).y;
+
+		return { position: worldPos, angle: local.angle + yaw };
+
+	}
+
+	// Driving input, once placed — analogous role to Controls.js, reusing
+	// the exact same {x, z} contract Vehicle.update() already expects.
+	getDriveInput() {
+
+		const axesR = this.gamepads.right ? this.gamepads.right.axes : [];
+		const x = this._axis( axesR, 2 );
+
+		const rTrig = this.gamepads.right && this.gamepads.right.buttons[ 0 ] ? this.gamepads.right.buttons[ 0 ].value : 0;
+		const rGrip = this.gamepads.right && this.gamepads.right.buttons[ 1 ] ? this.gamepads.right.buttons[ 1 ].value : 0;
+		const lTrig = this.gamepads.left && this.gamepads.left.buttons[ 0 ] ? this.gamepads.left.buttons[ 0 ].value : 0;
+
+		// Right trigger/grip = throttle, left trigger = brake/reverse.
+		const z = Math.max( rTrig, rGrip ) - lTrig;
+
+		return { x, z, touchActive: false };
+
+	}
+
+	_onSessionEnd() {
+
+		this.session = null;
+		this.hitTestSource = null;
+		this.hitTestSourceRequested = false;
+
+		if ( this._savedBackground !== null ) this.scene.background = this._savedBackground;
+		this.scene.fog = this._savedFog;
+
+		this.arTrackRoot.visible = false;
 
 	}
 
 }
-
-init();
