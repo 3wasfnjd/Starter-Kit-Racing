@@ -520,7 +520,13 @@ export class ARManager {
 	getSpawnWorld() {
 
 		const yaw = new THREE.Euler().setFromQuaternion( this.arQuaternion, 'YXZ' ).y;
-		return { position: this.arPosition.clone(), angle: yaw };
+		// Match NORMAL mode's convention of spawning the sphere ~0.5m above
+		// the floor (see Track.js computeSpawnPosition) rather than exactly
+		// at the detected floor height, which left it embedded in the floor.
+		const position = this.arPosition.clone();
+		position.y += 0.5;
+
+		return { position, angle: yaw };
 
 	}
 
@@ -539,6 +545,16 @@ export class ARManager {
 		const z = Math.max( rTrig, rGrip ) - lTrig;
 
 		return { x, z, touchActive: false };
+
+	}
+
+	// Left stick is unused while driving (steering/throttle/brake are on
+	// the right stick + triggers) — free to repurpose for live resizing.
+	// Returns a value in [-1, 1]; main.js turns this into a scale change.
+	getScaleAdjustInput() {
+
+		const axesL = this.gamepads.left ? this.gamepads.left.axes : [];
+		return this._axis( axesL, 3 );
 
 	}
 
