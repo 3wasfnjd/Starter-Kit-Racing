@@ -212,8 +212,12 @@ function updateVehicleAndFx( dt, input, ctx ) {
 	driftMarks.update( dt, vehicle );
 	audio.update( dt, vehicle.linearSpeed / MAX_SPEED, input.z, vehicle.driftIntensity );
 
-	const hasInput = input.touchActive || Math.abs( input.x ) > 0.05 || Math.abs( input.z ) > 0.05;
-	lapTimer.update( dt, vehicle.spherePos, hasInput );
+	if ( lapTimer ) {
+
+		const hasInput = input.touchActive || Math.abs( input.x ) > 0.05 || Math.abs( input.z ) > 0.05;
+		lapTimer.update( dt, vehicle.spherePos, hasInput );
+
+	}
 
 }
 
@@ -348,15 +352,15 @@ function startNormalMode( { customCells, spawn, mapParam } ) {
 
 // ─── AR MODE (Meta Quest 3 passthrough) ────────────────────
 
-async function startARMode( { customCells, mapParam } ) {
+async function startARMode( { mapParam } ) {
 
-	const arManager = new ARManager( { renderer, scene, models, customCells } );
+	const arManager = new ARManager( { renderer, scene, models } );
 	const world = createPhysicsWorld();
 	arManager.setWorld( world );
 
 	const placeholderCamera = new THREE.PerspectiveCamera(); // pose is overridden by WebXR while presenting
 
-	let gameState = null; // populated once the user confirms track placement
+	let gameState = null; // populated once the user confirms spawn placement
 	const controls = new Controls();
 
 	arManager.onPlaced = ( spawn ) => {
@@ -371,20 +375,17 @@ async function startARMode( { customCells, mapParam } ) {
 		vehicle.container.rotation.y = spawn.angle;
 
 		// The vehicle stays a direct child of `scene` (true WebXR world
-		// space), never of arTrackRoot — this matches how physics already
-		// works in NORMAL mode and is why Vehicle.js needs no changes.
+		// space), matching how physics already works in NORMAL mode.
 		const vehicleGroup = vehicle.init( models[ 'vehicle-truck-yellow' ] );
 		scene.add( vehicleGroup );
 
 		dirLight.target = vehicleGroup;
 
 		const particles = new SmokeTrails( scene );
-		const driftMarks = new DriftMarks( scene, mapParam );
+		const driftMarks = new DriftMarks( scene, mapParam || 'ar-freeroam' );
 
 		const audio = new GameAudio();
 		audio.init( renderer.xr.getCamera(), vehicleGroup ); // XR camera rig instead of the NORMAL-mode chase Camera
-
-		const lapTimer = new LapTimer( customCells, mapParam );
 
 		const _forward = new THREE.Vector3();
 
@@ -403,7 +404,8 @@ async function startARMode( { customCells, mapParam } ) {
 			}
 		};
 
-		gameState = { vehicle, particles, driftMarks, audio, lapTimer, contactListener };
+		// No lapTimer — free-roam has no track/laps.
+		gameState = { vehicle, particles, driftMarks, audio, contactListener };
 
 	};
 
@@ -447,8 +449,7 @@ async function startARMode( { customCells, mapParam } ) {
 
 			} catch ( e ) {
 
-				arManager.setDebugText( 'frameUpdate() error:\n' + e.message );
-				console.error( e );
+				console.error( '[main] AR frameUpdate() error:', e );
 
 			}
 
@@ -555,7 +556,7 @@ async function init() {
 
 			try {
 
-				activeMode = await startARMode( { customCells, mapParam } );
+				activeMode = await startARMode( { mapParam } );
 				break;
 
 			} catch ( e ) {
