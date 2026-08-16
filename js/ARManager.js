@@ -113,7 +113,76 @@ export class ARManager {
 		this.arTrackRoot.visible = true;
 		this.previewGroup.visible = true;
 
+		this._initDebugHUD();
+		this.setDebugText(
+			'AR session started\n' +
+			'environmentBlendMode: ' + session.environmentBlendMode + '\n' +
+			'waiting for hit-test...'
+		);
+
 		return session;
+
+	}
+
+	// ─── In-headset debug HUD ──────────────────────────────
+	// Regular page DOM (menus, error banners) is NOT visible while
+	// immersed in a WebXR session — only 3D scene content is. This renders
+	// status/errors on a small canvas-textured plane that always floats
+	// in front of the XR camera, so problems are visible on-device even
+	// without a console.
+
+	_initDebugHUD() {
+
+		const canvas = document.createElement( 'canvas' );
+		canvas.width = 512;
+		canvas.height = 256;
+		this._debugCtx = canvas.getContext( '2d' );
+		this._debugTexture = new THREE.CanvasTexture( canvas );
+
+		const material = new THREE.MeshBasicMaterial( {
+			map: this._debugTexture, transparent: true, depthTest: false,
+		} );
+		this._debugMesh = new THREE.Mesh( new THREE.PlaneGeometry( 0.7, 0.35 ), material );
+		this._debugMesh.renderOrder = 999;
+		this.scene.add( this._debugMesh );
+
+	}
+
+	setDebugText( text ) {
+
+		if ( ! this._debugCtx ) {
+
+			console.log( '[ARManager]', text );
+			return;
+
+		}
+
+		const ctx = this._debugCtx;
+		ctx.clearRect( 0, 0, 512, 256 );
+		ctx.fillStyle = 'rgba(10,10,10,0.85)';
+		ctx.fillRect( 0, 0, 512, 256 );
+		ctx.fillStyle = '#ffffff';
+		ctx.font = '20px monospace';
+		String( text ).split( '\n' ).forEach( ( line, i ) => {
+
+			ctx.fillText( line, 12, 28 + i * 26 );
+
+		} );
+		this._debugTexture.needsUpdate = true;
+
+	}
+
+	_updateDebugHUDPosition() {
+
+		if ( ! this._debugMesh ) return;
+
+		const xrCam = this.renderer.xr.getCamera();
+		const camPos = new THREE.Vector3().setFromMatrixPosition( xrCam.matrixWorld );
+		const camQuat = new THREE.Quaternion().setFromRotationMatrix( xrCam.matrixWorld );
+		const forward = new THREE.Vector3( 0, 0, -1 ).applyQuaternion( camQuat );
+
+		this._debugMesh.position.copy( camPos ).addScaledVector( forward, 1 );
+		this._debugMesh.quaternion.copy( camQuat );
 
 	}
 
@@ -189,26 +258,41 @@ export class ARManager {
 
 		if ( ! this.session || ! frame ) return;
 
-		const refSpace = this.renderer.xr.getReferenceSpace();
+		try {
 
-		if ( ! this.hitTestSourceRequested ) {
+			this._updateDebugHUDPosition();
 
-			this.hitTestSourceRequested = true;
-			this.session.requestReferenceSpace( 'viewer' ).then( ( viewerSpace ) => {
+			const refSpace = this.renderer.xr.getReferenceSpace();
 
-				this.session.requestHitTestSource( { space: viewerSpace } ).then( ( source ) => {
+			if ( ! this.hitTestSourceRequested ) {
 
-					this.hitTestSource = source;
+				this.hitTestSourceRequested = true;
+				this.session.requestReferenceSpace( 'viewer' ).then( ( viewerSpace ) => {
 
-				} );
+					this.session.requestHitTestSource( { space: viewerSpace } ).then( ( source ) => {
 
-			} );
+						this.hitTestSource = source;
 
-		}
+					} ).catch( ( e ) => this.setDebugText( 'requestHitTestSource failed:\n' + e.message ) );
 
-		if ( ! this.placed ) {
+				} ).catch( ( e ) => this.setDebugText( 'requestReferenceSpace(viewer) failed:\n' + e.message ) );
 
-			this._updatePlacement( frame, refSpace, dt );
+			}
+
+			if ( ! this.placed ) {
+
+				this._updatePlacement( frame, refSpace, dt );
+
+			} else {
+
+				this.setDebugText( 'Track placed — driving.\nleft pad: ' + ( !! this.gamepads.left ) + '  right pad: ' + ( !! this.gamepads.right ) );
+
+			}
+
+		} catch ( e ) {
+
+			this.setDebugText( 'update() error:\n' + e.message );
+			console.error( e );
 
 		}
 
@@ -216,11 +300,14 @@ export class ARManager {
 
 	_updatePlacement( frame, refSpace, dt ) {
 
+		let hitCount = 0;
+
 		// 1) Surface search: while no manual adjustment has happened yet,
 		// keep the preview snapped to the latest hit-test result.
 		if ( this.hitTestSource ) {
 
 			const results = frame.getHitTestResults( this.hitTestSource );
+			hitCount = results.length;
 
 			if ( results.length > 0 ) {
 
@@ -262,6 +349,14 @@ export class ARManager {
 		this.arTrackRoot.scale.setScalar( this.arScale );
 
 		this.previewGroup.visible = this.hasHit;
+
+		this.setDebugText(
+			'hitTestSource: ' + ( this.hitTestSource ? 'ready' : 'waiting' ) + '\n' +
+			'hits this frame: ' + hitCount + '\n' +
+			'hasHit: ' + this.hasHit + '\n' +
+			'left pad: ' + ( !! this.gamepads.left ) + '  right pad: ' + ( !! this.gamepads.right ) + '\n' +
+			( this.hasHit ? 'Trigger to confirm placement' : 'Look at the floor to find a surface' )
+		);
 
 		// 3) Confirm / lock
 		if ( this.hasHit && this._triggerPressedEdge() ) {
