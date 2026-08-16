@@ -1,15 +1,11 @@
 import * as THREE from 'three';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
-import { buildTrack, computeTrackBounds, computeSpawnPosition } from './Track.js';
-import { buildWallColliders, applyArTransform } from './Physics.js';
 import { rigidBody, box, MotionType } from 'crashcat';
 
-// ARManager owns everything about *placing* the track in the real room:
-// requesting the immersive-ar session, passthrough, horizontal-surface
-// hit-testing, the move/rotate/scale preview, and — once confirmed —
-// building the real track (via the untouched buildTrack()) and its static
-// wall colliders (via the untouched buildWallColliders(), using the new
-// optional arTransform parameter) at the chosen spot.
+// ARManager: free-roam AR mode. No TRACK_CELLS, no fixed track — the
+// player places a spawn point/heading in their real room, then drives on
+// the real (passthrough) floor with real furniture as solid obstacles
+// (via Meta's WebXR mesh-detection, best-effort).
 //
 // It deliberately knows nothing about the Vehicle class or vehicle physics.
 // After placement it only exposes getDriveInput()/isPlaced()/getSpawnWorld()
@@ -19,40 +15,30 @@ import { rigidBody, box, MotionType } from 'crashcat';
 const DEADZONE = 0.15;
 const MOVE_SPEED = 1.5;   // m/s at full stick deflection
 const ROTATE_SPEED = 1.2; // rad/s at full stick deflection
-const SCALE_SPEED = 0.6;  // scale units/s at full stick deflection
-const SCALE_MIN = 0.5;
-const SCALE_MAX = 2.0;
 
 export class ARManager {
 
-	constructor( { renderer, scene, models, customCells } ) {
+	constructor( { renderer, scene, models } ) {
 
 		this.renderer = renderer;
 		this.scene = scene;
 		this.models = models;
-		this.customCells = customCells;
 
 		this.session = null;
 		this.hitTestSource = null;
 		this.hitTestSourceRequested = false;
-		this.referenceSpace = null;
 
 		this.hasHit = false;
 		this.placed = false;
 
 		this.arPosition = new THREE.Vector3();
 		this.arQuaternion = new THREE.Quaternion();
-		this.arScale = 1;
 
-		this.arTrackRoot = new THREE.Group();
-		this.arTrackRoot.visible = false;
-		this.scene.add( this.arTrackRoot );
+		this.previewGroup = this.buildPreviewMesh();
+		this.previewGroup.visible = false;
+		this.scene.add( this.previewGroup );
 
 		this.world = null; // set by main.js via setWorld() before session start
-		this.spawnLocal = computeSpawnPosition( customCells );
-
-		this.previewGroup = this.buildPreviewMesh(); // uses this.spawnLocal — must come after it's set
-		this.arTrackRoot.add( this.previewGroup );
 
 		this.gamepads = { left: null, right: null };
 		this._prevTrigger = { left: false, right: false };
@@ -63,7 +49,7 @@ export class ARManager {
 		this._savedBackground = null;
 		this._savedFog = null;
 
-		this.onPlaced = null; // callback(spawnWorldPos: Vector3, spawnWorldAngle: number)
+		this.onPlaced = null; // callback({position: Vector3, angle: number})
 
 		this._camForward = new THREE.Vector3();
 		this._camPos = new THREE.Vector3();
@@ -113,7 +99,6 @@ export class ARManager {
 		this.scene.background = null; // let passthrough show through
 		this.scene.fog = null;
 
-		this.arTrackRoot.visible = true;
 		this.previewGroup.visible = true;
 
 		console.log( '[ARManager] AR session started. environmentBlendMode:', session.environmentBlendMode );
@@ -164,38 +149,37 @@ export class ARManager {
 	}
 
 	// ─── Preview visuals ──────────────────────────────────
+	// Just a spawn-point ring + forward arrow now — there's no track
+	// footprint to preview anymore.
 
 	buildPreviewMesh() {
 
 		const group = new THREE.Group();
-		const bounds = computeTrackBounds( this.customCells );
 
-		const footprint = new THREE.Mesh(
-			new THREE.PlaneGeometry( bounds.halfWidth * 2, bounds.halfDepth * 2 ),
-			new THREE.MeshBasicMaterial( { color: 0x15A249, transparent: true, opacity: 0.35, side: THREE.DoubleSide } )
+		const ring = new THREE.Mesh(
+			new THREE.RingGeometry( 0.45, 0.55, 32 ),
+			new THREE.MeshBasicMaterial( { color: 0x15A249, transparent: true, opacity: 0.8, side: THREE.DoubleSide } )
 		);
-		footprint.rotation.x = - Math.PI / 2;
-		footprint.position.set( bounds.centerX, 0.02, bounds.centerZ );
-		group.add( footprint );
+		ring.rotation.x = - Math.PI / 2;
+		ring.position.y = 0.02;
+		group.add( ring );
 
-		const outline = new THREE.LineSegments(
-			new THREE.EdgesGeometry( footprint.geometry ),
-			new THREE.LineBasicMaterial( { color: 0x15A249 } )
+		const fill = new THREE.Mesh(
+			new THREE.CircleGeometry( 0.45, 32 ),
+			new THREE.MeshBasicMaterial( { color: 0x15A249, transparent: true, opacity: 0.25, side: THREE.DoubleSide } )
 		);
-		outline.rotation.copy( footprint.rotation );
-		outline.position.copy( footprint.position );
-		group.add( outline );
+		fill.rotation.x = - Math.PI / 2;
+		fill.position.y = 0.015;
+		group.add( fill );
 
 		const arrow = new THREE.Mesh(
-			new THREE.ConeGeometry( 0.4, 1.2, 12 ),
+			new THREE.ConeGeometry( 0.14, 0.5, 12 ),
 			new THREE.MeshBasicMaterial( { color: 0x159897 } )
 		);
 		arrow.rotation.x = Math.PI / 2;
-		arrow.position.set( this.spawnLocal.position[ 0 ], 0.3, this.spawnLocal.position[ 2 ] );
-		arrow.rotation.z = this.spawnLocal.angle;
+		arrow.position.set( 0, 0.05, -0.55 );
 		group.add( arrow );
 
-		group.visible = false;
 		return group;
 
 	}
@@ -242,7 +226,7 @@ export class ARManager {
 	_updatePlacement( frame, refSpace, dt ) {
 
 		// 1) Surface search: while no manual adjustment has happened yet,
-		// keep the preview snapped to the latest hit-test result.
+		// keep the spawn marker snapped to the latest hit-test result.
 		if ( this.hitTestSource ) {
 
 			const results = frame.getHitTestResults( this.hitTestSource );
@@ -253,16 +237,12 @@ export class ARManager {
 
 				if ( ! this.hasHit ) {
 
-					// First surface found: face the track away from the player,
-					// and if we can see the room's real floor size, auto-fit
-					// the track's starting scale to it (still adjustable after).
+					// First surface found: face away from the player.
 					const xrCam = this.renderer.xr.getCamera();
 					this._camPos.setFromMatrixPosition( xrCam.matrixWorld );
 					this._camForward.set( 0, 0, -1 ).transformDirection( xrCam.matrixWorld );
 					const yaw = Math.atan2( this._camForward.x, this._camForward.z );
 					this.arQuaternion.setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), yaw );
-
-					this._autoFitScaleToRoom( frame );
 
 				}
 
@@ -286,79 +266,14 @@ export class ARManager {
 
 		}
 
-		this.arTrackRoot.position.copy( this.arPosition );
-		this.arTrackRoot.quaternion.copy( this.arQuaternion );
-		this.arTrackRoot.scale.setScalar( this.arScale );
-
+		this.previewGroup.position.copy( this.arPosition );
+		this.previewGroup.quaternion.copy( this.arQuaternion );
 		this.previewGroup.visible = this.hasHit;
 
 		// 3) Confirm / lock
 		if ( this.hasHit && this._triggerPressedEdge() ) {
 
 			this._confirmPlacement( frame, refSpace );
-
-		}
-
-	}
-
-	// Best-effort: use the real detected floor plane's bounding size (Meta
-	// plane-detection) to pick a sensible starting scale so the track
-	// roughly matches this room, without changing the track's own layout.
-	// Silently does nothing if plane-detection isn't available.
-	_autoFitScaleToRoom( frame ) {
-
-		try {
-
-			const planes = frame.detectedPlanes;
-			if ( ! planes || planes.size === 0 ) return;
-
-			let best = null, bestArea = 0;
-
-			planes.forEach( ( plane ) => {
-
-				if ( plane.orientation && plane.orientation !== 'horizontal' ) return;
-				if ( plane.semanticLabel && plane.semanticLabel !== 'floor' ) return;
-
-				const poly = plane.polygon;
-				if ( ! poly || poly.length < 3 ) return;
-
-				let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-				poly.forEach( ( p ) => {
-
-					if ( p.x < minX ) minX = p.x;
-					if ( p.x > maxX ) maxX = p.x;
-					if ( p.z < minZ ) minZ = p.z;
-					if ( p.z > maxZ ) maxZ = p.z;
-
-				} );
-
-				const width = maxX - minX, depth = maxZ - minZ, area = width * depth;
-				if ( area > bestArea ) {
-
-					bestArea = area;
-					best = { width, depth };
-
-				}
-
-			} );
-
-			if ( ! best ) return;
-
-			const bounds = computeTrackBounds( this.customCells );
-			const fitScale = Math.min(
-				( best.width * 0.85 ) / ( bounds.halfWidth * 2 ),
-				( best.depth * 0.85 ) / ( bounds.halfDepth * 2 )
-			);
-
-			if ( isFinite( fitScale ) && fitScale > 0 ) {
-
-				this.arScale = THREE.MathUtils.clamp( fitScale, SCALE_MIN, SCALE_MAX );
-
-			}
-
-		} catch ( e ) {
-
-			console.warn( '[ARManager] plane-detection auto-fit unavailable:', e );
 
 		}
 
@@ -372,7 +287,6 @@ export class ARManager {
 		const moveX = this._axis( axesR, 2 );
 		const moveY = this._axis( axesR, 3 );
 		const rotX = this._axis( axesL, 2 );
-		const scaleY = this._axis( axesL, 3 );
 
 		if ( moveX !== 0 || moveY !== 0 ) {
 
@@ -393,15 +307,6 @@ export class ARManager {
 			const deltaYaw = - rotX * ROTATE_SPEED * dt;
 			const deltaQuat = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), deltaYaw );
 			this.arQuaternion.premultiply( deltaQuat );
-
-		}
-
-		if ( scaleY !== 0 ) {
-
-			this.arScale = THREE.MathUtils.clamp(
-				this.arScale * ( 1 - scaleY * SCALE_SPEED * dt ),
-				SCALE_MIN, SCALE_MAX
-			);
 
 		}
 
@@ -434,43 +339,83 @@ export class ARManager {
 		this.placed = true;
 		this.previewGroup.visible = false;
 
-		const arTransform = {
-			position: this.arPosition.clone(),
-			quaternion: this.arQuaternion.clone(),
-			scale: this.arScale,
-		};
-		this.lockedTransform = arTransform;
-
-		buildTrack( this.arTrackRoot, this.models, this.customCells );
-
 		if ( this.world ) {
 
-			buildWallColliders( this.world, null, this.customCells, arTransform );
-
-			const bounds = computeTrackBounds( this.customCells );
-			const roadHalf = Math.max( bounds.halfWidth, bounds.halfDepth ) + 10;
-
-			const { position, quaternion } = applyArTransform(
-				[ bounds.centerX, - 0.125, bounds.centerZ ],
-				[ 0, 0, 0, 1 ],
-				arTransform
-			);
-
-			rigidBody.create( this.world, {
-				shape: box.create( { halfExtents: [ roadHalf * arTransform.scale, 0.01, roadHalf * arTransform.scale ] } ),
-				motionType: MotionType.STATIC,
-				objectLayer: this.world._OL_STATIC,
-				position,
-				quaternion,
-				friction: 5.0,
-				restitution: 0.0,
-			} );
-
+			this._buildFreeRoamFloor( frame );
 			this._buildRoomFurnitureColliders( frame, refSpace );
 
 		}
 
 		if ( this.onPlaced ) this.onPlaced( this.getSpawnWorld() );
+
+	}
+
+	// Static floor collider for the car to drive on. Sized to the real
+	// detected floor plane if plane-detection is available, else falls
+	// back to a generous flat area around the spawn point.
+	_buildFreeRoamFloor( frame ) {
+
+		let halfW = 8, halfD = 8; // generous 16x16m fallback
+
+		try {
+
+			const planes = frame ? frame.detectedPlanes : null;
+
+			if ( planes && planes.size > 0 ) {
+
+				let best = null, bestArea = 0;
+
+				planes.forEach( ( plane ) => {
+
+					if ( plane.orientation && plane.orientation !== 'horizontal' ) return;
+					if ( plane.semanticLabel && plane.semanticLabel !== 'floor' ) return;
+
+					const poly = plane.polygon;
+					if ( ! poly || poly.length < 3 ) return;
+
+					let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+					poly.forEach( ( p ) => {
+
+						if ( p.x < minX ) minX = p.x;
+						if ( p.x > maxX ) maxX = p.x;
+						if ( p.z < minZ ) minZ = p.z;
+						if ( p.z > maxZ ) maxZ = p.z;
+
+					} );
+
+					const area = ( maxX - minX ) * ( maxZ - minZ );
+					if ( area > bestArea ) {
+
+						bestArea = area;
+						best = { hw: ( maxX - minX ) / 2, hd: ( maxZ - minZ ) / 2 };
+
+					}
+
+				} );
+
+				if ( best ) {
+
+					halfW = Math.max( best.hw, 1 );
+					halfD = Math.max( best.hd, 1 );
+
+				}
+
+			}
+
+		} catch ( e ) {
+
+			console.warn( '[ARManager] plane-detection floor sizing unavailable, using fallback:', e );
+
+		}
+
+		rigidBody.create( this.world, {
+			shape: box.create( { halfExtents: [ halfW, 0.01, halfD ] } ),
+			motionType: MotionType.STATIC,
+			objectLayer: this.world._OL_STATIC,
+			position: [ this.arPosition.x, this.arPosition.y - 0.125, this.arPosition.z ],
+			friction: 5.0,
+			restitution: 0.0,
+		} );
 
 	}
 
@@ -572,24 +517,10 @@ export class ARManager {
 
 	}
 
-	getArTrackRoot() {
-
-		return this.arTrackRoot;
-
-	}
-
 	getSpawnWorld() {
 
-		const t = this.lockedTransform;
-		const local = this.spawnLocal;
-
-		const worldPos = new THREE.Vector3(
-			local.position[ 0 ], local.position[ 1 ], local.position[ 2 ]
-		).multiplyScalar( t.scale ).applyQuaternion( t.quaternion ).add( t.position );
-
-		const yaw = new THREE.Euler().setFromQuaternion( t.quaternion, 'YXZ' ).y;
-
-		return { position: worldPos, angle: local.angle + yaw };
+		const yaw = new THREE.Euler().setFromQuaternion( this.arQuaternion, 'YXZ' ).y;
+		return { position: this.arPosition.clone(), angle: yaw };
 
 	}
 
@@ -620,7 +551,7 @@ export class ARManager {
 		if ( this._savedBackground !== null ) this.scene.background = this._savedBackground;
 		this.scene.fog = this._savedFog;
 
-		this.arTrackRoot.visible = false;
+		this.previewGroup.visible = false;
 
 	}
 
