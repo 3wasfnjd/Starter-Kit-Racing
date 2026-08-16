@@ -137,6 +137,21 @@ function createModeMenu( { arAvailable } ) {
 		title.style.cssText = 'color:#fff; font-size:20px; font-weight:600; margin-bottom:8px;';
 		menu.appendChild( title );
 
+		const textLabel = document.createElement( 'div' );
+		textLabel.textContent = 'Custom text (windshield & tailgate) — optional';
+		textLabel.style.cssText = 'color:#ccc; font-size:13px; text-align:center;';
+		menu.appendChild( textLabel );
+
+		const textInput = document.createElement( 'input' );
+		textInput.type = 'text';
+		textInput.maxLength = 12;
+		textInput.placeholder = 'e.g. RACER';
+		textInput.style.cssText = `
+			padding: 10px 14px; border-radius: 8px; border: none; font-size: 16px;
+			text-align: center; width: 220px; margin-bottom: 4px;
+		`;
+		menu.appendChild( textInput );
+
 		function makeButton( label, enabled ) {
 
 			const btn = document.createElement( 'button' );
@@ -157,14 +172,14 @@ function createModeMenu( { arAvailable } ) {
 		normalBtn.addEventListener( 'click', () => {
 
 			menu.remove();
-			resolve( 'normal' );
+			resolve( { choice: 'normal', customText: textInput.value.trim() } );
 
 		} );
 
 		arBtn.addEventListener( 'click', () => {
 
 			menu.remove();
-			resolve( 'ar' );
+			resolve( { choice: 'ar', customText: textInput.value.trim() } );
 
 		} );
 
@@ -173,6 +188,74 @@ function createModeMenu( { arAvailable } ) {
 		document.body.appendChild( menu );
 
 	} );
+
+}
+
+// ─── Custom windshield/tailgate text decal ─────────────────
+
+function createTextTexture( text ) {
+
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = 512;
+	canvas.height = 256;
+	const ctx = canvas.getContext( '2d' );
+	ctx.clearRect( 0, 0, 512, 256 );
+
+	// Basic Arabic-range check so RTL text is drawn with correct direction;
+	// canvas glyph shaping/joining works either way, this mainly affects
+	// alignment when the string mixes scripts.
+	if ( /[\u0600-\u06FF]/.test( text ) ) ctx.direction = 'rtl';
+
+	ctx.font = 'bold 110px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+	ctx.textAlign = 'center';
+	ctx.textBaseline = 'middle';
+	ctx.lineJoin = 'round';
+	ctx.lineWidth = 10;
+	ctx.strokeStyle = '#000000';
+	ctx.strokeText( text, 256, 128 );
+	ctx.fillStyle = '#ffffff';
+	ctx.fillText( text, 256, 128 );
+
+	const texture = new THREE.CanvasTexture( canvas );
+	texture.colorSpace = THREE.SRGBColorSpace;
+	return texture;
+
+}
+
+// Adds the user's custom text on the windshield (facing forward) and the
+// tailgate (facing backward), as children of the model's "body" node so
+// they inherit its position/suspension-lean animation automatically.
+// Coordinates match the pickup body built for this project (see the body
+// mesh authored for vehicle-truck-yellow.glb) — purely cosmetic decals,
+// no change to Vehicle.js or the model's own geometry.
+function addCustomTextDecals( vehicleGroup, text ) {
+
+	if ( ! text ) return;
+
+	const vehicleModel = vehicleGroup.children[ 0 ];
+	let bodyNode = null;
+	vehicleModel.traverse( ( child ) => {
+
+		if ( child.name.toLowerCase() === 'body' ) bodyNode = child;
+
+	} );
+	if ( ! bodyNode ) return;
+
+	const texture = createTextTexture( text );
+	const material = new THREE.MeshBasicMaterial( {
+		map: texture, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+	} );
+
+	const windshieldDecal = new THREE.Mesh( new THREE.PlaneGeometry( 1.2, 0.6 ), material );
+	windshieldDecal.position.set( 0, 0.62, 0.865 );
+	windshieldDecal.renderOrder = 10;
+	bodyNode.add( windshieldDecal );
+
+	const tailgateDecal = new THREE.Mesh( new THREE.PlaneGeometry( 1.2, 0.37 ), material );
+	tailgateDecal.position.set( 0, 0.45, -1.425 );
+	tailgateDecal.rotation.y = Math.PI; // face backward, away from the bed
+	tailgateDecal.renderOrder = 10;
+	bodyNode.add( tailgateDecal );
 
 }
 
@@ -224,7 +307,7 @@ function updateVehicleAndFx( dt, input, ctx ) {
 
 // ─── NORMAL MODE (unchanged behavior from the original game) ──
 
-function startNormalMode( { customCells, spawn, mapParam } ) {
+function startNormalMode( { customCells, spawn, mapParam, customText } ) {
 
 	// Compute track bounds and size physics/shadows to fit
 	const bounds = computeTrackBounds( customCells );
@@ -289,6 +372,7 @@ function startNormalMode( { customCells, spawn, mapParam } ) {
 
 	const vehicleGroup = vehicle.init( models[ 'vehicle-truck-yellow' ] );
 	scene.add( vehicleGroup );
+	addCustomTextDecals( vehicleGroup, customText );
 
 	dirLight.target = vehicleGroup;
 
@@ -302,6 +386,8 @@ function startNormalMode( { customCells, spawn, mapParam } ) {
 
 	const audio = new GameAudio();
 	audio.init( cam.camera, vehicleGroup );
+
+	const radio = new Radio( audio.listener, vehicleGroup );
 
 	const lapTimer = new LapTimer( customCells, mapParam );
 
@@ -325,6 +411,11 @@ function startNormalMode( { customCells, spawn, mapParam } ) {
 
 	const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer, contactListener };
 
+	// Radio controls for NORMAL mode (no VR controllers here, so keyboard
+	// instead): R = next track, T = play/pause. Edge-detected so holding
+	// the key doesn't rapid-fire every frame.
+	let prevRadioKeys = { r: false, t: false };
+
 	return {
 
 		frameUpdate( dt ) {
@@ -332,6 +423,12 @@ function startNormalMode( { customCells, spawn, mapParam } ) {
 			const input = controls.update();
 
 			updateVehicleAndFx( dt, input, ctx );
+
+			const rKey = !! controls.keys[ 'KeyR' ];
+			const tKey = !! controls.keys[ 'KeyT' ];
+			if ( rKey && ! prevRadioKeys.r ) radio.next();
+			if ( tKey && ! prevRadioKeys.t ) radio.togglePlayPause();
+			prevRadioKeys = { r: rKey, t: tKey };
 
 			dirLight.position.set(
 				vehicle.spherePos.x + 11.4,
@@ -353,7 +450,7 @@ function startNormalMode( { customCells, spawn, mapParam } ) {
 
 // ─── AR MODE (Meta Quest 3 passthrough) ────────────────────
 
-async function startARMode( { mapParam } ) {
+async function startARMode( { mapParam, customText } ) {
 
 	const arManager = new ARManager( { renderer, scene, models } );
 	const world = createPhysicsWorld();
@@ -379,6 +476,7 @@ async function startARMode( { mapParam } ) {
 		// space), matching how physics already works in NORMAL mode.
 		const vehicleGroup = vehicle.init( models[ 'vehicle-truck-yellow' ] );
 		scene.add( vehicleGroup );
+		addCustomTextDecals( vehicleGroup, customText );
 
 		dirLight.target = vehicleGroup;
 
@@ -602,13 +700,13 @@ async function init() {
 	// eslint-disable-next-line no-constant-condition
 	while ( true ) {
 
-		const choice = await createModeMenu( { arAvailable } );
+		const { choice, customText } = await createModeMenu( { arAvailable } );
 
 		if ( choice === 'ar' ) {
 
 			try {
 
-				activeMode = await startARMode( { mapParam } );
+				activeMode = await startARMode( { mapParam, customText } );
 				break;
 
 			} catch ( e ) {
@@ -630,7 +728,7 @@ async function init() {
 
 		} else {
 
-			activeMode = startNormalMode( { customCells, spawn, mapParam } );
+			activeMode = startNormalMode( { customCells, spawn, mapParam, customText } );
 			break;
 
 		}
