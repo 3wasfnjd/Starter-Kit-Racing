@@ -126,26 +126,27 @@ function createModeMenu( { arAvailable } ) {
 	return new Promise( ( resolve ) => {
 
 		const menu = document.createElement( 'div' );
+		menu.dir = 'rtl';
 		menu.style.cssText = `
 			position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column;
 			align-items: center; justify-content: center; gap: 16px;
-			background: rgba(20,22,26,0.72); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+			background: rgba(20,22,26,0.72); font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
 		`;
 
 		const title = document.createElement( 'div' );
-		title.textContent = 'Choose mode';
+		title.textContent = 'اختر الوضع';
 		title.style.cssText = 'color:#fff; font-size:20px; font-weight:600; margin-bottom:8px;';
 		menu.appendChild( title );
 
 		const textLabel = document.createElement( 'div' );
-		textLabel.textContent = 'Custom text (windshield & tailgate) — optional';
+		textLabel.textContent = 'نص مخصص (الزجاج الأمامي والباب الخلفي) — اختياري';
 		textLabel.style.cssText = 'color:#ccc; font-size:13px; text-align:center;';
 		menu.appendChild( textLabel );
 
 		const textInput = document.createElement( 'input' );
 		textInput.type = 'text';
 		textInput.maxLength = 12;
-		textInput.placeholder = 'e.g. RACER';
+		textInput.placeholder = 'مثال: سباق';
 		textInput.style.cssText = `
 			padding: 10px 14px; border-radius: 8px; border: none; font-size: 16px;
 			text-align: center; width: 220px; margin-bottom: 4px;
@@ -166,8 +167,8 @@ function createModeMenu( { arAvailable } ) {
 
 		}
 
-		const normalBtn = makeButton( 'NORMAL MODE', true );
-		const arBtn = makeButton( arAvailable ? 'AR MODE (Meta Quest 3)' : 'AR MODE (not available on this device)', arAvailable );
+		const normalBtn = makeButton( 'الوضع العادي', true );
+		const arBtn = makeButton( arAvailable ? 'وضع الواقع المعزز (Meta Quest 3)' : 'وضع الواقع المعزز (غير متاح على هذا الجهاز)', arAvailable );
 
 		normalBtn.addEventListener( 'click', () => {
 
@@ -256,6 +257,59 @@ function addCustomTextDecals( vehicleGroup, text ) {
 	tailgateDecal.rotation.y = Math.PI; // face backward, away from the bed
 	tailgateDecal.renderOrder = 10;
 	bodyNode.add( tailgateDecal );
+
+}
+
+// ─── Touch radio controls (phones/tablets — no keyboard, no VR hands) ──
+// Controls.js already covers a full-screen invisible steering zone for
+// touch, so these buttons need a higher z-index to receive taps first.
+
+function setupRadioTouchUI( radio ) {
+
+	if ( ! ( 'ontouchstart' in window ) ) return;
+
+	const wrap = document.createElement( 'div' );
+	wrap.style.cssText = `
+		position: fixed; right: 16px; bottom: 16px; z-index: 20;
+		display: flex; flex-direction: column; gap: 10px;
+	`;
+
+	function makeTapButton( label ) {
+
+		const btn = document.createElement( 'button' );
+		btn.textContent = label;
+		btn.style.cssText = `
+			width: 56px; height: 56px; border-radius: 50%; border: none;
+			background: rgba(255,255,255,0.18); color: #fff; font-size: 22px;
+			display: flex; align-items: center; justify-content: center;
+			touch-action: manipulation;
+		`;
+		return btn;
+
+	}
+
+	const nextBtn = makeTapButton( '⏭' );
+	const toggleBtn = makeTapButton( '⏯' );
+
+	// pointerdown (not click) for lower latency and to match the steering
+	// zone's own event type; stopPropagation so the tap doesn't also get
+	// picked up as a steering-zone touch.
+	nextBtn.addEventListener( 'pointerdown', ( e ) => {
+
+		e.stopPropagation();
+		radio.next();
+
+	} );
+	toggleBtn.addEventListener( 'pointerdown', ( e ) => {
+
+		e.stopPropagation();
+		radio.togglePlayPause();
+
+	} );
+
+	wrap.appendChild( nextBtn );
+	wrap.appendChild( toggleBtn );
+	document.body.appendChild( wrap );
 
 }
 
@@ -388,6 +442,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText } ) {
 	audio.init( cam.camera, vehicleGroup );
 
 	const radio = new Radio( audio.listener, vehicleGroup );
+	setupRadioTouchUI( radio );
 
 	const lapTimer = new LapTimer( customCells, mapParam );
 
@@ -630,26 +685,29 @@ renderer.setAnimationLoop( animate );
 function showErrorOverlay( message, stack, onRetry ) {
 
 	const box = document.createElement( 'div' );
+	box.dir = 'rtl';
 	box.style.cssText = `
 		position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column;
 		align-items: center; justify-content: center; gap: 16px; padding: 24px; text-align: center;
-		background: rgba(20,22,26,0.92); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+		background: rgba(20,22,26,0.92); font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
 	`;
 
 	const title = document.createElement( 'div' );
-	title.textContent = 'AR MODE failed to start';
+	title.textContent = 'تعذّر تشغيل وضع الواقع المعزز';
 	title.style.cssText = 'color:#fff; font-size:18px; font-weight:600;';
 
 	const detail = document.createElement( 'div' );
 	detail.textContent = message;
+	detail.dir = 'ltr'; // raw browser/JS error text — keep readable, not mirrored
 	detail.style.cssText = 'color:#ddd; font-size:14px; max-width:640px; white-space:pre-wrap;';
 
 	const stackBox = document.createElement( 'div' );
 	stackBox.textContent = stack ? stack.split( '\n' ).slice( 0, 6 ).join( '\n' ) : '';
+	stackBox.dir = 'ltr';
 	stackBox.style.cssText = 'color:#999; font-size:11px; max-width:640px; white-space:pre-wrap; text-align:left; font-family:monospace;';
 
 	const retryBtn = document.createElement( 'button' );
-	retryBtn.textContent = 'Back to menu';
+	retryBtn.textContent = 'العودة للقائمة';
 	retryBtn.style.cssText = `
 		padding: 12px 28px; font-size: 15px; border-radius: 999px; border: none;
 		cursor: pointer; background: #15A249; color: #fff;

@@ -91,9 +91,9 @@ export class LapTimer {
 			#lap-timer {
 				position: absolute;
 				top: 12px;
-				left: 12px;
+				right: 12px;
 				color: #fff;
-				font: 600 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+				font: 600 13px 'Segoe UI', Tahoma, Arial, sans-serif;
 				background: rgba(0,0,0,0.5);
 				padding: 10px 14px;
 				border-radius: 10px;
@@ -108,7 +108,7 @@ export class LapTimer {
 			}
 			#lap-timer .row { display: flex; justify-content: space-between; gap: 12px; }
 			#lap-timer .label { opacity: 0.65; font-weight: 500; letter-spacing: 0.06em; }
-			#lap-timer .current { font: 700 24px/1.1 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-variant-numeric: tabular-nums; margin: 4px 0 6px; }
+			#lap-timer .current { font: 700 24px/1.1 'Segoe UI', Tahoma, Arial, sans-serif; font-variant-numeric: tabular-nums; margin: 4px 0 6px; }
 			#lap-timer .stat { font-size: 12px; font-variant-numeric: tabular-nums; opacity: 0.9; }
 		`;
 		document.head.appendChild( style );
@@ -116,11 +116,12 @@ export class LapTimer {
 		const placeholder = formatTime( null );
 		const el = document.createElement( 'div' );
 		el.id = 'lap-timer';
+		el.dir = 'rtl';
 		el.innerHTML =
-			'<div class="row"><span class="label">LAP</span><span class="lap">1</span></div>' +
+			'<div class="row"><span class="label">اللفة</span><span class="lap">1</span></div>' +
 			`<div class="current">${ placeholder }</div>` +
-			`<div class="row stat"><span class="label">LAST</span><span class="last">${ placeholder }</span></div>` +
-			`<div class="row stat"><span class="label">BEST</span><span class="best">${ formatTime( this.bestLap ) }</span></div>`;
+			`<div class="row stat"><span class="label">الأخيرة</span><span class="last">${ placeholder }</span></div>` +
+			`<div class="row stat"><span class="label">الأفضل</span><span class="best">${ formatTime( this.bestLap ) }</span></div>`;
 		document.body.appendChild( el );
 
 		this.lapEl = el.querySelector( '.lap' );
