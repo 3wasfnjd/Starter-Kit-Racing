@@ -307,16 +307,32 @@ export function buildTrack( scene, models, customCells ) {
 
 export function placePiece( models, key, gx, gz, orient ) {
 
-	const src = models[ key ];
-	if ( ! src ) return null;
+    const src = models[ key ];
+    if ( ! src ) return null;
 
-	const piece = src.clone();
-	piece.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5, ( gz + 0.5 ) * CELL_RAW );
+    const piece = src.clone();
 
-	const deg = ORIENT_DEG[ orient ] ?? 0;
-	piece.rotation.y = THREE.MathUtils.degToRad( deg );
+    piece.position.set(
+        ( gx + 0.5 ) * CELL_RAW,
+        0.5,
+        ( gz + 0.5 ) * CELL_RAW
+    );
 
-	return piece;
+    const deg = ORIENT_DEG[ orient ] ?? 0;
+    piece.rotation.y = THREE.MathUtils.degToRad( deg );
+
+    // توسيع الطريق
+    if (
+        key === 'track-straight' ||
+        key === 'track-corner' ||
+        key === 'track-finish'
+    ) {
+
+        piece.scale.x = 1.35;
+
+    }
+
+    return piece;
 
 }
 
