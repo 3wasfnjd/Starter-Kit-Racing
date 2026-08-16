@@ -381,7 +381,11 @@ async function startARMode( { mapParam } ) {
 
 		dirLight.target = vehicleGroup;
 
-		const particles = new SmokeTrails( scene );
+		// Smoke is authored at real-meter scale (BASE_SIZE=1 in Particles.js)
+		// for NORMAL mode's much larger track. In AR the car is toy-sized,
+		// so shrink smoke drastically or it renders as room-filling clouds
+		// — a likely cause of the GPU overdraw/lag reported during drifting.
+		const particles = new SmokeTrails( scene, 0.12 );
 		const driftMarks = new DriftMarks( scene, mapParam || 'ar-freeroam' );
 
 		const audio = new GameAudio();
@@ -405,11 +409,22 @@ async function startARMode( { mapParam } ) {
 		};
 
 		// No lapTimer — free-roam has no track/laps.
-		gameState = { vehicle, particles, driftMarks, audio, contactListener };
+		gameState = { vehicle, vehicleGroup, vehicleScale: 1, particles, driftMarks, audio, contactListener };
 
 	};
 
-	await arManager.requestSession();
+	const xrSession = await arManager.requestSession();
+
+	// Custom post-processing (bloom) is authored for a single flat camera
+	// and is not guaranteed to handle WebXR's per-eye ArrayCamera stereo
+	// rendering correctly — a mismatch here is a known cause of content
+	// appearing to lag/swim with head movement. Disable while presenting.
+	renderer.setEffects( [] );
+	xrSession.addEventListener( 'end', () => {
+
+		renderer.setEffects( [ bloomPass ] );
+
+	} );
 
 	return {
 
@@ -432,6 +447,17 @@ async function startARMode( { mapParam } ) {
 					};
 
 					updateVehicleAndFx( dt, input, { world, ...gameState } );
+
+					const scaleInput = arManager.getScaleAdjustInput();
+					if ( scaleInput !== 0 ) {
+
+						gameState.vehicleScale = THREE.MathUtils.clamp(
+							gameState.vehicleScale * ( 1 - scaleInput * 0.8 * dt ),
+							0.25, 3.0
+						);
+						gameState.vehicleGroup.scale.setScalar( gameState.vehicleScale );
+
+					}
 
 					dirLight.position.set(
 						gameState.vehicle.spherePos.x + 11.4,

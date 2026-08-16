@@ -341,7 +341,7 @@ export class ARManager {
 
 		if ( this.world ) {
 
-			this._buildFreeRoamFloor( frame );
+			this._buildFreeRoamFloor();
 			this._buildRoomFurnitureColliders( frame, refSpace );
 
 		}
@@ -350,63 +350,15 @@ export class ARManager {
 
 	}
 
-	// Static floor collider for the car to drive on. Sized to the real
-	// detected floor plane if plane-detection is available, else falls
-	// back to a generous flat area around the spawn point.
-	_buildFreeRoamFloor( frame ) {
+	// Static floor collider for the car to drive on. Always generous and
+	// fixed-size — trusting plane-detection's reported floor size was
+	// causing an undersized collider (a mislabeled or partially-scanned
+	// surface), which the car would drive off of and fall through. An
+	// invisible collider being larger than the real room has zero visible
+	// downside, so we no longer try to be clever here.
+	_buildFreeRoamFloor() {
 
-		let halfW = 8, halfD = 8; // generous 16x16m fallback
-
-		try {
-
-			const planes = frame ? frame.detectedPlanes : null;
-
-			if ( planes && planes.size > 0 ) {
-
-				let best = null, bestArea = 0;
-
-				planes.forEach( ( plane ) => {
-
-					if ( plane.orientation && plane.orientation !== 'horizontal' ) return;
-					if ( plane.semanticLabel && plane.semanticLabel !== 'floor' ) return;
-
-					const poly = plane.polygon;
-					if ( ! poly || poly.length < 3 ) return;
-
-					let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-					poly.forEach( ( p ) => {
-
-						if ( p.x < minX ) minX = p.x;
-						if ( p.x > maxX ) maxX = p.x;
-						if ( p.z < minZ ) minZ = p.z;
-						if ( p.z > maxZ ) maxZ = p.z;
-
-					} );
-
-					const area = ( maxX - minX ) * ( maxZ - minZ );
-					if ( area > bestArea ) {
-
-						bestArea = area;
-						best = { hw: ( maxX - minX ) / 2, hd: ( maxZ - minZ ) / 2 };
-
-					}
-
-				} );
-
-				if ( best ) {
-
-					halfW = Math.max( best.hw, 1 );
-					halfD = Math.max( best.hd, 1 );
-
-				}
-
-			}
-
-		} catch ( e ) {
-
-			console.warn( '[ARManager] plane-detection floor sizing unavailable, using fallback:', e );
-
-		}
+		const halfW = 15, halfD = 15; // generous fixed 30x30m
 
 		rigidBody.create( this.world, {
 			shape: box.create( { halfExtents: [ halfW, 0.01, halfD ] } ),
@@ -550,18 +502,14 @@ export class ARManager {
 
 	// Left stick is unused while driving (steering/throttle/brake are on
 	// the right stick + triggers) — free to repurpose for live resizing.
-	// Gated behind holding the left grip button so incidental stick drift
-	// while turning/driving can never change the scale unintentionally.
 	// Returns a value in [-1, 1]; main.js turns this into a scale change.
 	getScaleAdjustInput() {
 
 		const left = this.gamepads.left;
 		if ( ! left ) return 0;
 
-		const gripHeld = left.buttons[ 1 ] ? left.buttons[ 1 ].pressed : false;
-		if ( ! gripHeld ) return 0;
-
-		return this._axis( left.axes, 3 );
+		const v = left.axes && left.axes.length > 3 ? left.axes[ 3 ] : 0;
+		return Math.abs( v ) > 0.25 ? v : 0; // slightly larger deadzone than steering
 
 	}
 

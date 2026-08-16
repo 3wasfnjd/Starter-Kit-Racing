@@ -12,7 +12,9 @@ const _brPos = new THREE.Vector3();
 
 export class SmokeTrails {
 
-	constructor( scene ) {
+	constructor( scene, scale = 1 ) {
+
+		this.scale = scale;
 
 		const positions = new Float32Array( POOL_SIZE * 3 );
 		const opacities = new Float32Array( POOL_SIZE );
@@ -161,18 +163,19 @@ export class SmokeTrails {
 		this.emitIndex = ( i + 1 ) % POOL_SIZE;
 
 		const p = this.particles[ i ];
+		const s = this.scale;
 
 		const posIdx = i * 3;
-		this.positions[ posIdx ] = x + ( Math.random() - 0.5 ) * EMIT_JITTER;
-		this.positions[ posIdx + 1 ] = y + Math.random() * EMIT_JITTER;
-		this.positions[ posIdx + 2 ] = z + ( Math.random() - 0.5 ) * EMIT_JITTER;
+		this.positions[ posIdx ] = x + ( Math.random() - 0.5 ) * EMIT_JITTER * s;
+		this.positions[ posIdx + 1 ] = y + Math.random() * EMIT_JITTER * s;
+		this.positions[ posIdx + 2 ] = z + ( Math.random() - 0.5 ) * EMIT_JITTER * s;
 
-		p.initialSize = BASE_SIZE * ( 0.5 + Math.random() * 0.5 );
+		p.initialSize = BASE_SIZE * s * ( 0.5 + Math.random() * 0.5 );
 
 		p.velocity.set(
-			( Math.random() - 0.5 ) * 0.2,
-			0.5 + Math.random() * 0.5,
-			( Math.random() - 0.5 ) * 0.2
+			( Math.random() - 0.5 ) * 0.2 * s,
+			( 0.5 + Math.random() * 0.5 ) * s,
+			( Math.random() - 0.5 ) * 0.2 * s
 		);
 
 		p.life = MAX_LIFE;
