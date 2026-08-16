@@ -154,9 +154,10 @@ function createModeMenu( { arAvailable } ) {
 		menu.appendChild( textInput );
 
 		const freeRoamRow = document.createElement( 'label' );
-		freeRoamRow.style.cssText = 'color:#ccc; font-size:13px; display:flex; align-items:center; gap:8px; cursor:pointer;';
+		freeRoamRow.style.cssText = 'color:#ccc; font-size:14px; display:flex; align-items:center; gap:10px; cursor:pointer;';
 		const freeRoamCheckbox = document.createElement( 'input' );
 		freeRoamCheckbox.type = 'checkbox';
+		freeRoamCheckbox.style.cssText = 'width:22px; height:22px; accent-color:#15A249;';
 		freeRoamRow.appendChild( freeRoamCheckbox );
 		freeRoamRow.appendChild( document.createTextNode( 'الوضع العادي: تحكم حر بدون مضمار' ) );
 		menu.appendChild( freeRoamRow );
@@ -278,7 +279,7 @@ function setupRadioTouchUI( radio ) {
 
 	const wrap = document.createElement( 'div' );
 	wrap.style.cssText = `
-		position: fixed; right: 16px; bottom: 16px; z-index: 30;
+		position: fixed; left: 16px; bottom: 16px; z-index: 30;
 		display: flex; flex-direction: column; gap: 10px;
 	`;
 
@@ -400,6 +401,34 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam }
 			friction: 5.0,
 			restitution: 0.0,
 		} );
+
+		// Solid perimeter walls so the car bounces off the edge instead of
+		// driving past it and falling into the void.
+		const wallHalfHeight = 1.0;
+		const wallThickness = 0.2;
+		const wallY = - 0.125 + wallHalfHeight;
+
+		for ( const sign of [ 1, -1 ] ) {
+
+			rigidBody.create( world, { // north/south (along X)
+				shape: box.create( { halfExtents: [ roadHalf, wallHalfHeight, wallThickness ] } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position: [ 0, wallY, sign * roadHalf ],
+				friction: 0.2,
+				restitution: 0.3,
+			} );
+
+			rigidBody.create( world, { // east/west (along Z)
+				shape: box.create( { halfExtents: [ wallThickness, wallHalfHeight, roadHalf ] } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position: [ sign * roadHalf, wallY, 0 ],
+				friction: 0.2,
+				restitution: 0.3,
+			} );
+
+		}
 
 		vehicleSpawn = { position: [ 0, 0.5, 0 ], angle: 0 };
 		sphereBody = createSphereBody( world, vehicleSpawn.position );

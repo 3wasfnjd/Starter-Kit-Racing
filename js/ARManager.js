@@ -358,7 +358,13 @@ export class ARManager {
 	// undersized collider (a mislabeled or partially-scanned surface).
 	_buildFreeRoamFloor() {
 
-		const halfW = 25, halfD = 25; // generous fixed 50x50m
+		// ─────────────────────────────────────────────────────────
+		// ✏️ TO RESIZE THE AR PLAY AREA: change this one number (in
+		// meters — half the width/depth, so 40 = an 80x80m square).
+		const AR_FLOOR_HALF_SIZE = 40;
+		// ─────────────────────────────────────────────────────────
+
+		const halfW = AR_FLOOR_HALF_SIZE, halfD = AR_FLOOR_HALF_SIZE;
 		const floorY = this.arPosition.y - 0.125;
 		const cx = this.arPosition.x, cz = this.arPosition.z;
 
