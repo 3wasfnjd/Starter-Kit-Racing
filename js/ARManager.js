@@ -208,8 +208,20 @@ export class ARManager {
 			this.scene.add( controller );
 
 			const grip = this.renderer.xr.getControllerGrip( i );
-			grip.add( this.controllerModelFactory.createControllerModel( grip ) );
 			this.scene.add( grip );
+
+			// Cosmetic only (renders a controller model in-view). Never
+			// let a failure here (e.g. the input-profile asset fetch)
+			// break placement or driving.
+			try {
+
+				grip.add( this.controllerModelFactory.createControllerModel( grip ) );
+
+			} catch ( e ) {
+
+				console.warn( 'Controller model failed to load (non-fatal):', e );
+
+			}
 
 		}
 
