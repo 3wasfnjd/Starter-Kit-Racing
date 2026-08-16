@@ -467,6 +467,45 @@ function animate( timestamp, frame ) {
 
 renderer.setAnimationLoop( animate );
 
+function showErrorOverlay( message, onRetry ) {
+
+	const box = document.createElement( 'div' );
+	box.style.cssText = `
+		position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column;
+		align-items: center; justify-content: center; gap: 16px; padding: 24px; text-align: center;
+		background: rgba(20,22,26,0.92); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+	`;
+
+	const title = document.createElement( 'div' );
+	title.textContent = 'AR MODE failed to start';
+	title.style.cssText = 'color:#fff; font-size:18px; font-weight:600;';
+
+	const detail = document.createElement( 'div' );
+	detail.textContent = message;
+	detail.style.cssText = 'color:#ddd; font-size:14px; max-width:480px; white-space:pre-wrap;';
+
+	const retryBtn = document.createElement( 'button' );
+	retryBtn.textContent = 'Back to menu';
+	retryBtn.style.cssText = `
+		padding: 12px 28px; font-size: 15px; border-radius: 999px; border: none;
+		cursor: pointer; background: #15A249; color: #fff;
+	`;
+	retryBtn.addEventListener( 'click', () => {
+
+		box.remove();
+		onRetry();
+
+	} );
+
+	box.appendChild( title );
+	box.appendChild( detail );
+	box.appendChild( retryBtn );
+	document.body.appendChild( box );
+
+	console.error( 'AR MODE failed:', message );
+
+}
+
 async function init() {
 
 	registerAll();
@@ -493,15 +532,40 @@ async function init() {
 
 	const arAvailable = await ARManager.isSupported();
 
-	const choice = await createModeMenu( { arAvailable } );
+	// eslint-disable-next-line no-constant-condition
+	while ( true ) {
 
-	if ( choice === 'ar' ) {
+		const choice = await createModeMenu( { arAvailable } );
 
-		activeMode = await startARMode( { customCells, mapParam } );
+		if ( choice === 'ar' ) {
 
-	} else {
+			try {
 
-		activeMode = startNormalMode( { customCells, spawn, mapParam } );
+				activeMode = await startARMode( { customCells, mapParam } );
+				break;
+
+			} catch ( e ) {
+
+				activeMode = null;
+
+				await new Promise( ( resolve ) => {
+
+					showErrorOverlay(
+						( e && e.message ) ? e.message : String( e ),
+						resolve
+					);
+
+				} );
+				continue; // back to the mode menu instead of a silent black screen
+
+			}
+
+		} else {
+
+			activeMode = startNormalMode( { customCells, spawn, mapParam } );
+			break;
+
+		}
 
 	}
 
