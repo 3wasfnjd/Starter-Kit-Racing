@@ -303,6 +303,11 @@ export function buildTrack( scene, models, customCells ) {
 
 	}
 
+	// Returned so callers that need it (e.g. AR placement/cleanup) can
+	// reference the group without changing what buildTrack() does for
+	// existing callers, who simply ignore this return value.
+	return { trackGroup, trackPieceGroup, decoGroup };
+
 }
 
 export function placePiece( models, key, gx, gz, orient ) {

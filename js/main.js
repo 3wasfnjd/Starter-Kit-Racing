@@ -13,14 +13,16 @@ import { DriftMarks } from './DriftMarks.js';
 import { GameAudio } from './Audio.js';
 import { LapTimer } from './LapTimer.js';
 import { ColorMapGLTFLoader } from './Loader.js';
+import { ARManager } from './ARManager.js';
 
 
-const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType } );
+const renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true, outputBufferType: THREE.HalfFloatType } );
 renderer.setSize( window.innerWidth, window.innerHeight );
 renderer.setPixelRatio( window.devicePixelRatio );
 renderer.shadowMap.enabled = true;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
+renderer.xr.enabled = true; // required so main.js can offer AR MODE; NORMAL mode is unaffected
 
 const bloomPass = new UnrealBloomPass( new THREE.Vector2( window.innerWidth, window.innerHeight ) );
 bloomPass.strength = 0.02;
@@ -114,29 +116,110 @@ async function loadModels() {
 
 }
 
-async function init() {
+// ─── Mode selection menu ──────────────────────────────────
+// Neither existing markup nor CSS is touched; this overlay is created
+// entirely from main.js so index.html stays untouched too.
 
-	registerAll();
-	await loadModels();
+function createModeMenu( { arAvailable } ) {
 
-	const mapParam = new URLSearchParams( window.location.search ).get( 'map' );
-	let customCells = null;
-	let spawn = null;
+	return new Promise( ( resolve ) => {
 
-	if ( mapParam ) {
+		const menu = document.createElement( 'div' );
+		menu.style.cssText = `
+			position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column;
+			align-items: center; justify-content: center; gap: 16px;
+			background: rgba(20,22,26,0.72); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+		`;
 
-		try {
+		const title = document.createElement( 'div' );
+		title.textContent = 'Choose mode';
+		title.style.cssText = 'color:#fff; font-size:20px; font-weight:600; margin-bottom:8px;';
+		menu.appendChild( title );
 
-			customCells = decodeCells( mapParam );
-			spawn = computeSpawnPosition( customCells );
+		function makeButton( label, enabled ) {
 
-		} catch ( e ) {
-
-			console.warn( 'Invalid map parameter, using default track' );
+			const btn = document.createElement( 'button' );
+			btn.textContent = label;
+			btn.disabled = ! enabled;
+			btn.style.cssText = `
+				padding: 14px 32px; font-size: 16px; border-radius: 999px; border: none;
+				cursor: ${ enabled ? 'pointer' : 'not-allowed' };
+				background: ${ enabled ? '#15A249' : '#555' }; color: #fff; opacity: ${ enabled ? '1' : '0.6' };
+			`;
+			return btn;
 
 		}
 
-	}
+		const normalBtn = makeButton( 'NORMAL MODE', true );
+		const arBtn = makeButton( arAvailable ? 'AR MODE (Meta Quest 3)' : 'AR MODE (not available on this device)', arAvailable );
+
+		normalBtn.addEventListener( 'click', () => {
+
+			menu.remove();
+			resolve( 'normal' );
+
+		} );
+
+		arBtn.addEventListener( 'click', () => {
+
+			menu.remove();
+			resolve( 'ar' );
+
+		} );
+
+		menu.appendChild( normalBtn );
+		menu.appendChild( arBtn );
+		document.body.appendChild( menu );
+
+	} );
+
+}
+
+// ─── Shared physics world setup (used by both modes) ──────
+
+function createPhysicsWorld() {
+
+	const worldSettings = createWorldSettings();
+	worldSettings.gravity = [ 0, - 9.81, 0 ];
+
+	const BPL_MOVING = addBroadphaseLayer( worldSettings );
+	const BPL_STATIC = addBroadphaseLayer( worldSettings );
+	const OL_MOVING = addObjectLayer( worldSettings, BPL_MOVING );
+	const OL_STATIC = addObjectLayer( worldSettings, BPL_STATIC );
+
+	enableCollision( worldSettings, OL_MOVING, OL_STATIC );
+	enableCollision( worldSettings, OL_MOVING, OL_MOVING );
+
+	const world = createWorld( worldSettings );
+	world._OL_MOVING = OL_MOVING;
+	world._OL_STATIC = OL_STATIC;
+
+	return world;
+
+}
+
+// ─── Shared per-frame driving/game-object update, used by ──
+// ─── both NORMAL and AR modes once a vehicle exists.       ──
+
+function updateVehicleAndFx( dt, input, ctx ) {
+
+	const { world, vehicle, particles, driftMarks, audio, lapTimer, contactListener } = ctx;
+
+	updateWorld( world, contactListener, dt );
+	vehicle.update( dt, input );
+
+	particles.update( dt, vehicle );
+	driftMarks.update( dt, vehicle );
+	audio.update( dt, vehicle.linearSpeed / MAX_SPEED, input.z, vehicle.driftIntensity );
+
+	const hasInput = input.touchActive || Math.abs( input.x ) > 0.05 || Math.abs( input.z ) > 0.05;
+	lapTimer.update( dt, vehicle.spherePos, hasInput );
+
+}
+
+// ─── NORMAL MODE (unchanged behavior from the original game) ──
+
+function startNormalMode( { customCells, spawn, mapParam } ) {
 
 	// Compute track bounds and size physics/shadows to fit
 	const bounds = computeTrackBounds( customCells );
@@ -157,7 +240,6 @@ async function init() {
 	buildTrack( scene, models, customCells );
 
 	// Probes
-
 	const probeHeight = 6;
 	const probes = new LightProbeGrid(
 		hw * 2, probeHeight, hd * 2,
@@ -171,22 +253,7 @@ async function init() {
 
 	// scene.add( new LightProbeGridHelper( probes, 0.5 ) );
 
-	//
-
-	const worldSettings = createWorldSettings();
-	worldSettings.gravity = [ 0, - 9.81, 0 ];
-
-	const BPL_MOVING = addBroadphaseLayer( worldSettings );
-	const BPL_STATIC = addBroadphaseLayer( worldSettings );
-	const OL_MOVING = addObjectLayer( worldSettings, BPL_MOVING );
-	const OL_STATIC = addObjectLayer( worldSettings, BPL_STATIC );
-
-	enableCollision( worldSettings, OL_MOVING, OL_STATIC );
-	enableCollision( worldSettings, OL_MOVING, OL_MOVING );
-
-	const world = createWorld( worldSettings );
-	world._OL_MOVING = OL_MOVING;
-	world._OL_STATIC = OL_STATIC;
+	const world = createPhysicsWorld();
 
 	buildWallColliders( world, null, customCells );
 
@@ -194,7 +261,7 @@ async function init() {
 	rigidBody.create( world, {
 		shape: box.create( { halfExtents: [ roadHalf, 0.01, roadHalf ] } ),
 		motionType: MotionType.STATIC,
-		objectLayer: OL_STATIC,
+		objectLayer: world._OL_STATIC,
 		position: [ bounds.centerX, - 0.125, bounds.centerZ ],
 		friction: 5.0,
 		restitution: 0.0,
@@ -251,42 +318,192 @@ async function init() {
 		}
 	};
 
-	const timer = new THREE.Timer();
+	const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer, contactListener };
 
-	function animate() {
+	return {
 
-		requestAnimationFrame( animate );
+		frameUpdate( dt ) {
 
-		timer.update();
-		const dt = Math.min( timer.getDelta(), 1 / 30 );
+			const input = controls.update();
 
-		const input = controls.update();
+			updateVehicleAndFx( dt, input, ctx );
 
-		updateWorld( world, contactListener, dt );
+			dirLight.position.set(
+				vehicle.spherePos.x + 11.4,
+				15,
+				vehicle.spherePos.z - 5.3
+			);
 
-		vehicle.update( dt, input );
+			const mv = vehicle.modelVelocity;
+			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
+			cam.update( dt, vehicle.spherePos, _camLead );
 
-		dirLight.position.set(
-			vehicle.spherePos.x + 11.4,
-			15,
-			vehicle.spherePos.z - 5.3
-		);
+			renderer.render( scene, cam.camera );
 
-		const mv = vehicle.modelVelocity;
-		_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
-		cam.update( dt, vehicle.spherePos, _camLead );
-		particles.update( dt, vehicle );
-		driftMarks.update( dt, vehicle );
-		audio.update( dt, vehicle.linearSpeed / MAX_SPEED, input.z, vehicle.driftIntensity );
+		}
 
-		const hasInput = input.touchActive || Math.abs( input.x ) > 0.05 || Math.abs( input.z ) > 0.05;
-		lapTimer.update( dt, vehicle.spherePos, hasInput );
+	};
 
-		renderer.render( scene, cam.camera );
+}
+
+// ─── AR MODE (Meta Quest 3 passthrough) ────────────────────
+
+async function startARMode( { customCells, mapParam } ) {
+
+	const arManager = new ARManager( { renderer, scene, models, customCells } );
+	const world = createPhysicsWorld();
+	arManager.setWorld( world );
+
+	const placeholderCamera = new THREE.PerspectiveCamera(); // pose is overridden by WebXR while presenting
+
+	let gameState = null; // populated once the user confirms track placement
+	const controls = new Controls();
+
+	arManager.onPlaced = ( spawn ) => {
+
+		const sphereBody = createSphereBody( world, [ spawn.position.x, spawn.position.y, spawn.position.z ] );
+
+		const vehicle = new Vehicle();
+		vehicle.rigidBody = sphereBody;
+		vehicle.physicsWorld = world;
+		vehicle.spherePos.copy( spawn.position );
+		vehicle.prevModelPos.set( spawn.position.x, 0, spawn.position.z );
+		vehicle.container.rotation.y = spawn.angle;
+
+		// The vehicle stays a direct child of `scene` (true WebXR world
+		// space), never of arTrackRoot — this matches how physics already
+		// works in NORMAL mode and is why Vehicle.js needs no changes.
+		const vehicleGroup = vehicle.init( models[ 'vehicle-truck-yellow' ] );
+		scene.add( vehicleGroup );
+
+		dirLight.target = vehicleGroup;
+
+		const particles = new SmokeTrails( scene );
+		const driftMarks = new DriftMarks( scene, mapParam );
+
+		const audio = new GameAudio();
+		audio.init( renderer.xr.getCamera(), vehicleGroup ); // XR camera rig instead of the NORMAL-mode chase Camera
+
+		const lapTimer = new LapTimer( customCells, mapParam );
+
+		const _forward = new THREE.Vector3();
+
+		const contactListener = {
+			onContactAdded( bodyA, bodyB ) {
+
+				if ( bodyA !== sphereBody && bodyB !== sphereBody ) return;
+
+				_forward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+				_forward.y = 0;
+				_forward.normalize();
+
+				const impactVelocity = Math.abs( vehicle.modelVelocity.dot( _forward ) );
+				audio.playImpact( impactVelocity );
+
+			}
+		};
+
+		gameState = { vehicle, particles, driftMarks, audio, lapTimer, contactListener };
+
+	};
+
+	await arManager.requestSession();
+
+	return {
+
+		frameUpdate( dt, timestamp, frame ) {
+
+			arManager.update( frame, dt );
+
+			if ( gameState ) {
+
+				// Controllers drive the car once the track is locked in;
+				// keyboard/gamepad still work too (e.g. testing on desktop).
+				const kbInput = controls.update();
+				const arInput = arManager.getDriveInput();
+				const input = {
+					x: Math.abs( arInput.x ) > Math.abs( kbInput.x ) ? arInput.x : kbInput.x,
+					z: Math.abs( arInput.z ) > Math.abs( kbInput.z ) ? arInput.z : kbInput.z,
+					touchActive: kbInput.touchActive,
+				};
+
+				updateVehicleAndFx( dt, input, { world, ...gameState } );
+
+				dirLight.position.set(
+					gameState.vehicle.spherePos.x + 11.4,
+					15,
+					gameState.vehicle.spherePos.z - 5.3
+				);
+
+			} else {
+
+				// Placement phase: still step physics so nothing is stale
+				// once the vehicle spawns, but there is no vehicle yet.
+				updateWorld( world, null, dt );
+
+			}
+
+			renderer.render( scene, placeholderCamera );
+
+		}
+
+	};
+
+}
+
+// ─── Shared animate loop ───────────────────────────────────
+
+let activeMode = null;
+const timer = new THREE.Timer();
+
+function animate( timestamp, frame ) {
+
+	timer.update( timestamp );
+	const dt = Math.min( timer.getDelta(), 1 / 30 );
+
+	if ( activeMode ) activeMode.frameUpdate( dt, timestamp, frame );
+
+}
+
+renderer.setAnimationLoop( animate );
+
+async function init() {
+
+	registerAll();
+	await loadModels();
+
+	const mapParam = new URLSearchParams( window.location.search ).get( 'map' );
+	let customCells = null;
+	let spawn = null;
+
+	if ( mapParam ) {
+
+		try {
+
+			customCells = decodeCells( mapParam );
+			spawn = computeSpawnPosition( customCells );
+
+		} catch ( e ) {
+
+			console.warn( 'Invalid map parameter, using default track' );
+
+		}
 
 	}
 
-	animate();
+	const arAvailable = await ARManager.isSupported();
+
+	const choice = await createModeMenu( { arAvailable } );
+
+	if ( choice === 'ar' ) {
+
+		activeMode = await startARMode( { customCells, mapParam } );
+
+	} else {
+
+		activeMode = startNormalMode( { customCells, spawn, mapParam } );
+
+	}
 
 }
 

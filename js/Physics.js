@@ -14,7 +14,39 @@ function addDebugBox( group, halfExtents, position, quaternion ) {
 
 }
 
-export function buildWallColliders( world, debugGroup, customCells ) {
+// ─── AR support ───────────────────────────────────────────
+// Every collider below is authored directly in "track space" (the same
+// coordinate frame the un-transformed trackGroup would occupy). In NORMAL
+// mode that frame IS world space, so nothing changes for existing callers.
+// In AR mode the track is placed somewhere in the room, so an optional
+// `arTransform = { position: THREE.Vector3, quaternion: THREE.Quaternion (yaw-only), scale: Number }`
+// can be supplied to re-express every collider in real WebXR world space,
+// matching where `buildTrack()` visually placed `arTrackRoot`.
+
+const _arPos = new THREE.Vector3();
+const _arLocalQuat = new THREE.Quaternion();
+const _arCombinedQuat = new THREE.Quaternion();
+
+export function applyArTransform( position, quaternion, arTransform ) {
+
+	if ( ! arTransform ) return { position, quaternion };
+
+	_arPos.set( position[ 0 ], position[ 1 ], position[ 2 ] )
+		.multiplyScalar( arTransform.scale )
+		.applyQuaternion( arTransform.quaternion )
+		.add( arTransform.position );
+
+	_arLocalQuat.set( quaternion[ 0 ], quaternion[ 1 ], quaternion[ 2 ], quaternion[ 3 ] );
+	_arCombinedQuat.copy( arTransform.quaternion ).multiply( _arLocalQuat );
+
+	return {
+		position: [ _arPos.x, _arPos.y, _arPos.z ],
+		quaternion: [ _arCombinedQuat.x, _arCombinedQuat.y, _arCombinedQuat.z, _arCombinedQuat.w ],
+	};
+
+}
+
+export function buildWallColliders( world, debugGroup, customCells, arTransform = null ) {
 
 	const S = GRID_SCALE;
 	const CELL_HALF = CELL_RAW / 2;
@@ -38,18 +70,27 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 	const INNER_SEG = 3;
 	const INNER_SEG_HALF_LEN = ( INNER_R * ( Math.PI / 2 ) / INNER_SEG / 2 ) * S;
 
+	const arScale = arTransform ? arTransform.scale : 1;
+
 	function addArcWall( wcx, wcz, arcStart, radius, numSeg, segHalfLen ) {
 
 		for ( let i = 0; i < numSeg; i ++ ) {
 
 			const aMid = arcStart + ( ( i + 0.5 ) / numSeg ) * ARC_SPAN;
-			const halfExtents = [ hThick, hHeight, segHalfLen ];
-			const position = [
+			let halfExtents = [ hThick, hHeight, segHalfLen ];
+			let position = [
 				wcx + radius * Math.cos( aMid ) * S,
 				wallY,
 				wcz + radius * Math.sin( aMid ) * S
 			];
-			const quaternion = [ 0, Math.sin( - aMid / 2 ), 0, Math.cos( - aMid / 2 ) ];
+			let quaternion = [ 0, Math.sin( - aMid / 2 ), 0, Math.cos( - aMid / 2 ) ];
+
+			if ( arTransform ) {
+
+				halfExtents = halfExtents.map( ( h ) => h * arScale );
+				( { position, quaternion } = applyArTransform( position, quaternion, arTransform ) );
+
+			}
 
 			rigidBody.create( world, {
 				shape: box.create( { halfExtents } ),
@@ -87,9 +128,16 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 				const lx = side * WALL_X;
 				const wx = cx + ( lx * cr ) * S;
 				const wz = cz + ( - lx * sr ) * S;
-				const halfExtents = [ hThick, hHeight, hLen ];
-				const position = [ wx, wallY, wz ];
-				const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
+				let halfExtents = [ hThick, hHeight, hLen ];
+				let position = [ wx, wallY, wz ];
+				let quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
+
+				if ( arTransform ) {
+
+					halfExtents = halfExtents.map( ( h ) => h * arScale );
+					( { position, quaternion } = applyArTransform( position, quaternion, arTransform ) );
+
+				}
 
 				rigidBody.create( world, {
 					shape: box.create( { halfExtents } ),
