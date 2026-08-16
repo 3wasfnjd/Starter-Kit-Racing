@@ -153,6 +153,14 @@ function createModeMenu( { arAvailable } ) {
 		`;
 		menu.appendChild( textInput );
 
+		const freeRoamRow = document.createElement( 'label' );
+		freeRoamRow.style.cssText = 'color:#ccc; font-size:13px; display:flex; align-items:center; gap:8px; cursor:pointer;';
+		const freeRoamCheckbox = document.createElement( 'input' );
+		freeRoamCheckbox.type = 'checkbox';
+		freeRoamRow.appendChild( freeRoamCheckbox );
+		freeRoamRow.appendChild( document.createTextNode( 'الوضع العادي: تحكم حر بدون مضمار' ) );
+		menu.appendChild( freeRoamRow );
+
 		function makeButton( label, enabled ) {
 
 			const btn = document.createElement( 'button' );
@@ -173,14 +181,14 @@ function createModeMenu( { arAvailable } ) {
 		normalBtn.addEventListener( 'click', () => {
 
 			menu.remove();
-			resolve( { choice: 'normal', customText: textInput.value.trim() } );
+			resolve( { choice: 'normal', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked } );
 
 		} );
 
 		arBtn.addEventListener( 'click', () => {
 
 			menu.remove();
-			resolve( { choice: 'ar', customText: textInput.value.trim() } );
+			resolve( { choice: 'ar', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked } );
 
 		} );
 
@@ -270,7 +278,7 @@ function setupRadioTouchUI( radio ) {
 
 	const wrap = document.createElement( 'div' );
 	wrap.style.cssText = `
-		position: fixed; right: 16px; bottom: 16px; z-index: 20;
+		position: fixed; right: 16px; bottom: 16px; z-index: 30;
 		display: flex; flex-direction: column; gap: 10px;
 	`;
 
@@ -279,9 +287,11 @@ function setupRadioTouchUI( radio ) {
 		const btn = document.createElement( 'button' );
 		btn.textContent = label;
 		btn.style.cssText = `
-			width: 56px; height: 56px; border-radius: 50%; border: none;
-			background: rgba(255,255,255,0.18); color: #fff; font-size: 22px;
+			width: 56px; height: 56px; border-radius: 50%;
+			border: 2px solid rgba(255,255,255,0.85);
+			background: rgba(15,17,20,0.75); color: #fff; font-size: 24px;
 			display: flex; align-items: center; justify-content: center;
+			box-shadow: 0 3px 10px rgba(0,0,0,0.45);
 			touch-action: manipulation;
 		`;
 		return btn;
@@ -361,66 +371,99 @@ function updateVehicleAndFx( dt, input, ctx ) {
 
 // ─── NORMAL MODE (unchanged behavior from the original game) ──
 
-function startNormalMode( { customCells, spawn, mapParam, customText } ) {
-
-	// Compute track bounds and size physics/shadows to fit
-	const bounds = computeTrackBounds( customCells );
-	const hw = bounds.halfWidth;
-	const hd = bounds.halfDepth;
-	const groundSize = Math.max( hw, hd ) * 2 + 20;
-
-	const shadowExtent = Math.max( hw, hd ) + 10;
-	dirLight.shadow.camera.left = - shadowExtent;
-	dirLight.shadow.camera.right = shadowExtent;
-	dirLight.shadow.camera.top = shadowExtent;
-	dirLight.shadow.camera.bottom = - shadowExtent;
-	dirLight.shadow.camera.updateProjectionMatrix();
-
-	scene.fog.near = groundSize * 0.4;
-	scene.fog.far = groundSize * 0.8;
-
-	buildTrack( scene, models, customCells );
-
-	// Probes
-	const probeHeight = 6;
-	const probes = new LightProbeGrid(
-		hw * 2, probeHeight, hd * 2,
-		Math.max( 4, Math.round( hw / 4 ) ),
-		2,
-		Math.max( 4, Math.round( hd / 4 ) ),
-	);
-	probes.position.set( bounds.centerX, probeHeight / 2, bounds.centerZ );
-	probes.bake( renderer, scene, { cubemapSize: 32, near: 0.1, far: groundSize } );
-	scene.add( probes );
-
-	// scene.add( new LightProbeGridHelper( probes, 0.5 ) );
+function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam } ) {
 
 	const world = createPhysicsWorld();
+	let sphereBody, vehicleSpawn, lapTimer = null;
 
-	buildWallColliders( world, null, customCells );
+	if ( freeRoam ) {
 
-	const roadHalf = groundSize / 2;
-	rigidBody.create( world, {
-		shape: box.create( { halfExtents: [ roadHalf, 0.01, roadHalf ] } ),
-		motionType: MotionType.STATIC,
-		objectLayer: world._OL_STATIC,
-		position: [ bounds.centerX, - 0.125, bounds.centerZ ],
-		friction: 5.0,
-		restitution: 0.0,
-	} );
+		// Open sandbox: no track, no walls — just a big flat ground.
+		const groundSize = 200;
 
-	const sphereBody = createSphereBody( world, spawn ? spawn.position : null );
+		const shadowExtent = 40;
+		dirLight.shadow.camera.left = - shadowExtent;
+		dirLight.shadow.camera.right = shadowExtent;
+		dirLight.shadow.camera.top = shadowExtent;
+		dirLight.shadow.camera.bottom = - shadowExtent;
+		dirLight.shadow.camera.updateProjectionMatrix();
+
+		scene.fog.near = 60;
+		scene.fog.far = 140;
+
+		const roadHalf = groundSize / 2;
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: [ roadHalf, 0.01, roadHalf ] } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position: [ 0, - 0.125, 0 ],
+			friction: 5.0,
+			restitution: 0.0,
+		} );
+
+		vehicleSpawn = { position: [ 0, 0.5, 0 ], angle: 0 };
+		sphereBody = createSphereBody( world, vehicleSpawn.position );
+
+	} else {
+
+		// Compute track bounds and size physics/shadows to fit
+		const bounds = computeTrackBounds( customCells );
+		const hw = bounds.halfWidth;
+		const hd = bounds.halfDepth;
+		const groundSize = Math.max( hw, hd ) * 2 + 20;
+
+		const shadowExtent = Math.max( hw, hd ) + 10;
+		dirLight.shadow.camera.left = - shadowExtent;
+		dirLight.shadow.camera.right = shadowExtent;
+		dirLight.shadow.camera.top = shadowExtent;
+		dirLight.shadow.camera.bottom = - shadowExtent;
+		dirLight.shadow.camera.updateProjectionMatrix();
+
+		scene.fog.near = groundSize * 0.4;
+		scene.fog.far = groundSize * 0.8;
+
+		buildTrack( scene, models, customCells );
+
+		// Probes
+		const probeHeight = 6;
+		const probes = new LightProbeGrid(
+			hw * 2, probeHeight, hd * 2,
+			Math.max( 4, Math.round( hw / 4 ) ),
+			2,
+			Math.max( 4, Math.round( hd / 4 ) ),
+		);
+		probes.position.set( bounds.centerX, probeHeight / 2, bounds.centerZ );
+		probes.bake( renderer, scene, { cubemapSize: 32, near: 0.1, far: groundSize } );
+		scene.add( probes );
+
+		buildWallColliders( world, null, customCells );
+
+		const roadHalf = groundSize / 2;
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: [ roadHalf, 0.01, roadHalf ] } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position: [ bounds.centerX, - 0.125, bounds.centerZ ],
+			friction: 5.0,
+			restitution: 0.0,
+		} );
+
+		vehicleSpawn = spawn;
+		sphereBody = createSphereBody( world, spawn ? spawn.position : null );
+		lapTimer = new LapTimer( customCells, mapParam );
+
+	}
 
 	const vehicle = new Vehicle();
 	vehicle.rigidBody = sphereBody;
 	vehicle.physicsWorld = world;
 
-	if ( spawn ) {
+	if ( vehicleSpawn ) {
 
-		const [ sx, sy, sz ] = spawn.position;
+		const [ sx, sy, sz ] = vehicleSpawn.position;
 		vehicle.spherePos.set( sx, sy, sz );
 		vehicle.prevModelPos.set( sx, 0, sz );
-		vehicle.container.rotation.y = spawn.angle;
+		vehicle.container.rotation.y = vehicleSpawn.angle;
 
 	}
 
@@ -443,8 +486,6 @@ function startNormalMode( { customCells, spawn, mapParam, customText } ) {
 
 	const radio = new Radio( audio.listener, vehicleGroup );
 	setupRadioTouchUI( radio );
-
-	const lapTimer = new LapTimer( customCells, mapParam );
 
 	const _forward = new THREE.Vector3();
 	const _camLead = new THREE.Vector3();
@@ -758,7 +799,7 @@ async function init() {
 	// eslint-disable-next-line no-constant-condition
 	while ( true ) {
 
-		const { choice, customText } = await createModeMenu( { arAvailable } );
+		const { choice, customText, freeRoam } = await createModeMenu( { arAvailable } );
 
 		if ( choice === 'ar' ) {
 
@@ -786,7 +827,7 @@ async function init() {
 
 		} else {
 
-			activeMode = startNormalMode( { customCells, spawn, mapParam, customText } );
+			activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam } );
 			break;
 
 		}
