@@ -48,11 +48,11 @@ export class ARManager {
 		this.arTrackRoot.visible = false;
 		this.scene.add( this.arTrackRoot );
 
-		this.previewGroup = this.buildPreviewMesh();
-		this.arTrackRoot.add( this.previewGroup );
-
 		this.world = null; // set by main.js via setWorld() before session start
 		this.spawnLocal = computeSpawnPosition( customCells );
+
+		this.previewGroup = this.buildPreviewMesh(); // uses this.spawnLocal — must come after it's set
+		this.arTrackRoot.add( this.previewGroup );
 
 		this.gamepads = { left: null, right: null };
 		this._prevTrigger = { left: false, right: false };
