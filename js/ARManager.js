@@ -550,11 +550,18 @@ export class ARManager {
 
 	// Left stick is unused while driving (steering/throttle/brake are on
 	// the right stick + triggers) — free to repurpose for live resizing.
+	// Gated behind holding the left grip button so incidental stick drift
+	// while turning/driving can never change the scale unintentionally.
 	// Returns a value in [-1, 1]; main.js turns this into a scale change.
 	getScaleAdjustInput() {
 
-		const axesL = this.gamepads.left ? this.gamepads.left.axes : [];
-		return this._axis( axesL, 3 );
+		const left = this.gamepads.left;
+		if ( ! left ) return 0;
+
+		const gripHeld = left.buttons[ 1 ] ? left.buttons[ 1 ].pressed : false;
+		if ( ! gripHeld ) return 0;
+
+		return this._axis( left.axes, 3 );
 
 	}
 
