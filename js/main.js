@@ -381,6 +381,14 @@ async function startARMode( { mapParam } ) {
 
 		dirLight.target = vehicleGroup;
 
+		// vehicleGroup's own origin isn't necessarily at wheel/ground level,
+		// so scaling it directly made the car sink into or float above the
+		// real floor as it resized. Instead scale only the inner model
+		// child, and keep its lowest point pinned at the container's origin
+		// (ground level) regardless of scale.
+		const vehicleModel = vehicleGroup.children[ 0 ];
+		const vehicleModelMinY = new THREE.Box3().setFromObject( vehicleModel ).min.y;
+
 		// Smoke is authored at real-meter scale (BASE_SIZE=1 in Particles.js)
 		// for NORMAL mode's much larger track. In AR the car is toy-sized,
 		// so shrink smoke drastically or it renders as room-filling clouds
@@ -409,7 +417,10 @@ async function startARMode( { mapParam } ) {
 		};
 
 		// No lapTimer — free-roam has no track/laps.
-		gameState = { vehicle, vehicleGroup, vehicleScale: 1, particles, driftMarks, audio, contactListener };
+		gameState = {
+			vehicle, vehicleGroup, vehicleModel, vehicleModelMinY, vehicleScale: 1,
+			particles, driftMarks, audio, contactListener
+		};
 
 	};
 
@@ -453,9 +464,17 @@ async function startARMode( { mapParam } ) {
 
 						gameState.vehicleScale = THREE.MathUtils.clamp(
 							gameState.vehicleScale * ( 1 - scaleInput * 0.8 * dt ),
-							0.25, 3.0
+							0.03, 3.0
 						);
-						gameState.vehicleGroup.scale.setScalar( gameState.vehicleScale );
+
+						const s = gameState.vehicleScale;
+						gameState.vehicleModel.scale.setScalar( s );
+						// Keep the model's lowest point (wheels) pinned at
+						// y=0 in container space — i.e. at ground level —
+						// instead of scaling around the model's own origin,
+						// which caused it to sink into or float above the
+						// real floor as it resized.
+						gameState.vehicleModel.position.y = gameState.vehicleModelMinY * ( 1 - s );
 
 					}
 
