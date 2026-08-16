@@ -97,6 +97,9 @@ export class ARManager {
 
 		const session = await navigator.xr.requestSession( 'immersive-ar', {
 			requiredFeatures: [ 'local-floor', 'hit-test' ],
+			// Meta/Quest-specific room awareness. Optional: if unsupported,
+			// the session still starts fine and we just skip that part.
+			optionalFeatures: [ 'plane-detection', 'mesh-detection' ],
 		} );
 
 		this.renderer.xr.setReferenceSpaceType( 'local-floor' );
@@ -113,76 +116,9 @@ export class ARManager {
 		this.arTrackRoot.visible = true;
 		this.previewGroup.visible = true;
 
-		this._initDebugHUD();
-		this.setDebugText(
-			'AR session started\n' +
-			'environmentBlendMode: ' + session.environmentBlendMode + '\n' +
-			'waiting for hit-test...'
-		);
+		console.log( '[ARManager] AR session started. environmentBlendMode:', session.environmentBlendMode );
 
 		return session;
-
-	}
-
-	// ─── In-headset debug HUD ──────────────────────────────
-	// Regular page DOM (menus, error banners) is NOT visible while
-	// immersed in a WebXR session — only 3D scene content is. This renders
-	// status/errors on a small canvas-textured plane that always floats
-	// in front of the XR camera, so problems are visible on-device even
-	// without a console.
-
-	_initDebugHUD() {
-
-		const canvas = document.createElement( 'canvas' );
-		canvas.width = 512;
-		canvas.height = 256;
-		this._debugCtx = canvas.getContext( '2d' );
-		this._debugTexture = new THREE.CanvasTexture( canvas );
-
-		const material = new THREE.MeshBasicMaterial( {
-			map: this._debugTexture, transparent: true, depthTest: false,
-		} );
-		this._debugMesh = new THREE.Mesh( new THREE.PlaneGeometry( 0.7, 0.35 ), material );
-		this._debugMesh.renderOrder = 999;
-		this.scene.add( this._debugMesh );
-
-	}
-
-	setDebugText( text ) {
-
-		if ( ! this._debugCtx ) {
-
-			console.log( '[ARManager]', text );
-			return;
-
-		}
-
-		const ctx = this._debugCtx;
-		ctx.clearRect( 0, 0, 512, 256 );
-		ctx.fillStyle = 'rgba(10,10,10,0.85)';
-		ctx.fillRect( 0, 0, 512, 256 );
-		ctx.fillStyle = '#ffffff';
-		ctx.font = '20px monospace';
-		String( text ).split( '\n' ).forEach( ( line, i ) => {
-
-			ctx.fillText( line, 12, 28 + i * 26 );
-
-		} );
-		this._debugTexture.needsUpdate = true;
-
-	}
-
-	_updateDebugHUDPosition() {
-
-		if ( ! this._debugMesh ) return;
-
-		const xrCam = this.renderer.xr.getCamera();
-		const camPos = new THREE.Vector3().setFromMatrixPosition( xrCam.matrixWorld );
-		const camQuat = new THREE.Quaternion().setFromRotationMatrix( xrCam.matrixWorld );
-		const forward = new THREE.Vector3( 0, 0, -1 ).applyQuaternion( camQuat );
-
-		this._debugMesh.position.copy( camPos ).addScaledVector( forward, 1 );
-		this._debugMesh.quaternion.copy( camQuat );
 
 	}
 
@@ -272,8 +208,6 @@ export class ARManager {
 
 		try {
 
-			this._updateDebugHUDPosition();
-
 			const refSpace = this.renderer.xr.getReferenceSpace();
 
 			if ( ! this.hitTestSourceRequested ) {
@@ -285,9 +219,9 @@ export class ARManager {
 
 						this.hitTestSource = source;
 
-					} ).catch( ( e ) => this.setDebugText( 'requestHitTestSource failed:\n' + e.message ) );
+					} ).catch( ( e ) => console.warn( '[ARManager] requestHitTestSource failed:', e ) );
 
-				} ).catch( ( e ) => this.setDebugText( 'requestReferenceSpace(viewer) failed:\n' + e.message ) );
+				} ).catch( ( e ) => console.warn( '[ARManager] requestReferenceSpace(viewer) failed:', e ) );
 
 			}
 
@@ -295,16 +229,11 @@ export class ARManager {
 
 				this._updatePlacement( frame, refSpace, dt );
 
-			} else {
-
-				this.setDebugText( 'Track placed — driving.\nleft pad: ' + ( !! this.gamepads.left ) + '  right pad: ' + ( !! this.gamepads.right ) );
-
 			}
 
 		} catch ( e ) {
 
-			this.setDebugText( 'update() error:\n' + e.message );
-			console.error( e );
+			console.error( '[ARManager] update() error:', e );
 
 		}
 
@@ -312,14 +241,11 @@ export class ARManager {
 
 	_updatePlacement( frame, refSpace, dt ) {
 
-		let hitCount = 0;
-
 		// 1) Surface search: while no manual adjustment has happened yet,
 		// keep the preview snapped to the latest hit-test result.
 		if ( this.hitTestSource ) {
 
 			const results = frame.getHitTestResults( this.hitTestSource );
-			hitCount = results.length;
 
 			if ( results.length > 0 ) {
 
@@ -327,12 +253,16 @@ export class ARManager {
 
 				if ( ! this.hasHit ) {
 
-					// First surface found: face the track away from the player.
+					// First surface found: face the track away from the player,
+					// and if we can see the room's real floor size, auto-fit
+					// the track's starting scale to it (still adjustable after).
 					const xrCam = this.renderer.xr.getCamera();
 					this._camPos.setFromMatrixPosition( xrCam.matrixWorld );
 					this._camForward.set( 0, 0, -1 ).transformDirection( xrCam.matrixWorld );
 					const yaw = Math.atan2( this._camForward.x, this._camForward.z );
 					this.arQuaternion.setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), yaw );
+
+					this._autoFitScaleToRoom( frame );
 
 				}
 
@@ -362,18 +292,73 @@ export class ARManager {
 
 		this.previewGroup.visible = this.hasHit;
 
-		this.setDebugText(
-			'hitTestSource: ' + ( this.hitTestSource ? 'ready' : 'waiting' ) + '\n' +
-			'hits this frame: ' + hitCount + '\n' +
-			'hasHit: ' + this.hasHit + '\n' +
-			'left pad: ' + ( !! this.gamepads.left ) + '  right pad: ' + ( !! this.gamepads.right ) + '\n' +
-			( this.hasHit ? 'Trigger to confirm placement' : 'Look at the floor to find a surface' )
-		);
-
 		// 3) Confirm / lock
 		if ( this.hasHit && this._triggerPressedEdge() ) {
 
-			this._confirmPlacement();
+			this._confirmPlacement( frame, refSpace );
+
+		}
+
+	}
+
+	// Best-effort: use the real detected floor plane's bounding size (Meta
+	// plane-detection) to pick a sensible starting scale so the track
+	// roughly matches this room, without changing the track's own layout.
+	// Silently does nothing if plane-detection isn't available.
+	_autoFitScaleToRoom( frame ) {
+
+		try {
+
+			const planes = frame.detectedPlanes;
+			if ( ! planes || planes.size === 0 ) return;
+
+			let best = null, bestArea = 0;
+
+			planes.forEach( ( plane ) => {
+
+				if ( plane.orientation && plane.orientation !== 'horizontal' ) return;
+				if ( plane.semanticLabel && plane.semanticLabel !== 'floor' ) return;
+
+				const poly = plane.polygon;
+				if ( ! poly || poly.length < 3 ) return;
+
+				let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+				poly.forEach( ( p ) => {
+
+					if ( p.x < minX ) minX = p.x;
+					if ( p.x > maxX ) maxX = p.x;
+					if ( p.z < minZ ) minZ = p.z;
+					if ( p.z > maxZ ) maxZ = p.z;
+
+				} );
+
+				const width = maxX - minX, depth = maxZ - minZ, area = width * depth;
+				if ( area > bestArea ) {
+
+					bestArea = area;
+					best = { width, depth };
+
+				}
+
+			} );
+
+			if ( ! best ) return;
+
+			const bounds = computeTrackBounds( this.customCells );
+			const fitScale = Math.min(
+				( best.width * 0.85 ) / ( bounds.halfWidth * 2 ),
+				( best.depth * 0.85 ) / ( bounds.halfDepth * 2 )
+			);
+
+			if ( isFinite( fitScale ) && fitScale > 0 ) {
+
+				this.arScale = THREE.MathUtils.clamp( fitScale, SCALE_MIN, SCALE_MAX );
+
+			}
+
+		} catch ( e ) {
+
+			console.warn( '[ARManager] plane-detection auto-fit unavailable:', e );
 
 		}
 
@@ -444,7 +429,7 @@ export class ARManager {
 
 	}
 
-	_confirmPlacement() {
+	_confirmPlacement( frame, refSpace ) {
 
 		this.placed = true;
 		this.previewGroup.visible = false;
@@ -481,9 +466,101 @@ export class ARManager {
 				restitution: 0.0,
 			} );
 
+			this._buildRoomFurnitureColliders( frame, refSpace );
+
 		}
 
 		if ( this.onPlaced ) this.onPlaced( this.getSpawnWorld() );
+
+	}
+
+	// Best-effort real-world collision: uses Meta's WebXR mesh-detection
+	// (requires the room's furniture to already be captured via Space Setup
+	// on the headset) to add static, invisible colliders matching real
+	// furniture, so the car actually bumps into the real couch/table.
+	// Silently skips if the feature/browser/room data isn't available —
+	// the game still works fine without it, just without real collision.
+	_buildRoomFurnitureColliders( frame, refSpace ) {
+
+		try {
+
+			const meshes = frame.detectedMeshes;
+			if ( ! meshes || meshes.size === 0 ) {
+
+				console.log( '[ARManager] No room furniture meshes available (mesh-detection unsupported, or Space Setup furniture capture wasn\'t done on this headset).' );
+				return;
+
+			}
+
+			const skipLabels = new Set( [ 'floor', 'ceiling', 'wall-face', 'invisible-wall-face', 'global-mesh', 'wall' ] );
+			let count = 0;
+
+			meshes.forEach( ( mesh ) => {
+
+				const label = mesh.semanticLabel || '';
+				if ( skipLabels.has( label ) ) return;
+
+				const pose = frame.getPose( mesh.meshSpace, refSpace );
+				if ( ! pose ) return;
+
+				const bounds = this._computeVertexBounds( mesh.vertices );
+				if ( ! bounds ) return;
+
+				const poseQuat = new THREE.Quaternion(
+					pose.transform.orientation.x, pose.transform.orientation.y,
+					pose.transform.orientation.z, pose.transform.orientation.w
+				);
+				const centerLocal = new THREE.Vector3( bounds.cx, bounds.cy, bounds.cz ).applyQuaternion( poseQuat );
+				const worldCenter = new THREE.Vector3(
+					pose.transform.position.x, pose.transform.position.y, pose.transform.position.z
+				).add( centerLocal );
+
+				rigidBody.create( this.world, {
+					shape: box.create( { halfExtents: [
+						Math.max( bounds.hx, 0.02 ), Math.max( bounds.hy, 0.02 ), Math.max( bounds.hz, 0.02 )
+					] } ),
+					motionType: MotionType.STATIC,
+					objectLayer: this.world._OL_STATIC,
+					position: [ worldCenter.x, worldCenter.y, worldCenter.z ],
+					quaternion: [ poseQuat.x, poseQuat.y, poseQuat.z, poseQuat.w ],
+					friction: 0.8,
+					restitution: 0.2,
+				} );
+
+				count ++;
+
+			} );
+
+			console.log( '[ARManager] Built', count, 'real-world furniture colliders.' );
+
+		} catch ( e ) {
+
+			console.warn( '[ARManager] Room furniture collision unavailable:', e );
+
+		}
+
+	}
+
+	_computeVertexBounds( vertices ) {
+
+		if ( ! vertices || vertices.length < 3 ) return null;
+
+		let minX = Infinity, minY = Infinity, minZ = Infinity;
+		let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+		for ( let i = 0; i < vertices.length; i += 3 ) {
+
+			const x = vertices[ i ], y = vertices[ i + 1 ], z = vertices[ i + 2 ];
+			if ( x < minX ) minX = x; if ( x > maxX ) maxX = x;
+			if ( y < minY ) minY = y; if ( y > maxY ) maxY = y;
+			if ( z < minZ ) minZ = z; if ( z > maxZ ) maxZ = z;
+
+		}
+
+		return {
+			hx: ( maxX - minX ) / 2, hy: ( maxY - minY ) / 2, hz: ( maxZ - minZ ) / 2,
+			cx: ( maxX + minX ) / 2, cy: ( maxY + minY ) / 2, cz: ( maxZ + minZ ) / 2,
+		};
 
 	}
 
