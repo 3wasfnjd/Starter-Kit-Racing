@@ -15,7 +15,7 @@ function addDebugBox( group, halfExtents, position, quaternion ) {
 }
 
 export function buildWallColliders( world, debugGroup, customCells ) {
-
+ return;
 	const S = GRID_SCALE;
 	const CELL_HALF = CELL_RAW / 2;
 
