@@ -413,33 +413,42 @@ async function startARMode( { customCells, mapParam } ) {
 
 		frameUpdate( dt, timestamp, frame ) {
 
-			arManager.update( frame, dt );
+			try {
 
-			if ( gameState ) {
+				arManager.update( frame, dt );
 
-				// Controllers drive the car once the track is locked in;
-				// keyboard/gamepad still work too (e.g. testing on desktop).
-				const kbInput = controls.update();
-				const arInput = arManager.getDriveInput();
-				const input = {
-					x: Math.abs( arInput.x ) > Math.abs( kbInput.x ) ? arInput.x : kbInput.x,
-					z: Math.abs( arInput.z ) > Math.abs( kbInput.z ) ? arInput.z : kbInput.z,
-					touchActive: kbInput.touchActive,
-				};
+				if ( gameState ) {
 
-				updateVehicleAndFx( dt, input, { world, ...gameState } );
+					// Controllers drive the car once the track is locked in;
+					// keyboard/gamepad still work too (e.g. testing on desktop).
+					const kbInput = controls.update();
+					const arInput = arManager.getDriveInput();
+					const input = {
+						x: Math.abs( arInput.x ) > Math.abs( kbInput.x ) ? arInput.x : kbInput.x,
+						z: Math.abs( arInput.z ) > Math.abs( kbInput.z ) ? arInput.z : kbInput.z,
+						touchActive: kbInput.touchActive,
+					};
 
-				dirLight.position.set(
-					gameState.vehicle.spherePos.x + 11.4,
-					15,
-					gameState.vehicle.spherePos.z - 5.3
-				);
+					updateVehicleAndFx( dt, input, { world, ...gameState } );
 
-			} else {
+					dirLight.position.set(
+						gameState.vehicle.spherePos.x + 11.4,
+						15,
+						gameState.vehicle.spherePos.z - 5.3
+					);
 
-				// Placement phase: still step physics so nothing is stale
-				// once the vehicle spawns, but there is no vehicle yet.
-				updateWorld( world, null, dt );
+				} else {
+
+					// Placement phase: still step physics so nothing is stale
+					// once the vehicle spawns, but there is no vehicle yet.
+					updateWorld( world, null, dt );
+
+				}
+
+			} catch ( e ) {
+
+				arManager.setDebugText( 'frameUpdate() error:\n' + e.message );
+				console.error( e );
 
 			}
 
@@ -467,7 +476,7 @@ function animate( timestamp, frame ) {
 
 renderer.setAnimationLoop( animate );
 
-function showErrorOverlay( message, onRetry ) {
+function showErrorOverlay( message, stack, onRetry ) {
 
 	const box = document.createElement( 'div' );
 	box.style.cssText = `
@@ -482,7 +491,11 @@ function showErrorOverlay( message, onRetry ) {
 
 	const detail = document.createElement( 'div' );
 	detail.textContent = message;
-	detail.style.cssText = 'color:#ddd; font-size:14px; max-width:480px; white-space:pre-wrap;';
+	detail.style.cssText = 'color:#ddd; font-size:14px; max-width:640px; white-space:pre-wrap;';
+
+	const stackBox = document.createElement( 'div' );
+	stackBox.textContent = stack ? stack.split( '\n' ).slice( 0, 6 ).join( '\n' ) : '';
+	stackBox.style.cssText = 'color:#999; font-size:11px; max-width:640px; white-space:pre-wrap; text-align:left; font-family:monospace;';
 
 	const retryBtn = document.createElement( 'button' );
 	retryBtn.textContent = 'Back to menu';
@@ -499,10 +512,11 @@ function showErrorOverlay( message, onRetry ) {
 
 	box.appendChild( title );
 	box.appendChild( detail );
+	box.appendChild( stackBox );
 	box.appendChild( retryBtn );
 	document.body.appendChild( box );
 
-	console.error( 'AR MODE failed:', message );
+	console.error( 'AR MODE failed:', message, stack );
 
 }
 
@@ -552,6 +566,7 @@ async function init() {
 
 					showErrorOverlay(
 						( e && e.message ) ? e.message : String( e ),
+						e && e.stack ? e.stack : '',
 						resolve
 					);
 
