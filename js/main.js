@@ -14,6 +14,7 @@ import { GameAudio } from './Audio.js';
 import { LapTimer } from './LapTimer.js';
 import { ColorMapGLTFLoader } from './Loader.js';
 import { ARManager } from './ARManager.js';
+import { Radio } from './Radio.js';
 
 
 const renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true, outputBufferType: THREE.HalfFloatType } );
@@ -399,6 +400,8 @@ async function startARMode( { mapParam } ) {
 		const audio = new GameAudio();
 		audio.init( renderer.xr.getCamera(), vehicleGroup ); // XR camera rig instead of the NORMAL-mode chase Camera
 
+		const radio = new Radio( audio.listener, vehicleGroup );
+
 		const _forward = new THREE.Vector3();
 
 		const contactListener = {
@@ -419,7 +422,7 @@ async function startARMode( { mapParam } ) {
 		// No lapTimer — free-roam has no track/laps.
 		gameState = {
 			vehicle, vehicleGroup, vehicleModel, vehicleModelMinY, vehicleScale: 1,
-			particles, driftMarks, audio, contactListener
+			particles, driftMarks, audio, radio, contactListener
 		};
 
 	};
@@ -477,6 +480,10 @@ async function startARMode( { mapParam } ) {
 						gameState.vehicleModel.position.y = gameState.vehicleModelMinY * ( 1 - s );
 
 					}
+
+					const radioBtn = arManager.getRadioButtons();
+					if ( radioBtn.next ) gameState.radio.next();
+					if ( radioBtn.toggle ) gameState.radio.togglePlayPause();
 
 					dirLight.position.set(
 						gameState.vehicle.spherePos.x + 11.4,

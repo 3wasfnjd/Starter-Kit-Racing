@@ -42,6 +42,7 @@ export class ARManager {
 
 		this.gamepads = { left: null, right: null };
 		this._prevTrigger = { left: false, right: false };
+		this._prevRadioButtons = { x: false, y: false };
 
 		this.controllerModelFactory = new XRControllerModelFactory();
 		this._setupControllers();
@@ -350,24 +351,57 @@ export class ARManager {
 
 	}
 
-	// Static floor collider for the car to drive on. Always generous and
-	// fixed-size — trusting plane-detection's reported floor size was
-	// causing an undersized collider (a mislabeled or partially-scanned
-	// surface), which the car would drive off of and fall through. An
-	// invisible collider being larger than the real room has zero visible
-	// downside, so we no longer try to be clever here.
+	// Static floor collider for the car to drive on, plus solid perimeter
+	// walls so the car bounces off the boundary instead of driving past
+	// the edge into the void and falling. Always generous and fixed-size —
+	// trusting plane-detection's reported floor size was causing an
+	// undersized collider (a mislabeled or partially-scanned surface).
 	_buildFreeRoamFloor() {
 
-		const halfW = 15, halfD = 15; // generous fixed 30x30m
+		const halfW = 25, halfD = 25; // generous fixed 50x50m
+		const floorY = this.arPosition.y - 0.125;
+		const cx = this.arPosition.x, cz = this.arPosition.z;
 
 		rigidBody.create( this.world, {
 			shape: box.create( { halfExtents: [ halfW, 0.01, halfD ] } ),
 			motionType: MotionType.STATIC,
 			objectLayer: this.world._OL_STATIC,
-			position: [ this.arPosition.x, this.arPosition.y - 0.125, this.arPosition.z ],
+			position: [ cx, floorY, cz ],
 			friction: 5.0,
 			restitution: 0.0,
 		} );
+
+		const wallHalfHeight = 1.0;
+		const wallThickness = 0.2;
+		const wallY = floorY + wallHalfHeight;
+
+		// North / South (along X, thin in Z)
+		for ( const sign of [ 1, -1 ] ) {
+
+			rigidBody.create( this.world, {
+				shape: box.create( { halfExtents: [ halfW, wallHalfHeight, wallThickness ] } ),
+				motionType: MotionType.STATIC,
+				objectLayer: this.world._OL_STATIC,
+				position: [ cx, wallY, cz + sign * halfD ],
+				friction: 0.2,
+				restitution: 0.3,
+			} );
+
+		}
+
+		// East / West (along Z, thin in X)
+		for ( const sign of [ 1, -1 ] ) {
+
+			rigidBody.create( this.world, {
+				shape: box.create( { halfExtents: [ wallThickness, wallHalfHeight, halfD ] } ),
+				motionType: MotionType.STATIC,
+				objectLayer: this.world._OL_STATIC,
+				position: [ cx + sign * halfW, wallY, cz ],
+				friction: 0.2,
+				restitution: 0.3,
+			} );
+
+		}
 
 	}
 
@@ -506,10 +540,36 @@ export class ARManager {
 	getScaleAdjustInput() {
 
 		const left = this.gamepads.left;
-		if ( ! left ) return 0;
+		if ( ! left || ! left.axes ) return 0;
 
-		const v = left.axes && left.axes.length > 3 ? left.axes[ 3 ] : 0;
+		// Different browser/firmware builds have occasionally reported the
+		// thumbstick Y axis at index 1 instead of the xr-standard index 3 —
+		// check both and use whichever has a real signal.
+		const a3 = left.axes.length > 3 ? left.axes[ 3 ] : 0;
+		const a1 = left.axes.length > 1 ? left.axes[ 1 ] : 0;
+		const v = Math.abs( a3 ) > Math.abs( a1 ) ? a3 : a1;
+
 		return Math.abs( v ) > 0.25 ? v : 0; // slightly larger deadzone than steering
+
+	}
+
+	// Left X/Y buttons (xr-standard indices 4/5) are completely unused
+	// during driving — repurposed here for radio control. Returns
+	// rising-edge booleans (true only on the frame the button was first
+	// pressed), so main.js can react once per press rather than every frame.
+	getRadioButtons() {
+
+		const left = this.gamepads.left;
+		const xBtn = left && left.buttons[ 4 ] ? left.buttons[ 4 ].pressed : false;
+		const yBtn = left && left.buttons[ 5 ] ? left.buttons[ 5 ].pressed : false;
+
+		const xEdge = xBtn && ! this._prevRadioButtons.x;
+		const yEdge = yBtn && ! this._prevRadioButtons.y;
+
+		this._prevRadioButtons.x = xBtn;
+		this._prevRadioButtons.y = yBtn;
+
+		return { next: xEdge, toggle: yEdge };
 
 	}
 
