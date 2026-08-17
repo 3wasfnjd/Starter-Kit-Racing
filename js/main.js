@@ -403,8 +403,8 @@ function addCustomTextDecals( vehicleGroup, text ) {
 	// decal sized to sit inside the glass panel itself (not the whole
 	// frame) and offset just enough past the glass surface to avoid
 	// z-fighting, like a sticker applied to the glass.
-	const windshieldDecal = new THREE.Mesh( new THREE.PlaneGeometry( 0.85, 0.425 ), material );
-	windshieldDecal.position.set( 0, 0.42, 0.57 );
+	const windshieldDecal = new THREE.Mesh( new THREE.PlaneGeometry( 0.62, 0.34 ), material );
+	windshieldDecal.position.set( 0, 0.66, 0.57 );
 	windshieldDecal.renderOrder = 10;
 	bodyNode.add( windshieldDecal );
 
