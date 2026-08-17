@@ -394,25 +394,25 @@ function addCustomTextDecals( vehicleGroup, text ) {
 
 	const texture = createTextTexture( text );
 	const material = new THREE.MeshBasicMaterial( {
-		map: texture, transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide,
+		map: texture, transparent: true, depthWrite: false, side: THREE.DoubleSide,
 	} );
 
 	// Coordinates measured directly from the actual shipped model's mesh
-	// (vehicle-truck-*.glb — same body geometry across all 4 colors):
-	// windshield glass spans roughly x:[-0.75,0.75] y:[0,0.9] z:[0.4,0.55],
-	// rear window/panel spans x:[-0.67,0.67] y:[0.09,0.5] z:[-1.4,-1.27].
-	// depthTest is off above so nearby body/hood geometry can never hide
-	// these regardless of viewing angle; renderOrder keeps them drawing
-	// after everything else.
-	const windshieldDecal = new THREE.Mesh( new THREE.PlaneGeometry( 1.1, 0.55 ), material );
-	windshieldDecal.position.set( 0, 0.4, 0.62 );
-	windshieldDecal.renderOrder = 999;
+	// (vehicle-truck-*.glb — same body geometry across all 4 colors).
+	// Windshield glass: center of mass (0, 0.42, 0.48), max z 0.548 —
+	// decal sized to sit inside the glass panel itself (not the whole
+	// frame) and offset just enough past the glass surface to avoid
+	// z-fighting, like a sticker applied to the glass.
+	const windshieldDecal = new THREE.Mesh( new THREE.PlaneGeometry( 0.85, 0.425 ), material );
+	windshieldDecal.position.set( 0, 0.42, 0.57 );
+	windshieldDecal.renderOrder = 10;
 	bodyNode.add( windshieldDecal );
 
-	const tailgateDecal = new THREE.Mesh( new THREE.PlaneGeometry( 1.15, 0.575 ), material );
-	tailgateDecal.position.set( 0, 0.28, -1.46 );
+	// Rear window/panel: x:[-0.67,0.67] y:[0.09,0.5] z:[-1.4,-1.27].
+	const tailgateDecal = new THREE.Mesh( new THREE.PlaneGeometry( 1.0, 0.5 ), material );
+	tailgateDecal.position.set( 0, 0.28, -1.43 );
 	tailgateDecal.rotation.y = Math.PI; // face backward
-	tailgateDecal.renderOrder = 999;
+	tailgateDecal.renderOrder = 10;
 	bodyNode.add( tailgateDecal );
 
 }
