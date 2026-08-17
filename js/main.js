@@ -121,6 +121,32 @@ async function loadModels() {
 // Neither existing markup nor CSS is touched; this overlay is created
 // entirely from main.js so index.html stays untouched too.
 
+// Requests fullscreen on the whole page. Must be called synchronously
+// inside a user-gesture handler (click) or the browser will silently
+// refuse. Not all mobile browsers support this (notably iPhone Safari
+// does not support Element.requestFullscreen at all) — fails silently
+// there, the game still works fine, just not edge-to-edge.
+function requestFullscreenSafe() {
+
+	const el = document.documentElement;
+	const request = el.requestFullscreen || el.webkitRequestFullscreen ||
+		el.mozRequestFullScreen || el.msRequestFullscreen;
+
+	if ( ! request ) return;
+
+	try {
+
+		const result = request.call( el );
+		if ( result && result.catch ) result.catch( ( e ) => console.warn( 'Fullscreen request failed:', e ) );
+
+	} catch ( e ) {
+
+		console.warn( 'Fullscreen request failed:', e );
+
+	}
+
+}
+
 function createModeMenu( { arAvailable } ) {
 
 	return new Promise( ( resolve ) => {
@@ -188,7 +214,7 @@ function createModeMenu( { arAvailable } ) {
 		const VEHICLE_OPTIONS = [
 			{ key: 'vehicle-truck-yellow', label: 'أصفر', thumb: 'images/menu/thumb-yellow.png' },
 			{ key: 'vehicle-truck-green', label: 'أخضر', thumb: 'images/menu/thumb-green.png' },
-			{ key: 'vehicle-truck-purple', label: 'بنفسجي', thumb: 'images/menu/thumb-purple.png' },
+			{ key: 'vehicle-truck-purple', label: 'أسود', thumb: 'images/menu/thumb-black.png' },
 			{ key: 'vehicle-truck-red', label: 'أحمر', thumb: 'images/menu/thumb-red.png' },
 		];
 		let selectedVehicle = VEHICLE_OPTIONS[ 0 ].key;
@@ -278,6 +304,7 @@ function createModeMenu( { arAvailable } ) {
 
 		normalBtn.addEventListener( 'click', () => {
 
+			requestFullscreenSafe();
 			menu.remove();
 			resolve( { choice: 'normal', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked, vehicleKey: selectedVehicle } );
 
@@ -286,6 +313,7 @@ function createModeMenu( { arAvailable } ) {
 		arBtn.addEventListener( 'click', () => {
 
 			if ( arBtn.disabled ) return;
+			requestFullscreenSafe();
 			menu.remove();
 			resolve( { choice: 'ar', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked, vehicleKey: selectedVehicle } );
 
