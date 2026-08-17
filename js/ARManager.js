@@ -43,6 +43,8 @@ export class ARManager {
 		this.gamepads = { left: null, right: null };
 		this._prevTrigger = { left: false, right: false };
 		this._prevRadioButtons = { x: false, y: false };
+		this._prevHeadlightButton = false;
+		this._prevHazardButton = false;
 
 		this.controllerModelFactory = new XRControllerModelFactory();
 		this._setupControllers();
@@ -576,6 +578,30 @@ export class ARManager {
 		this._prevRadioButtons.y = yBtn;
 
 		return { next: xEdge, toggle: yEdge };
+
+	}
+
+	// Left grip (squeeze, xr-standard index 1) is unused elsewhere while
+	// driving — repurposed for headlight toggle. Rising-edge only.
+	getHeadlightToggle() {
+
+		const left = this.gamepads.left;
+		const pressed = left && left.buttons[ 1 ] ? left.buttons[ 1 ].pressed : false;
+		const edge = pressed && ! this._prevHeadlightButton;
+		this._prevHeadlightButton = pressed;
+		return edge;
+
+	}
+
+	// Right A/X button (xr-standard index 4) is unused elsewhere while
+	// driving — repurposed for hazard-light toggle. Rising-edge only.
+	getHazardToggle() {
+
+		const right = this.gamepads.right;
+		const pressed = right && right.buttons[ 4 ] ? right.buttons[ 4 ].pressed : false;
+		const edge = pressed && ! this._prevHazardButton;
+		this._prevHazardButton = pressed;
+		return edge;
 
 	}
 

@@ -437,15 +437,20 @@ function addVehicleLights( vehicleGroup ) {
 		if ( child.name.toLowerCase() === 'body' ) bodyNode = child;
 
 	} );
-	if ( ! bodyNode ) return;
+	if ( ! bodyNode ) return null;
 
 	// Headlights: warm-white spotlights aimed forward, lighting up the
-	// real room ahead in AR (most rooms in the screenshots so far were
-	// quite dark, so this is genuinely useful, not just decorative).
+	// real room ahead in AR. Off by default — toggled by the player.
+	// Modern three.js uses physically-correct (candela) light units, so
+	// a light meant to reach several real meters needs a much higher
+	// intensity than the old-style small numbers, or it's invisible.
+	const headlights = [];
 	for ( const side of [ -1, 1 ] ) {
 
-		const light = new THREE.SpotLight( 0xfff2cc, 4, 10, Math.PI / 7, 0.5, 1.5 );
+		const baseDistance = 8;
+		const light = new THREE.SpotLight( 0xfff2cc, 500, baseDistance, Math.PI / 7, 0.5, 1.5 );
 		light.position.set( side * 0.4, 0.3, 1.42 );
+		light.visible = false;
 
 		const target = new THREE.Object3D();
 		target.position.set( side * 0.4, 0.05, 5 );
@@ -453,17 +458,89 @@ function addVehicleLights( vehicleGroup ) {
 		light.target = target;
 
 		bodyNode.add( light );
+		headlights.push( { light, baseDistance } );
 
 	}
 
-	// Taillights: small, short-range red glow — real taillights don't
-	// meaningfully illuminate anything, this is just a soft ambient tint
-	// near the rear of the car, cheap enough to not worry about perf.
+	// Taillights: small, short-range red glow, always on — real
+	// taillights don't meaningfully illuminate anything, this is just a
+	// soft tint near the rear. (Kept at the same intensity that already
+	// looked right — short range makes it visible even at low candela.)
+	const taillights = [];
 	for ( const side of [ -1, 1 ] ) {
 
-		const light = new THREE.PointLight( 0xff3b30, 0.8, 0.9, 2 );
+		const baseDistance = 0.9;
+		const light = new THREE.PointLight( 0xff3b30, 0.8, baseDistance, 2 );
 		light.position.set( side * 0.4, 0.43, -1.32 );
 		bodyNode.add( light );
+		taillights.push( { light, baseDistance } );
+
+	}
+
+	// Hazard/emergency lights: orange, blinking, at all 4 corners. Off
+	// by default — toggled by the player, blink handled per-frame.
+	const hazards = [];
+	const hazardPositions = [
+		[ -0.4, 0.3, 1.42 ], [ 0.4, 0.3, 1.42 ],
+		[ -0.4, 0.43, -1.32 ], [ 0.4, 0.43, -1.32 ],
+	];
+	for ( const [ x, y, z ] of hazardPositions ) {
+
+		const baseDistance = 0.8;
+		const light = new THREE.PointLight( 0xff8c1a, 3, baseDistance, 2 );
+		light.position.set( x, y, z );
+		light.visible = false;
+		bodyNode.add( light );
+		hazards.push( { light, baseDistance } );
+
+	}
+
+	return { headlights, taillights, hazards };
+
+}
+
+// ─── Shared light control helpers (used by both modes) ─────
+
+function toggleHeadlights( vehicleLights ) {
+
+	if ( ! vehicleLights ) return;
+	const on = ! vehicleLights.headlights[ 0 ].light.visible;
+	vehicleLights.headlights.forEach( ( h ) => { h.light.visible = on; } );
+
+}
+
+function toggleHazards( vehicleLights ) {
+
+	if ( ! vehicleLights ) return;
+	vehicleLights.hazardsOn = ! vehicleLights.hazardsOn;
+	if ( ! vehicleLights.hazardsOn ) {
+
+		vehicleLights.hazards.forEach( ( h ) => { h.light.visible = false; } );
+
+	}
+
+}
+
+// Call every frame; handles the hazard blink timing and keeps light
+// range proportional to the vehicle's current scale (AR resize control) —
+// a light's `.distance` is in local units and does NOT automatically
+// scale with its parent's transform the way position/rotation do.
+function updateVehicleLights( vehicleLights, dt, scale ) {
+
+	if ( ! vehicleLights ) return;
+
+	if ( scale !== undefined ) {
+
+		const all = [ ...vehicleLights.headlights, ...vehicleLights.taillights, ...vehicleLights.hazards ];
+		all.forEach( ( { light, baseDistance } ) => { light.distance = baseDistance * scale; } );
+
+	}
+
+	if ( vehicleLights.hazardsOn ) {
+
+		vehicleLights._blinkTimer = ( vehicleLights._blinkTimer || 0 ) + dt;
+		const on = Math.floor( vehicleLights._blinkTimer / 0.4 ) % 2 === 0;
+		vehicleLights.hazards.forEach( ( h ) => { h.light.visible = on; } );
 
 	}
 
@@ -473,7 +550,7 @@ function addVehicleLights( vehicleGroup ) {
 // Controls.js already covers a full-screen invisible steering zone for
 // touch, so these buttons need a higher z-index to receive taps first.
 
-function setupRadioTouchUI( radio ) {
+function setupRadioTouchUI( radio, vehicleLights ) {
 
 	if ( ! ( 'ontouchstart' in window ) ) return;
 
@@ -501,6 +578,8 @@ function setupRadioTouchUI( radio ) {
 
 	const nextBtn = makeTapButton( '⏭' );
 	const toggleBtn = makeTapButton( '⏯' );
+	const headlightBtn = makeTapButton( '💡' );
+	const hazardBtn = makeTapButton( '⚠️' );
 
 	// pointerdown (not click) for lower latency and to match the steering
 	// zone's own event type; stopPropagation so the tap doesn't also get
@@ -517,9 +596,23 @@ function setupRadioTouchUI( radio ) {
 		radio.togglePlayPause();
 
 	} );
+	headlightBtn.addEventListener( 'pointerdown', ( e ) => {
+
+		e.stopPropagation();
+		toggleHeadlights( vehicleLights );
+
+	} );
+	hazardBtn.addEventListener( 'pointerdown', ( e ) => {
+
+		e.stopPropagation();
+		toggleHazards( vehicleLights );
+
+	} );
 
 	wrap.appendChild( nextBtn );
 	wrap.appendChild( toggleBtn );
+	wrap.appendChild( headlightBtn );
+	wrap.appendChild( hazardBtn );
 	document.body.appendChild( wrap );
 
 }
@@ -699,7 +792,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
 	scene.add( vehicleGroup );
 	addCustomTextDecals( vehicleGroup, customText );
-	addVehicleLights( vehicleGroup );
+	const vehicleLights = addVehicleLights( vehicleGroup );
 
 	dirLight.target = vehicleGroup;
 
@@ -715,7 +808,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	audio.init( cam.camera, vehicleGroup );
 
 	const radio = new Radio( audio.listener, vehicleGroup );
-	setupRadioTouchUI( radio );
+	setupRadioTouchUI( radio, vehicleLights );
 
 	const _forward = new THREE.Vector3();
 	const _camLead = new THREE.Vector3();
@@ -738,9 +831,9 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer, contactListener };
 
 	// Radio controls for NORMAL mode (no VR controllers here, so keyboard
-	// instead): R = next track, T = play/pause. Edge-detected so holding
-	// the key doesn't rapid-fire every frame.
-	let prevRadioKeys = { r: false, t: false };
+	// instead): R = next track, T = play/pause. L = headlights, H =
+	// hazards. Edge-detected so holding a key doesn't rapid-fire.
+	let prevKeys = { r: false, t: false, l: false, h: false };
 
 	return {
 
@@ -749,12 +842,17 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			const input = controls.update();
 
 			updateVehicleAndFx( dt, input, ctx );
+			updateVehicleLights( vehicleLights, dt, 1 );
 
 			const rKey = !! controls.keys[ 'KeyR' ];
 			const tKey = !! controls.keys[ 'KeyT' ];
-			if ( rKey && ! prevRadioKeys.r ) radio.next();
-			if ( tKey && ! prevRadioKeys.t ) radio.togglePlayPause();
-			prevRadioKeys = { r: rKey, t: tKey };
+			const lKey = !! controls.keys[ 'KeyL' ];
+			const hKey = !! controls.keys[ 'KeyH' ];
+			if ( rKey && ! prevKeys.r ) radio.next();
+			if ( tKey && ! prevKeys.t ) radio.togglePlayPause();
+			if ( lKey && ! prevKeys.l ) toggleHeadlights( vehicleLights );
+			if ( hKey && ! prevKeys.h ) toggleHazards( vehicleLights );
+			prevKeys = { r: rKey, t: tKey, l: lKey, h: hKey };
 
 			dirLight.position.set(
 				vehicle.spherePos.x + 11.4,
@@ -803,7 +901,7 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
 		scene.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
-		addVehicleLights( vehicleGroup );
+		const vehicleLights = addVehicleLights( vehicleGroup );
 
 		dirLight.target = vehicleGroup;
 
@@ -847,7 +945,7 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 		// No lapTimer — free-roam has no track/laps.
 		gameState = {
 			vehicle, vehicleGroup, vehicleModel, vehicleModelMinY, vehicleScale: 1,
-			particles, driftMarks, audio, radio, contactListener
+			particles, driftMarks, audio, radio, vehicleLights, contactListener
 		};
 
 	};
@@ -886,6 +984,7 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 					};
 
 					updateVehicleAndFx( dt, input, { world, ...gameState } );
+					updateVehicleLights( gameState.vehicleLights, dt, gameState.vehicleScale );
 
 					const scaleInput = arManager.getScaleAdjustInput();
 					if ( scaleInput !== 0 ) {
@@ -909,6 +1008,9 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 					const radioBtn = arManager.getRadioButtons();
 					if ( radioBtn.next ) gameState.radio.next();
 					if ( radioBtn.toggle ) gameState.radio.togglePlayPause();
+
+					if ( arManager.getHeadlightToggle() ) toggleHeadlights( gameState.vehicleLights );
+					if ( arManager.getHazardToggle() ) toggleHazards( gameState.vehicleLights );
 
 					dirLight.position.set(
 						gameState.vehicle.spherePos.x + 11.4,
