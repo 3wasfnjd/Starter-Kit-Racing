@@ -394,7 +394,12 @@ function addCustomTextDecals( vehicleGroup, text ) {
 
 	const texture = createTextTexture( text );
 	const material = new THREE.MeshBasicMaterial( {
-		map: texture, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+		// Single-sided on purpose: with DoubleSide, the front decal's
+		// back face was visible (mirrored) from behind the vehicle over
+		// the roofline, and vice versa for the rear decal. FrontSide
+		// means each sticker only shows from its own correct side, like
+		// a real decal.
+		map: texture, transparent: true, depthWrite: false, side: THREE.FrontSide,
 	} );
 
 	// Coordinates measured directly from the actual shipped model's mesh
