@@ -313,7 +313,11 @@ function createModeMenu( { arAvailable } ) {
 		arBtn.addEventListener( 'click', () => {
 
 			if ( arBtn.disabled ) return;
-			requestFullscreenSafe();
+			// No requestFullscreenSafe() here on purpose: it would consume
+			// the click's transient user-activation, and requestSession()
+			// below needs that same activation — calling both burns it
+			// before requestSession() runs, causing a SecurityError. AR
+			// sessions take over the whole display anyway, so it's moot.
 			menu.remove();
 			resolve( { choice: 'ar', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked, vehicleKey: selectedVehicle } );
 

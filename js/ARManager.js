@@ -80,9 +80,9 @@ export class ARManager {
 
 	}
 
-	async requestSession() {
+	async requestSession( pendingSession = null ) {
 
-		const session = await navigator.xr.requestSession( 'immersive-ar', {
+		const session = pendingSession ? await pendingSession : await navigator.xr.requestSession( 'immersive-ar', {
 			requiredFeatures: [ 'local-floor', 'hit-test' ],
 			// Meta/Quest-specific room awareness. Optional: if unsupported,
 			// the session still starts fine and we just skip that part.
