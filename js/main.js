@@ -153,6 +153,56 @@ function createModeMenu( { arAvailable } ) {
 		`;
 		menu.appendChild( textInput );
 
+		const vehicleLabel = document.createElement( 'div' );
+		vehicleLabel.textContent = 'لون السيارة';
+		vehicleLabel.style.cssText = 'color:#ccc; font-size:13px; text-align:center;';
+		menu.appendChild( vehicleLabel );
+
+		const vehicleRow = document.createElement( 'div' );
+		vehicleRow.style.cssText = 'display:flex; gap:10px;';
+		menu.appendChild( vehicleRow );
+
+		const VEHICLE_OPTIONS = [
+			{ key: 'vehicle-truck-yellow', label: 'أصفر', color: '#F2C230' },
+			{ key: 'vehicle-truck-green', label: 'أخضر', color: '#4CAF6D' },
+			{ key: 'vehicle-truck-purple', label: 'بنفسجي', color: '#8B5FBF' },
+			{ key: 'vehicle-truck-red', label: 'أحمر', color: '#D9534F' },
+		];
+
+		let selectedVehicle = VEHICLE_OPTIONS[ 0 ].key;
+		const vehicleSwatches = [];
+
+		function refreshSwatchSelection() {
+
+			vehicleSwatches.forEach( ( sw ) => {
+
+				sw.style.borderColor = sw.dataset.key === selectedVehicle ? '#fff' : 'transparent';
+
+			} );
+
+		}
+
+		VEHICLE_OPTIONS.forEach( ( opt ) => {
+
+			const sw = document.createElement( 'button' );
+			sw.dataset.key = opt.key;
+			sw.title = opt.label;
+			sw.style.cssText = `
+				width: 44px; height: 44px; border-radius: 50%; cursor: pointer;
+				background: ${ opt.color }; border: 3px solid transparent;
+			`;
+			sw.addEventListener( 'click', () => {
+
+				selectedVehicle = opt.key;
+				refreshSwatchSelection();
+
+			} );
+			vehicleSwatches.push( sw );
+			vehicleRow.appendChild( sw );
+
+		} );
+		refreshSwatchSelection();
+
 		const freeRoamRow = document.createElement( 'label' );
 		freeRoamRow.style.cssText = 'color:#ccc; font-size:14px; display:flex; align-items:center; gap:10px; cursor:pointer;';
 		const freeRoamCheckbox = document.createElement( 'input' );
@@ -182,14 +232,14 @@ function createModeMenu( { arAvailable } ) {
 		normalBtn.addEventListener( 'click', () => {
 
 			menu.remove();
-			resolve( { choice: 'normal', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked } );
+			resolve( { choice: 'normal', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked, vehicleKey: selectedVehicle } );
 
 		} );
 
 		arBtn.addEventListener( 'click', () => {
 
 			menu.remove();
-			resolve( { choice: 'ar', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked } );
+			resolve( { choice: 'ar', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked, vehicleKey: selectedVehicle } );
 
 		} );
 
@@ -372,7 +422,7 @@ function updateVehicleAndFx( dt, input, ctx ) {
 
 // ─── NORMAL MODE (unchanged behavior from the original game) ──
 
-function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam } ) {
+function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey } ) {
 
 	const world = createPhysicsWorld();
 	let sphereBody, vehicleSpawn, lapTimer = null;
@@ -496,7 +546,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam }
 
 	}
 
-	const vehicleGroup = vehicle.init( models[ 'vehicle-truck-yellow' ] );
+	const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
 	scene.add( vehicleGroup );
 	addCustomTextDecals( vehicleGroup, customText );
 
@@ -575,7 +625,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam }
 
 // ─── AR MODE (Meta Quest 3 passthrough) ────────────────────
 
-async function startARMode( { mapParam, customText } ) {
+async function startARMode( { mapParam, customText, vehicleKey } ) {
 
 	const arManager = new ARManager( { renderer, scene, models } );
 	const world = createPhysicsWorld();
@@ -599,7 +649,7 @@ async function startARMode( { mapParam, customText } ) {
 
 		// The vehicle stays a direct child of `scene` (true WebXR world
 		// space), matching how physics already works in NORMAL mode.
-		const vehicleGroup = vehicle.init( models[ 'vehicle-truck-yellow' ] );
+		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
 		scene.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
 
@@ -828,13 +878,13 @@ async function init() {
 	// eslint-disable-next-line no-constant-condition
 	while ( true ) {
 
-		const { choice, customText, freeRoam } = await createModeMenu( { arAvailable } );
+		const { choice, customText, freeRoam, vehicleKey } = await createModeMenu( { arAvailable } );
 
 		if ( choice === 'ar' ) {
 
 			try {
 
-				activeMode = await startARMode( { mapParam, customText } );
+				activeMode = await startARMode( { mapParam, customText, vehicleKey } );
 				break;
 
 			} catch ( e ) {
@@ -856,7 +906,7 @@ async function init() {
 
 		} else {
 
-			activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam } );
+			activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey } );
 			break;
 
 		}
