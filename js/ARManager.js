@@ -581,12 +581,13 @@ export class ARManager {
 
 	}
 
-	// Left grip (squeeze, xr-standard index 1) is unused elsewhere while
-	// driving — repurposed for headlight toggle. Rising-edge only.
+	// Left thumbstick click (xr-standard index 3) — switched away from
+	// left grip, which proved unreliable for scale-adjust earlier
+	// (squeeze sensors often need an unusually firm press). Rising-edge.
 	getHeadlightToggle() {
 
 		const left = this.gamepads.left;
-		const pressed = left && left.buttons[ 1 ] ? left.buttons[ 1 ].pressed : false;
+		const pressed = left && left.buttons[ 3 ] ? left.buttons[ 3 ].pressed : false;
 		const edge = pressed && ! this._prevHeadlightButton;
 		this._prevHeadlightButton = pressed;
 		return edge;
@@ -602,6 +603,16 @@ export class ARManager {
 		const edge = pressed && ! this._prevHazardButton;
 		this._prevHazardButton = pressed;
 		return edge;
+
+	}
+
+	// Right B/Y button (xr-standard index 5) — high beam, held not
+	// toggled, matching a real high-beam flasher stalk. Returns the raw
+	// pressed state every frame (not edge-detected).
+	getHighBeamHold() {
+
+		const right = this.gamepads.right;
+		return right && right.buttons[ 5 ] ? right.buttons[ 5 ].pressed : false;
 
 	}
 
