@@ -125,50 +125,72 @@ function createModeMenu( { arAvailable } ) {
 
 	return new Promise( ( resolve ) => {
 
+		const style = document.createElement( 'style' );
+		style.textContent = `
+			#hajwalah-menu * { box-sizing: border-box; }
+			#hajwalah-menu {
+				position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+				background: radial-gradient(circle at 50% 20%, #1a1030 0%, #0a0a12 55%, #050508 100%);
+				font-family: 'Segoe UI', Tahoma, Arial, sans-serif; padding: 24px 16px; overflow-y: auto;
+			}
+			#hajwalah-menu .hw-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 420px; width: 100%; }
+			#hajwalah-menu .hw-logo { width: 120px; height: 120px; border-radius: 20px; filter: drop-shadow(0 0 22px rgba(139,95,191,0.55)); }
+			#hajwalah-menu .hw-title {
+				font-size: 32px; font-weight: 800; text-align: center; letter-spacing: 1px;
+				background: linear-gradient(90deg, #8B5FBF 0%, #5B8CFF 50%, #4FD8E8 100%);
+				-webkit-background-clip: text; background-clip: text; color: transparent;
+				margin: 4px 0 0;
+			}
+			#hajwalah-menu .hw-subtitle { color: #9a94b0; font-size: 12px; letter-spacing: 2px; margin-bottom: 6px; }
+			#hajwalah-menu .hw-panel {
+				width: 100%; background: rgba(255,255,255,0.04); border: 1px solid rgba(139,95,191,0.35);
+				border-radius: 18px; padding: 20px; display: flex; flex-direction: column; gap: 14px;
+				backdrop-filter: blur(10px);
+			}
+			#hajwalah-menu .hw-field-label { color: #b9b3cc; font-size: 12.5px; text-align: center; margin-bottom: 8px; }
+			#hajwalah-menu input[type=text] {
+				padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12);
+				background: rgba(255,255,255,0.06); color: #fff; font-size: 15px; text-align: center; width: 100%; outline: none;
+			}
+			#hajwalah-menu .hw-swatches { display: flex; gap: 10px; justify-content: center; }
+			#hajwalah-menu .hw-swatch {
+				width: 60px; height: 60px; border-radius: 12px; cursor: pointer; padding: 0;
+				border: 2px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.05);
+				display: flex; align-items: center; justify-content: center; overflow: hidden;
+			}
+			#hajwalah-menu .hw-swatch img { width: 90%; height: 90%; object-fit: contain; }
+			#hajwalah-menu .hw-swatch.selected { border-color: #5B8CFF; box-shadow: 0 0 14px rgba(91,140,255,0.55); }
+			#hajwalah-menu .hw-checkbox-row { display: flex; align-items: center; gap: 10px; color: #cfc9e0; font-size: 13.5px; justify-content: center; cursor: pointer; }
+			#hajwalah-menu .hw-checkbox-row input { width: 20px; height: 20px; accent-color: #8B5FBF; }
+			#hajwalah-menu .hw-mode-row { display: flex; gap: 12px; }
+			#hajwalah-menu .hw-mode-card {
+				flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px;
+				padding: 16px 10px; border-radius: 14px; cursor: pointer; border: none;
+				border: 1.5px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: #fff;
+			}
+			#hajwalah-menu .hw-mode-card.primary {
+				border-color: rgba(91,140,255,0.7);
+				background: linear-gradient(160deg, rgba(139,95,191,0.28), rgba(91,140,255,0.14));
+				box-shadow: 0 4px 22px rgba(91,140,255,0.25);
+			}
+			#hajwalah-menu .hw-mode-card:disabled { opacity: 0.45; cursor: not-allowed; }
+			#hajwalah-menu .hw-mode-card svg { width: 40px; height: 40px; }
+			#hajwalah-menu .hw-mode-label { font-size: 13.5px; font-weight: 600; text-align: center; }
+			#hajwalah-menu .hw-mode-sub { font-size: 10.5px; color: #a79fc4; text-align: center; }
+			#hajwalah-menu .hw-footer { margin-top: 6px; color: #6b6680; font-size: 11.5px; text-align: center; letter-spacing: 0.5px; }
+			#hajwalah-menu .hw-footer b { color: #9d8fd4; }
+		`;
+
 		const menu = document.createElement( 'div' );
+		menu.id = 'hajwalah-menu';
 		menu.dir = 'rtl';
-		menu.style.cssText = `
-			position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column;
-			align-items: center; justify-content: center; gap: 16px;
-			background: rgba(20,22,26,0.72); font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
-		`;
-
-		const title = document.createElement( 'div' );
-		title.textContent = 'اختر الوضع';
-		title.style.cssText = 'color:#fff; font-size:20px; font-weight:600; margin-bottom:8px;';
-		menu.appendChild( title );
-
-		const textLabel = document.createElement( 'div' );
-		textLabel.textContent = 'نص مخصص (الزجاج الأمامي والباب الخلفي) — اختياري';
-		textLabel.style.cssText = 'color:#ccc; font-size:13px; text-align:center;';
-		menu.appendChild( textLabel );
-
-		const textInput = document.createElement( 'input' );
-		textInput.type = 'text';
-		textInput.maxLength = 12;
-		textInput.placeholder = 'مثال: سباق';
-		textInput.style.cssText = `
-			padding: 10px 14px; border-radius: 8px; border: none; font-size: 16px;
-			text-align: center; width: 220px; margin-bottom: 4px;
-		`;
-		menu.appendChild( textInput );
-
-		const vehicleLabel = document.createElement( 'div' );
-		vehicleLabel.textContent = 'لون السيارة';
-		vehicleLabel.style.cssText = 'color:#ccc; font-size:13px; text-align:center;';
-		menu.appendChild( vehicleLabel );
-
-		const vehicleRow = document.createElement( 'div' );
-		vehicleRow.style.cssText = 'display:flex; gap:10px;';
-		menu.appendChild( vehicleRow );
 
 		const VEHICLE_OPTIONS = [
-			{ key: 'vehicle-truck-yellow', label: 'أصفر', color: '#F2C230' },
-			{ key: 'vehicle-truck-green', label: 'أخضر', color: '#4CAF6D' },
-			{ key: 'vehicle-truck-purple', label: 'بنفسجي', color: '#8B5FBF' },
-			{ key: 'vehicle-truck-red', label: 'أحمر', color: '#D9534F' },
+			{ key: 'vehicle-truck-yellow', label: 'أصفر', thumb: 'images/menu/thumb-yellow.png' },
+			{ key: 'vehicle-truck-green', label: 'أخضر', thumb: 'images/menu/thumb-green.png' },
+			{ key: 'vehicle-truck-purple', label: 'بنفسجي', thumb: 'images/menu/thumb-purple.png' },
+			{ key: 'vehicle-truck-red', label: 'أحمر', thumb: 'images/menu/thumb-red.png' },
 		];
-
 		let selectedVehicle = VEHICLE_OPTIONS[ 0 ].key;
 		const vehicleSwatches = [];
 
@@ -176,21 +198,67 @@ function createModeMenu( { arAvailable } ) {
 
 			vehicleSwatches.forEach( ( sw ) => {
 
-				sw.style.borderColor = sw.dataset.key === selectedVehicle ? '#fff' : 'transparent';
+				sw.classList.toggle( 'selected', sw.dataset.key === selectedVehicle );
 
 			} );
 
 		}
 
+		menu.innerHTML = `
+			<div class="hw-wrap">
+				<img class="hw-logo" src="images/menu/logo.png" alt="Aboden Games" />
+				<div class="hw-title">هجولة عتابة</div>
+				<div class="hw-subtitle">HAJWALAH &middot; AR RACING</div>
+				<div class="hw-panel">
+					<div>
+						<div class="hw-field-label">نص مخصص (الزجاج الأمامي والباب الخلفي) — اختياري</div>
+						<input type="text" class="hw-text-input" maxlength="12" placeholder="مثال: سباق" />
+					</div>
+					<div>
+						<div class="hw-field-label">لون السيارة</div>
+						<div class="hw-swatches"></div>
+					</div>
+					<label class="hw-checkbox-row">
+						<input type="checkbox" class="hw-freeroam-checkbox" />
+						الوضع العادي: تحكم حر بدون مضمار
+					</label>
+					<div class="hw-mode-row">
+						<button class="hw-mode-card primary hw-normal-btn">
+							<svg viewBox="0 0 24 24" fill="none" stroke="#5B8CFF" stroke-width="1.6">
+								<circle cx="12" cy="12" r="9"/>
+								<circle cx="12" cy="12" r="2.4" fill="#5B8CFF" stroke="none"/>
+								<path d="M12 5v4.6M6.2 15.5l3.6-2.2M17.8 15.5l-3.6-2.2"/>
+							</svg>
+							<div class="hw-mode-label">الوضع العادي</div>
+							<div class="hw-mode-sub">مضمار كلاسيكي</div>
+						</button>
+						<button class="hw-mode-card hw-ar-btn" ${ arAvailable ? '' : 'disabled' }>
+							<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
+								<rect x="2.5" y="8" width="19" height="9" rx="3.5"/>
+								<circle cx="8.3" cy="12.5" r="1.9"/>
+								<circle cx="15.7" cy="12.5" r="1.9"/>
+								<path d="M9.8 12.5h4.4"/>
+								<path d="M6 8c0-2.2 1.8-4 4-4h4c2.2 0 4 1.8 4 4"/>
+							</svg>
+							<div class="hw-mode-label">الواقع المعزز</div>
+							<div class="hw-mode-sub">${ arAvailable ? 'Meta Quest 3' : 'غير متاح على هذا الجهاز' }</div>
+						</button>
+					</div>
+				</div>
+				<div class="hw-footer"><b>ABODEN GAMES</b> &nbsp;&middot;&nbsp; &copy; 2026 &nbsp;&middot;&nbsp; جميع الحقوق محفوظة</div>
+			</div>
+		`;
+
+		document.head.appendChild( style );
+
+		const swatchRow = menu.querySelector( '.hw-swatches' );
 		VEHICLE_OPTIONS.forEach( ( opt ) => {
 
 			const sw = document.createElement( 'button' );
+			sw.className = 'hw-swatch';
 			sw.dataset.key = opt.key;
 			sw.title = opt.label;
-			sw.style.cssText = `
-				width: 44px; height: 44px; border-radius: 50%; cursor: pointer;
-				background: ${ opt.color }; border: 3px solid transparent;
-			`;
+			sw.innerHTML = `<img src="${ opt.thumb }" alt="${ opt.label }" />`;
 			sw.addEventListener( 'click', () => {
 
 				selectedVehicle = opt.key;
@@ -198,36 +266,15 @@ function createModeMenu( { arAvailable } ) {
 
 			} );
 			vehicleSwatches.push( sw );
-			vehicleRow.appendChild( sw );
+			swatchRow.appendChild( sw );
 
 		} );
 		refreshSwatchSelection();
 
-		const freeRoamRow = document.createElement( 'label' );
-		freeRoamRow.style.cssText = 'color:#ccc; font-size:14px; display:flex; align-items:center; gap:10px; cursor:pointer;';
-		const freeRoamCheckbox = document.createElement( 'input' );
-		freeRoamCheckbox.type = 'checkbox';
-		freeRoamCheckbox.style.cssText = 'width:22px; height:22px; accent-color:#15A249;';
-		freeRoamRow.appendChild( freeRoamCheckbox );
-		freeRoamRow.appendChild( document.createTextNode( 'الوضع العادي: تحكم حر بدون مضمار' ) );
-		menu.appendChild( freeRoamRow );
-
-		function makeButton( label, enabled ) {
-
-			const btn = document.createElement( 'button' );
-			btn.textContent = label;
-			btn.disabled = ! enabled;
-			btn.style.cssText = `
-				padding: 14px 32px; font-size: 16px; border-radius: 999px; border: none;
-				cursor: ${ enabled ? 'pointer' : 'not-allowed' };
-				background: ${ enabled ? '#15A249' : '#555' }; color: #fff; opacity: ${ enabled ? '1' : '0.6' };
-			`;
-			return btn;
-
-		}
-
-		const normalBtn = makeButton( 'الوضع العادي', true );
-		const arBtn = makeButton( arAvailable ? 'وضع الواقع المعزز (Meta Quest 3)' : 'وضع الواقع المعزز (غير متاح على هذا الجهاز)', arAvailable );
+		const textInput = menu.querySelector( '.hw-text-input' );
+		const freeRoamCheckbox = menu.querySelector( '.hw-freeroam-checkbox' );
+		const normalBtn = menu.querySelector( '.hw-normal-btn' );
+		const arBtn = menu.querySelector( '.hw-ar-btn' );
 
 		normalBtn.addEventListener( 'click', () => {
 
@@ -238,13 +285,12 @@ function createModeMenu( { arAvailable } ) {
 
 		arBtn.addEventListener( 'click', () => {
 
+			if ( arBtn.disabled ) return;
 			menu.remove();
 			resolve( { choice: 'ar', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked, vehicleKey: selectedVehicle } );
 
 		} );
 
-		menu.appendChild( normalBtn );
-		menu.appendChild( arBtn );
 		document.body.appendChild( menu );
 
 	} );
