@@ -422,6 +422,53 @@ function addCustomTextDecals( vehicleGroup, text ) {
 
 }
 
+// ─── Real headlight / taillight lighting ───────────────────
+// Coordinates measured directly from the model's actual headlight/
+// taillight faces: left/right headlights at x:∓0.4, y:0.3, z:1.4;
+// left/right taillights at x:∓0.4, y:0.43, z:-1.3. Attached to the
+// same "body" node as the text decals, so they move and scale with
+// the car (including the live resize control) automatically.
+function addVehicleLights( vehicleGroup ) {
+
+	const vehicleModel = vehicleGroup.children[ 0 ];
+	let bodyNode = null;
+	vehicleModel.traverse( ( child ) => {
+
+		if ( child.name.toLowerCase() === 'body' ) bodyNode = child;
+
+	} );
+	if ( ! bodyNode ) return;
+
+	// Headlights: warm-white spotlights aimed forward, lighting up the
+	// real room ahead in AR (most rooms in the screenshots so far were
+	// quite dark, so this is genuinely useful, not just decorative).
+	for ( const side of [ -1, 1 ] ) {
+
+		const light = new THREE.SpotLight( 0xfff2cc, 4, 10, Math.PI / 7, 0.5, 1.5 );
+		light.position.set( side * 0.4, 0.3, 1.42 );
+
+		const target = new THREE.Object3D();
+		target.position.set( side * 0.4, 0.05, 5 );
+		bodyNode.add( target );
+		light.target = target;
+
+		bodyNode.add( light );
+
+	}
+
+	// Taillights: small, short-range red glow — real taillights don't
+	// meaningfully illuminate anything, this is just a soft ambient tint
+	// near the rear of the car, cheap enough to not worry about perf.
+	for ( const side of [ -1, 1 ] ) {
+
+		const light = new THREE.PointLight( 0xff3b30, 0.8, 0.9, 2 );
+		light.position.set( side * 0.4, 0.43, -1.32 );
+		bodyNode.add( light );
+
+	}
+
+}
+
 // ─── Touch radio controls (phones/tablets — no keyboard, no VR hands) ──
 // Controls.js already covers a full-screen invisible steering zone for
 // touch, so these buttons need a higher z-index to receive taps first.
@@ -652,6 +699,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
 	scene.add( vehicleGroup );
 	addCustomTextDecals( vehicleGroup, customText );
+	addVehicleLights( vehicleGroup );
 
 	dirLight.target = vehicleGroup;
 
@@ -755,6 +803,7 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
 		scene.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
+		addVehicleLights( vehicleGroup );
 
 		dirLight.target = vehicleGroup;
 
