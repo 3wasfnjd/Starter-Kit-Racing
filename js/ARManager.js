@@ -584,10 +584,14 @@ export class ARManager {
 	// Left thumbstick click (xr-standard index 3) — switched away from
 	// left grip, which proved unreliable for scale-adjust earlier
 	// (squeeze sensors often need an unusually firm press). Rising-edge.
+	// Right thumbstick click (xr-standard index 3). Moved here after both
+	// left-hand attempts (grip, then left-stick-click) failed to
+	// register reliably, while every right-hand button tried so far
+	// (hazards on A) has worked — switching hands as the fix.
 	getHeadlightToggle() {
 
-		const left = this.gamepads.left;
-		const pressed = left && left.buttons[ 3 ] ? left.buttons[ 3 ].pressed : false;
+		const right = this.gamepads.right;
+		const pressed = right && right.buttons[ 3 ] ? right.buttons[ 3 ].pressed : false;
 		const edge = pressed && ! this._prevHeadlightButton;
 		this._prevHeadlightButton = pressed;
 		return edge;
