@@ -315,11 +315,24 @@ function createModeMenu( { arAvailable } ) {
 			if ( arBtn.disabled ) return;
 			// No requestFullscreenSafe() here on purpose: it would consume
 			// the click's transient user-activation, and requestSession()
-			// below needs that same activation — calling both burns it
-			// before requestSession() runs, causing a SecurityError. AR
-			// sessions take over the whole display anyway, so it's moot.
+			// below needs that same activation. AR sessions take over the
+			// whole display anyway, so it's moot.
+			//
+			// requestSession() itself is also started HERE, synchronously,
+			// rather than later inside startARMode() — some browsers only
+			// honor user-activation for a call made directly in the event
+			// handler, not after several chained await hops. The resulting
+			// promise is handed off and awaited downstream.
+			const sessionPromise = navigator.xr.requestSession( 'immersive-ar', {
+				requiredFeatures: [ 'local-floor', 'hit-test' ],
+				optionalFeatures: [ 'plane-detection', 'mesh-detection' ],
+			} );
+
 			menu.remove();
-			resolve( { choice: 'ar', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked, vehicleKey: selectedVehicle } );
+			resolve( {
+				choice: 'ar', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked,
+				vehicleKey: selectedVehicle, sessionPromise,
+			} );
 
 		} );
 
@@ -384,14 +397,18 @@ function addCustomTextDecals( vehicleGroup, text ) {
 		map: texture, transparent: true, depthWrite: false, side: THREE.DoubleSide,
 	} );
 
-	const windshieldDecal = new THREE.Mesh( new THREE.PlaneGeometry( 1.2, 0.6 ), material );
-	windshieldDecal.position.set( 0, 0.62, 0.865 );
+	// Coordinates measured directly from the actual shipped model's mesh
+	// (vehicle-truck-*.glb — same body geometry across all 4 colors):
+	// windshield glass spans roughly x:[-0.75,0.75] y:[0,0.9] z:[0.4,0.55],
+	// rear window/panel spans x:[-0.67,0.67] y:[0.09,0.5] z:[-1.4,-1.27].
+	const windshieldDecal = new THREE.Mesh( new THREE.PlaneGeometry( 1.1, 0.55 ), material );
+	windshieldDecal.position.set( 0, 0.4, 0.56 );
 	windshieldDecal.renderOrder = 10;
 	bodyNode.add( windshieldDecal );
 
-	const tailgateDecal = new THREE.Mesh( new THREE.PlaneGeometry( 1.2, 0.37 ), material );
-	tailgateDecal.position.set( 0, 0.45, -1.425 );
-	tailgateDecal.rotation.y = Math.PI; // face backward, away from the bed
+	const tailgateDecal = new THREE.Mesh( new THREE.PlaneGeometry( 1.15, 0.575 ), material );
+	tailgateDecal.position.set( 0, 0.28, -1.42 );
+	tailgateDecal.rotation.y = Math.PI; // face backward
 	tailgateDecal.renderOrder = 10;
 	bodyNode.add( tailgateDecal );
 
@@ -703,7 +720,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 // ─── AR MODE (Meta Quest 3 passthrough) ────────────────────
 
-async function startARMode( { mapParam, customText, vehicleKey } ) {
+async function startARMode( { mapParam, customText, vehicleKey, sessionPromise } ) {
 
 	const arManager = new ARManager( { renderer, scene, models } );
 	const world = createPhysicsWorld();
@@ -778,7 +795,7 @@ async function startARMode( { mapParam, customText, vehicleKey } ) {
 
 	};
 
-	const xrSession = await arManager.requestSession();
+	const xrSession = await arManager.requestSession( sessionPromise );
 
 	// Custom post-processing (bloom) is authored for a single flat camera
 	// and is not guaranteed to handle WebXR's per-eye ArrayCamera stereo
@@ -956,13 +973,13 @@ async function init() {
 	// eslint-disable-next-line no-constant-condition
 	while ( true ) {
 
-		const { choice, customText, freeRoam, vehicleKey } = await createModeMenu( { arAvailable } );
+		const { choice, customText, freeRoam, vehicleKey, sessionPromise } = await createModeMenu( { arAvailable } );
 
 		if ( choice === 'ar' ) {
 
 			try {
 
-				activeMode = await startARMode( { mapParam, customText, vehicleKey } );
+				activeMode = await startARMode( { mapParam, customText, vehicleKey, sessionPromise } );
 				break;
 
 			} catch ( e ) {
