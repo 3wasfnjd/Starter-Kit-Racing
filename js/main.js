@@ -452,11 +452,14 @@ function addVehicleLights( vehicleGroup ) {
 		const baseDistance = 10;
 		const baseIntensity = 2000;
 		const light = new THREE.SpotLight( 0xfff2cc, baseIntensity, baseDistance, Math.PI / 7, 0.4, 2 );
-		light.position.set( side * 0.4, 0.3, 1.42 );
+		// z=1.42 was right at (or inside) the bumper's own surface,
+		// trapping the light inside the mesh so it glowed from behind
+		// instead of projecting forward. Pushed clearly out in front.
+		light.position.set( side * 0.4, 0.3, 1.65 );
 		light.visible = false;
 
 		const target = new THREE.Object3D();
-		target.position.set( side * 0.4, 0.05, 5 );
+		target.position.set( side * 0.4, 0.05, 5.2 );
 		bodyNode.add( target );
 		light.target = target;
 
@@ -1065,9 +1068,24 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 					if ( radioBtn.next ) gameState.radio.next();
 					if ( radioBtn.toggle ) gameState.radio.togglePlayPause();
 
-					if ( arManager.getHeadlightToggle() ) toggleHeadlights( gameState.vehicleLights );
+					const headlightEdge = arManager.getHeadlightToggle();
+					if ( headlightEdge ) toggleHeadlights( gameState.vehicleLights );
 					if ( arManager.getHazardToggle() ) toggleHazards( gameState.vehicleLights );
 					setHighBeam( gameState.vehicleLights, arManager.getHighBeamHold() );
+
+					if ( gameState.vehicleLights ) {
+
+						arManager.setDebugExtra( [
+							'headlightEdge=' + headlightEdge,
+							'headlight.visible=' + gameState.vehicleLights.headlights[ 0 ].light.visible,
+							'headlight.intensity=' + gameState.vehicleLights.headlights[ 0 ].light.intensity,
+						] );
+
+					} else {
+
+						arManager.setDebugExtra( [ 'vehicleLights is NULL' ] );
+
+					}
 
 					dirLight.position.set(
 						gameState.vehicle.spherePos.x + 11.4,
