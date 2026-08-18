@@ -439,29 +439,21 @@ function addVehicleLights( vehicleGroup ) {
 	} );
 	if ( ! bodyNode ) return null;
 
-	// Headlights: warm-white spotlights aimed forward, lighting up the
+	// Headlights: warm-white point lights at the front, lighting up the
 	// real room ahead in AR. Off by default — toggled by the player.
-	// Modern three.js uses physically-correct (candela) light units, so
-	// a light meant to reach several real meters needs a much higher
-	// intensity than the old-style small numbers, or it's invisible.
-	// Bumped substantially again after the first pass still wasn't
-	// visible — this is a second guess, still untested on-device.
+	// Switched from SpotLight to PointLight — same light type as the
+	// hazard lights below, which have been reliable, instead of the
+	// SpotLight's extra target/direction setup that kept causing
+	// positioning issues. Omnidirectional means it's not a tight forward
+	// beam like a real headlight, but it reliably lights up the room.
 	const headlights = [];
 	for ( const side of [ -1, 1 ] ) {
 
 		const baseDistance = 10;
 		const baseIntensity = 2000;
-		const light = new THREE.SpotLight( 0xfff2cc, baseIntensity, baseDistance, Math.PI / 7, 0.4, 2 );
-		// z=1.42 was right at (or inside) the bumper's own surface,
-		// trapping the light inside the mesh so it glowed from behind
-		// instead of projecting forward. Pushed clearly out in front.
+		const light = new THREE.PointLight( 0xfff2cc, baseIntensity, baseDistance, 2 );
 		light.position.set( side * 0.4, 0.3, 1.65 );
 		light.visible = false;
-
-		const target = new THREE.Object3D();
-		target.position.set( side * 0.4, 0.05, 5.2 );
-		bodyNode.add( target );
-		light.target = target;
 
 		bodyNode.add( light );
 		headlights.push( { light, baseDistance, baseIntensity } );
@@ -544,12 +536,12 @@ function setHighBeam( vehicleLights, on ) {
 
 			h.light.visible = true;
 			h.light.intensity = h.baseIntensity * 2.5;
-			h.light.angle = Math.PI / 5;
+			h.light.distance = h.baseDistance * 1.4;
 
 		} else {
 
 			h.light.intensity = h.baseIntensity;
-			h.light.angle = Math.PI / 7;
+			h.light.distance = h.baseDistance;
 			h.light.visible = vehicleLights._headlightsBeforeHighBeam;
 
 		}
