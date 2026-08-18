@@ -1079,6 +1079,8 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 
 					}
 
+					arManager.renderDebugHUD();
+
 					dirLight.position.set(
 						gameState.vehicle.spherePos.x + 11.4,
 						15,

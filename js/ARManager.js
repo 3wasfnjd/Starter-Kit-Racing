@@ -216,10 +216,6 @@ export class ARManager {
 
 				this._updatePlacement( frame, refSpace, dt );
 
-			} else {
-
-				this._updateDebugHUD();
-
 			}
 
 		} catch ( e ) {
@@ -606,7 +602,13 @@ export class ARManager {
 
 	}
 
-	_updateDebugHUD() {
+	// Renders the debug HUD. Called explicitly by main.js at the END of
+	// its frame update (after button checks and setDebugExtra), so what's
+	// displayed is always from the SAME frame, not one frame stale like
+	// when this ran automatically inside update() earlier in the frame.
+	renderDebugHUD() {
+
+		if ( ! this.placed ) return;
 
 		if ( ! this._debugCtx ) {
 
