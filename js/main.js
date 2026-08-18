@@ -472,14 +472,14 @@ function createAsphaltTexture() {
 	const canvas = document.createElement( 'canvas' );
 	canvas.width = canvas.height = size;
 	const ctx = canvas.getContext( '2d' );
-	ctx.fillStyle = '#3a3a3e';
+	ctx.fillStyle = '#18181a';
 	ctx.fillRect( 0, 0, size, size );
 
 	for ( let i = 0; i < 1400; i ++ ) {
 
 		const x = Math.random() * size, y = Math.random() * size;
-		const v = 26 + Math.random() * 34;
-		ctx.fillStyle = `rgba(${ v },${ v },${ v + 3 },${ 0.25 + Math.random() * 0.3 })`;
+		const v = 12 + Math.random() * 22;
+		ctx.fillStyle = `rgba(${ v },${ v },${ v + 2 },${ 0.25 + Math.random() * 0.3 })`;
 		ctx.fillRect( x, y, 1.4, 1.4 );
 
 	}
@@ -528,7 +528,12 @@ function createCrowdTexture() {
 // away from the track.
 function buildGrandstandWall( scene, axis, length, fixedCoord, baseDistance, direction ) {
 
-	const tiers = [ { h: 2.0, d: 2.2 }, { h: 4.0, d: 2.2 }, { h: 6.0, d: 2.2 } ];
+	// Many small rows (realistic stadium riser height, ~0.45m per step)
+	// instead of a few huge tiers — each individual step should read as
+	// smaller than the car, not towering over it.
+	const rowHeight = 0.45, rowDepth = 1.3, numRows = 6;
+	const tiers = [];
+	for ( let i = 0; i < numRows; i ++ ) tiers.push( { h: rowHeight * ( i + 1 ), d: rowDepth } );
 	let offset = 0;
 
 	tiers.forEach( ( t ) => {
@@ -538,8 +543,8 @@ function buildGrandstandWall( scene, axis, length, fixedCoord, baseDistance, dir
 		const sizeZ = axis === 'x' ? t.d : length;
 
 		const texture = createCrowdTexture();
-		texture.repeat.set( axis === 'x' ? length / 4 : Math.max( 1, Math.round( t.h / 2 ) ),
-			axis === 'x' ? Math.max( 1, Math.round( t.h / 2 ) ) : length / 4 );
+		texture.repeat.set( axis === 'x' ? length / 4 : 1,
+			axis === 'x' ? 1 : length / 4 );
 
 		const material = new THREE.MeshStandardMaterial( { map: texture, roughness: 1, metalness: 0 } );
 		const mesh = new THREE.Mesh( new THREE.BoxGeometry( sizeX, t.h, sizeZ ), material );
