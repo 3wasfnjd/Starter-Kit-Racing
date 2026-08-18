@@ -216,6 +216,10 @@ export class ARManager {
 
 				this._updatePlacement( frame, refSpace, dt );
 
+			} else {
+
+				this._updateDebugHUD();
+
 			}
 
 		} catch ( e ) {
@@ -588,6 +592,69 @@ export class ARManager {
 	// left-hand attempts (grip, then left-stick-click) failed to
 	// register reliably, while every right-hand button tried so far
 	// (hazards on A) has worked — switching hands as the fix.
+	// TEMPORARY diagnostic HUD — floats in front of the player once driving,
+	// showing every button's raw pressed state on both controllers. Meant
+	// to find out exactly which button index actually registers when
+	// physically pressed, after several guessed mappings didn't work.
+	// Safe to remove once headlights are sorted out.
+	_updateDebugHUD() {
+
+		if ( ! this._debugCtx ) {
+
+			const canvas = document.createElement( 'canvas' );
+			canvas.width = 512;
+			canvas.height = 384;
+			this._debugCtx = canvas.getContext( '2d' );
+			this._debugTexture = new THREE.CanvasTexture( canvas );
+			const material = new THREE.MeshBasicMaterial( {
+				map: this._debugTexture, transparent: true, depthTest: false,
+			} );
+			this._debugMesh = new THREE.Mesh( new THREE.PlaneGeometry( 0.6, 0.45 ), material );
+			this._debugMesh.renderOrder = 999;
+			this.scene.add( this._debugMesh );
+
+		}
+
+		const xrCam = this.renderer.xr.getCamera();
+		const camPos = new THREE.Vector3().setFromMatrixPosition( xrCam.matrixWorld );
+		const camQuat = new THREE.Quaternion().setFromRotationMatrix( xrCam.matrixWorld );
+		const forward = new THREE.Vector3( 0, 0, -1 ).applyQuaternion( camQuat );
+		this._debugMesh.position.copy( camPos ).addScaledVector( forward, 0.8 );
+		this._debugMesh.quaternion.copy( camQuat );
+
+		const ctx = this._debugCtx;
+		ctx.clearRect( 0, 0, 512, 384 );
+		ctx.fillStyle = 'rgba(10,10,10,0.85)';
+		ctx.fillRect( 0, 0, 512, 384 );
+		ctx.fillStyle = '#fff';
+		ctx.font = '18px monospace';
+
+		let y = 26;
+		for ( const hand of [ 'left', 'right' ] ) {
+
+			const gp = this.gamepads[ hand ];
+			ctx.fillText( hand.toUpperCase() + ':  ' + ( gp ? 'connected' : 'not connected' ), 12, y );
+			y += 24;
+			if ( gp && gp.buttons ) {
+
+				for ( let i = 0; i < gp.buttons.length; i ++ ) {
+
+					const b = gp.buttons[ i ];
+					ctx.fillStyle = b.pressed ? '#4CAF6D' : '#888';
+					ctx.fillText( `  [${ i }] pressed=${ b.pressed } value=${ b.value.toFixed( 2 ) }`, 12, y );
+					y += 22;
+
+				}
+
+			}
+			y += 10;
+
+		}
+
+		this._debugTexture.needsUpdate = true;
+
+	}
+
 	getHeadlightToggle() {
 
 		const right = this.gamepads.right;
