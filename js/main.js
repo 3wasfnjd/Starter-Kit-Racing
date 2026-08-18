@@ -205,6 +205,10 @@ function createModeMenu( { arAvailable } ) {
 			#hajwalah-menu .hw-mode-sub { font-size: 10.5px; color: #a79fc4; text-align: center; }
 			#hajwalah-menu .hw-footer { margin-top: 6px; color: #6b6680; font-size: 11.5px; text-align: center; letter-spacing: 0.5px; }
 			#hajwalah-menu .hw-footer b { color: #9d8fd4; }
+			#hajwalah-menu .hw-features-link {
+				color: #5B8CFF; text-decoration: none; font-size: 12px; display: inline-block; margin-top: 4px;
+			}
+			#hajwalah-menu .hw-features-link:hover { text-decoration: underline; }
 		`;
 
 		const menu = document.createElement( 'div' );
@@ -271,7 +275,10 @@ function createModeMenu( { arAvailable } ) {
 						</button>
 					</div>
 				</div>
-				<div class="hw-footer"><b>ABODEN GAMES</b> &nbsp;&middot;&nbsp; &copy; 2026 &nbsp;&middot;&nbsp; جميع الحقوق محفوظة</div>
+				<div class="hw-footer">
+					<b>ABODEN GAMES</b> &nbsp;&middot;&nbsp; &copy; 2026 &nbsp;&middot;&nbsp; جميع الحقوق محفوظة
+					<br/><a href="#" class="hw-features-link">✨ الإضافات الجديدة</a>
+				</div>
 			</div>
 		`;
 
@@ -336,9 +343,105 @@ function createModeMenu( { arAvailable } ) {
 
 		} );
 
+		const featuresLink = menu.querySelector( '.hw-features-link' );
+		featuresLink.addEventListener( 'click', ( e ) => {
+
+			e.preventDefault();
+			showFeaturesModal();
+
+		} );
+
 		document.body.appendChild( menu );
 
 	} );
+
+}
+
+// ─── "What's new" features modal ───────────────────────────
+// Summarizes the major additions built on top of the original starter
+// kit — opened from a link in the main menu's footer.
+
+function showFeaturesModal() {
+
+	const style = document.createElement( 'style' );
+	style.textContent = `
+		#hw-features-overlay {
+			position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+			background: rgba(5,5,10,0.75); font-family: 'Segoe UI', Tahoma, Arial, sans-serif; padding: 24px 16px;
+		}
+		#hw-features-overlay .hwf-card {
+			max-width: 460px; width: 100%; max-height: 82vh; overflow-y: auto;
+			background: radial-gradient(circle at 50% 0%, #201436 0%, #0d0d16 70%);
+			border: 1px solid rgba(139,95,191,0.4); border-radius: 20px; padding: 26px 22px;
+			box-shadow: 0 0 50px rgba(91,60,140,0.25);
+		}
+		#hw-features-overlay .hwf-title {
+			font-size: 26px; font-weight: 800; text-align: center;
+			background: linear-gradient(90deg, #8B5FBF 0%, #5B8CFF 50%, #4FD8E8 100%);
+			-webkit-background-clip: text; background-clip: text; color: transparent;
+			margin-bottom: 4px;
+		}
+		#hw-features-overlay .hwf-sub { color: #9a94b0; font-size: 12px; text-align: center; margin-bottom: 20px; }
+		#hw-features-overlay .hwf-row {
+			display: flex; align-items: flex-start; gap: 12px; padding: 12px 0;
+			border-top: 1px solid rgba(255,255,255,0.08);
+		}
+		#hw-features-overlay .hwf-row:first-of-type { border-top: none; }
+		#hw-features-overlay .hwf-icon { font-size: 20px; line-height: 1.3; flex-shrink: 0; width: 26px; text-align: center; }
+		#hw-features-overlay .hwf-label { color: #fff; font-size: 14.5px; font-weight: 600; margin-bottom: 2px; }
+		#hw-features-overlay .hwf-desc { color: #a79fc4; font-size: 12.5px; line-height: 1.5; }
+		#hw-features-overlay .hwf-close {
+			display: block; width: 100%; margin-top: 20px; padding: 13px; border: none; border-radius: 999px;
+			background: linear-gradient(90deg, #8B5FBF, #5B8CFF); color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
+		}
+		#hw-features-overlay .hwf-about {
+			background: rgba(139,95,191,0.1); border: 1px solid rgba(139,95,191,0.3); border-radius: 12px;
+			padding: 12px 14px; margin-bottom: 18px; color: #cfc9e0; font-size: 12.5px; line-height: 1.7; text-align: center;
+		}
+		#hw-features-overlay .hwf-about b { color: #fff; }
+	`;
+
+	const FEATURES = [
+		{ icon: '🕶️', label: 'وضع الواقع المعزز (AR)', desc: 'تشغيل حقيقي على Meta Quest 3 — تحدد مكان اللعب بغرفتك الحقيقية وتسوق بحرية كاملة بدون مضمار ثابت، مع سياج حماية يمنع السقوط من الحافة.' },
+		{ icon: '🚙', label: 'اختيار لون/شكل السيارة', desc: '4 ألوان مختلفة تقدر تختارها قبل الدخول، تشوف صورة فعلية للسيارة قبل الاختيار.' },
+		{ icon: '✏️', label: 'نص مخصص على السيارة', desc: 'اكتب أي كلمة أو اسم، ويظهر كملصق على الزجاج الأمامي والباب الخلفي.' },
+		{ icon: '📻', label: 'راديو داخل السيارة', desc: '3 مقاطع صوتية تتحكم فيها أثناء القيادة — تبديل وتشغيل/إيقاف، بالكيبورد أو اللمس أو أيادي Quest.' },
+		{ icon: '💡', label: 'إضاءة كاملة وواقعية', desc: 'أضواء أمامية حقيقية تضيء المكان، إضاءة عالية بالتكبيس، أضواء خلفية، وطوارئ برتقالية وامضة — كلها بأزرار تحكم مخصصة.' },
+		{ icon: '🔎', label: 'تكبير وتصغير السيارة حي', desc: 'غيّر حجم السيارة أثناء اللعب مباشرة، مفيد لو تبي تلعب فوق طاولة بدل الأرض.' },
+		{ icon: '🌍', label: 'تحكم حر بدون مضمار', desc: 'خيار بالوضع العادي كمان — أرضية مفتوحة واسعة تسوق فيها بحرية بدون قيود مضمار.' },
+		{ icon: '📱', label: 'دعم كل الأجهزة', desc: 'يشتغل بالكيبورد، لمس الجوال، أو أيادي تحكم Quest — كل الميزات متاحة بأي طريقة تلعب فيها.' },
+	];
+
+	const overlay = document.createElement( 'div' );
+	overlay.id = 'hw-features-overlay';
+	overlay.dir = 'rtl';
+	overlay.innerHTML = `
+		<div class="hwf-card">
+			<div class="hwf-title">الإضافات الجديدة</div>
+			<div class="hwf-sub">أهم التطويرات على هجولة عتابة</div>
+			<div class="hwf-about">
+				طُوّرت هذه الإضافات على المشروع الأصلي بواسطة <b>ABODEN GAMES</b>، بمساعدة الذكاء الاصطناعي <b>Claude</b> من Anthropic.
+				<br/><br/>
+				المشروع الأصلي (Starter Kit Racing): تصميم وأصول <b>Kenney</b> (kenney.nl)، تحويل لـThree.js بواسطة <b>mrdoob</b>، محرك الفيزياء <b>crashcat</b>.
+			</div>
+			${ FEATURES.map( ( f ) => `
+				<div class="hwf-row">
+					<div class="hwf-icon">${ f.icon }</div>
+					<div>
+						<div class="hwf-label">${ f.label }</div>
+						<div class="hwf-desc">${ f.desc }</div>
+					</div>
+				</div>
+			` ).join( '' ) }
+			<button class="hwf-close">رجوع</button>
+		</div>
+	`;
+
+	document.head.appendChild( style );
+	document.body.appendChild( overlay );
+
+	overlay.querySelector( '.hwf-close' ).addEventListener( 'click', () => overlay.remove() );
+	overlay.addEventListener( 'click', ( e ) => { if ( e.target === overlay ) overlay.remove(); } );
 
 }
 
@@ -655,44 +758,18 @@ function updateVehicleLights( vehicleLights, dt, scale ) {
 
 	if ( scale !== undefined ) {
 
-		// Explicit position scaling (not just relying on the parent
-		// hierarchy's scale) — mount points, beam distance and lens
-		// glows all shrink/grow proportionally, so at the smallest size
-		// the light sits right on the tiny car instead of floating
-		// above it, and disappears from view along with everything else
-		// rather than lingering detached.
-		vehicleLights.headlights.forEach( ( h ) => {
-
-			h.light.distance = h.baseDistance * scale;
-			h.light.position.copy( h.basePosition ).multiplyScalar( scale );
-			h.target.position.copy( h.baseTargetPosition ).multiplyScalar( scale );
-
-		} );
-
-		vehicleLights.taillights.forEach( ( h ) => {
-
-			h.light.distance = h.baseDistance * scale;
-			h.light.position.copy( h.basePosition ).multiplyScalar( scale );
-
-		} );
-
-		vehicleLights.hazards.forEach( ( h ) => {
-
-			h.light.distance = h.baseDistance * scale;
-			h.light.position.copy( h.basePosition ).multiplyScalar( scale );
-
-		} );
-
-		if ( vehicleLights.headlightLenses ) {
-
-			vehicleLights.headlightLenses.forEach( ( lens ) => {
-
-				lens.position.copy( lens.userData.basePosition ).multiplyScalar( scale );
-				lens.scale.setScalar( scale );
-
-			} );
-
-		}
+		// Only .distance needs manual scaling — it's a light-specific
+		// property, not part of the transform hierarchy. Positions
+		// DON'T need this: headlights/taillights/hazards/lenses are all
+		// children of bodyNode, which is already inside the scaled
+		// vehicleModel, so their positions shrink/grow automatically.
+		// An earlier version also multiplied positions manually here,
+		// which double-scaled them on top of the automatic hierarchy
+		// scaling — that's what was causing the lens to sink into the
+		// body / vanish as the car was resized. Fixed by removing that.
+		vehicleLights.headlights.forEach( ( h ) => { h.light.distance = h.baseDistance * scale; } );
+		vehicleLights.taillights.forEach( ( h ) => { h.light.distance = h.baseDistance * scale; } );
+		vehicleLights.hazards.forEach( ( h ) => { h.light.distance = h.baseDistance * scale; } );
 
 	}
 
