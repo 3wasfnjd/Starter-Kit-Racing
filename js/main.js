@@ -420,9 +420,8 @@ function showFeaturesModal() {
 			<div class="hwf-title">الإضافات الجديدة</div>
 			<div class="hwf-sub">أهم التطويرات على هجولة عتابة</div>
 			<div class="hwf-about">
-				طُوّرت هذه الإضافات على المشروع الأصلي بواسطة <b>ABODEN GAMES</b>، بمساعدة الذكاء الاصطناعي <b>Claude</b> من Anthropic.
-				<br/><br/>
-				المشروع الأصلي (Starter Kit Racing): تصميم وأصول <b>Kenney</b> (kenney.nl)، تحويل لـThree.js بواسطة <b>mrdoob</b>، محرك الفيزياء <b>crashcat</b>.
+				طوّر هذه الإضافات <b>ABODEN GAMES</b> بمساعدة <b>Claude</b> من Anthropic.
+				<br/>المشروع الأصلي: <b>Kenney</b> (تصميم) · <b>mrdoob</b> (Three.js) · <b>crashcat</b> (فيزياء).
 			</div>
 			${ FEATURES.map( ( f ) => `
 				<div class="hwf-row">
