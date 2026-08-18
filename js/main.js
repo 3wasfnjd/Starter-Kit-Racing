@@ -439,21 +439,37 @@ function addVehicleLights( vehicleGroup ) {
 	} );
 	if ( ! bodyNode ) return null;
 
-	// Headlights: warm-white point lights at the front, lighting up the
-	// real room ahead in AR. Off by default — toggled by the player.
-	// Switched from SpotLight to PointLight — same light type as the
-	// hazard lights below, which have been reliable, instead of the
-	// SpotLight's extra target/direction setup that kept causing
-	// positioning issues. Omnidirectional means it's not a tight forward
-	// beam like a real headlight, but it reliably lights up the room.
+	// Headlights: warm-white point lights, lighting up the real room
+	// ahead in AR. Off by default — toggled by the player.
+	// Mounted well above and ahead of the car (like a roof light bar)
+	// instead of right at the bumper — being that close to the car's own
+	// paint was overexposing/whiting-out the car itself (inverse-square
+	// falloff means intensity right next to the source is extreme) while
+	// barely reaching the room a couple meters out.
+	// Headlights: warm-white spotlights, lighting up the real room ahead
+	// in AR. Off by default — toggled by the player.
+	// A PointLight mounted on the car always over-lit the car itself no
+	// matter how far out it was pushed, since the car's own body is
+	// rigidly attached nearby while the room is much farther — the car
+	// dominates the illumination by inverse-square law regardless of
+	// placement. Switched to a narrow directional SpotLight mounted
+	// clear above the roof (not touching any geometry, unlike the first
+	// SpotLight attempt) and aimed forward with a gentle downward tilt
+	// calculated to clear the hood/roof entirely, so the beam only ever
+	// hits the room, never the car's own body.
 	const headlights = [];
 	for ( const side of [ -1, 1 ] ) {
 
-		const baseDistance = 10;
-		const baseIntensity = 2000;
-		const light = new THREE.PointLight( 0xfff2cc, baseIntensity, baseDistance, 2 );
-		light.position.set( side * 0.4, 0.3, 1.65 );
+		const baseDistance = 14;
+		const baseIntensity = 3000;
+		const light = new THREE.SpotLight( 0xfff2cc, baseIntensity, baseDistance, Math.PI / 8, 0.35, 2 );
+		light.position.set( side * 0.3, 1.05, 1.0 ); // clear above the roof, open air
 		light.visible = false;
+
+		const target = new THREE.Object3D();
+		target.position.set( side * 0.3, 0.1, 9 ); // far ahead, gentle downward slope
+		bodyNode.add( target );
+		light.target = target;
 
 		bodyNode.add( light );
 		headlights.push( { light, baseDistance, baseIntensity } );
