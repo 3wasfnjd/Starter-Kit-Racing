@@ -411,10 +411,12 @@ export class ARManager {
 
 		}
 
-		// Visible grid disabled — it did its job confirming the
-		// headlights actually work, but shouldn't show during normal
-		// play. Re-enable by uncommenting if needed for testing again.
-		// this._buildVisibleFloorGrid( AR_FLOOR_HALF_SIZE );
+		// Visible floor grid: hidden by default, shown automatically by
+		// main.js only while headlights are on — gives the light
+		// something to visibly react to (real passthrough is just camera
+		// video, unaffected by virtual lights) without a permanent
+		// overlay cluttering the view the rest of the time.
+		this._buildVisibleFloorGrid( AR_FLOOR_HALF_SIZE );
 
 	}
 
@@ -433,8 +435,8 @@ export class ARManager {
 		canvas.width = 128;
 		canvas.height = 128;
 		const ctx = canvas.getContext( '2d' );
-		ctx.strokeStyle = 'rgba(21,162,73,0.9)';
-		ctx.lineWidth = 3;
+		ctx.strokeStyle = 'rgba(21,162,73,0.5)'; // subtler than the first pass
+		ctx.lineWidth = 2;
 		ctx.strokeRect( 1, 1, 126, 126 );
 
 		const texture = new THREE.CanvasTexture( canvas );
@@ -442,15 +444,25 @@ export class ARManager {
 		texture.repeat.set( size * 2, size * 2 ); // ~1m grid cells
 
 		const material = new THREE.MeshStandardMaterial( {
-			map: texture, transparent: true, opacity: 0.45,
+			map: texture, transparent: true, opacity: 0.25,
 			roughness: 0.95, metalness: 0, side: THREE.DoubleSide,
 		} );
 
 		const mesh = new THREE.Mesh( new THREE.PlaneGeometry( size * 2, size * 2 ), material );
 		mesh.rotation.x = - Math.PI / 2;
 		mesh.position.set( this.arPosition.x, this.arPosition.y - 0.02, this.arPosition.z );
+		mesh.visible = false; // shown on demand via setFloorGridVisible()
 		this.scene.add( mesh );
 		this._visibleFloorGrid = mesh;
+
+	}
+
+	// Called by main.js to show the floor grid only while headlights
+	// (or high beam) are on, so there's something visible for the light
+	// to react to without a permanent overlay the rest of the time.
+	setFloorGridVisible( visible ) {
+
+		if ( this._visibleFloorGrid ) this._visibleFloorGrid.visible = visible;
 
 	}
 

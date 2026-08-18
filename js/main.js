@@ -342,6 +342,26 @@ function createModeMenu( { arAvailable } ) {
 
 }
 
+// Soft radial-gradient glow texture (opaque center fading fully
+// transparent at the edge) — used for the headlight halo so it looks
+// like a real glow instead of a flat disc sitting on top of the lens.
+function createGlowTexture( color ) {
+
+	const size = 128;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = canvas.height = size;
+	const ctx = canvas.getContext( '2d' );
+	const grad = ctx.createRadialGradient( size / 2, size / 2, 0, size / 2, size / 2, size / 2 );
+	grad.addColorStop( 0, `rgba(${ color }, 0.9)` );
+	grad.addColorStop( 0.5, `rgba(${ color }, 0.35)` );
+	grad.addColorStop( 1, `rgba(${ color }, 0)` );
+	ctx.fillStyle = grad;
+	ctx.fillRect( 0, 0, size, size );
+
+	return new THREE.CanvasTexture( canvas );
+
+}
+
 // ─── Custom windshield/tailgate text decal ─────────────────
 
 function createTextTexture( text ) {
@@ -497,10 +517,11 @@ function addVehicleLights( vehicleGroup ) {
 		group.add( core );
 
 		const halo = new THREE.Mesh(
-			new THREE.CircleGeometry( 0.14, 16 ),
+			new THREE.CircleGeometry( 0.16, 24 ),
 			new THREE.MeshBasicMaterial( {
-				color: 0xfff2cc, transparent: true, opacity: 0.55,
-				toneMapped: false, depthWrite: false,
+				map: createGlowTexture( '255, 242, 204' ), color: 0xfff2cc,
+				transparent: true, toneMapped: false, depthWrite: false,
+				blending: THREE.AdditiveBlending,
 			} )
 		);
 		halo.position.z = -0.002; // just behind the core, avoids z-fighting
@@ -1131,6 +1152,12 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 					if ( arManager.getHeadlightToggle() ) toggleHeadlights( gameState.vehicleLights );
 					if ( arManager.getHazardToggle() ) toggleHazards( gameState.vehicleLights );
 					setHighBeam( gameState.vehicleLights, arManager.getHighBeamHold() );
+
+					if ( gameState.vehicleLights ) {
+
+						arManager.setFloorGridVisible( gameState.vehicleLights.headlights[ 0 ].light.visible );
+
+					}
 
 					dirLight.position.set(
 						gameState.vehicle.spherePos.x + 11.4,
