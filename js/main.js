@@ -483,16 +483,18 @@ function addVehicleLights( vehicleGroup ) {
 		const baseDistance = 14;
 		const baseIntensity = 3000;
 		const light = new THREE.SpotLight( 0xfff2cc, baseIntensity, baseDistance, Math.PI / 8, 0.35, 2 );
-		light.position.set( side * 0.3, 1.05, 1.0 ); // clear above the roof, open air
+		const basePosition = new THREE.Vector3( side * 0.3, 1.05, 1.0 ); // clear above the roof, open air
+		light.position.copy( basePosition );
 		light.visible = false;
 
 		const target = new THREE.Object3D();
-		target.position.set( side * 0.3, 0.1, 9 ); // far ahead, gentle downward slope
+		const baseTargetPosition = new THREE.Vector3( side * 0.3, 0.1, 9 ); // far ahead, gentle downward slope
+		target.position.copy( baseTargetPosition );
 		bodyNode.add( target );
 		light.target = target;
 
 		bodyNode.add( light );
-		headlights.push( { light, baseDistance, baseIntensity } );
+		headlights.push( { light, target, basePosition, baseTargetPosition, baseDistance, baseIntensity } );
 
 	}
 
@@ -507,7 +509,9 @@ function addVehicleLights( vehicleGroup ) {
 	for ( const side of [ -1, 1 ] ) {
 
 		const group = new THREE.Group();
-		group.position.set( side * 0.4, 0.3, 1.41 );
+		const basePosition = new THREE.Vector3( side * 0.4, 0.3, 1.41 );
+		group.position.copy( basePosition );
+		group.userData.basePosition = basePosition;
 		group.visible = false;
 
 		const core = new THREE.Mesh(
@@ -541,9 +545,10 @@ function addVehicleLights( vehicleGroup ) {
 
 		const baseDistance = 0.9;
 		const light = new THREE.PointLight( 0xff3b30, 0.8, baseDistance, 2 );
-		light.position.set( side * 0.4, 0.43, -1.32 );
+		const basePosition = new THREE.Vector3( side * 0.4, 0.43, -1.32 );
+		light.position.copy( basePosition );
 		bodyNode.add( light );
-		taillights.push( { light, baseDistance } );
+		taillights.push( { light, basePosition, baseDistance } );
 
 	}
 
@@ -558,10 +563,11 @@ function addVehicleLights( vehicleGroup ) {
 
 		const baseDistance = 0.8;
 		const light = new THREE.PointLight( 0xff8c1a, 3, baseDistance, 2 );
-		light.position.set( x, y, z );
+		const basePosition = new THREE.Vector3( x, y, z );
+		light.position.copy( basePosition );
 		light.visible = false;
 		bodyNode.add( light );
-		hazards.push( { light, baseDistance } );
+		hazards.push( { light, basePosition, baseDistance } );
 
 	}
 
@@ -649,8 +655,44 @@ function updateVehicleLights( vehicleLights, dt, scale ) {
 
 	if ( scale !== undefined ) {
 
-		const all = [ ...vehicleLights.headlights, ...vehicleLights.taillights, ...vehicleLights.hazards ];
-		all.forEach( ( { light, baseDistance } ) => { light.distance = baseDistance * scale; } );
+		// Explicit position scaling (not just relying on the parent
+		// hierarchy's scale) — mount points, beam distance and lens
+		// glows all shrink/grow proportionally, so at the smallest size
+		// the light sits right on the tiny car instead of floating
+		// above it, and disappears from view along with everything else
+		// rather than lingering detached.
+		vehicleLights.headlights.forEach( ( h ) => {
+
+			h.light.distance = h.baseDistance * scale;
+			h.light.position.copy( h.basePosition ).multiplyScalar( scale );
+			h.target.position.copy( h.baseTargetPosition ).multiplyScalar( scale );
+
+		} );
+
+		vehicleLights.taillights.forEach( ( h ) => {
+
+			h.light.distance = h.baseDistance * scale;
+			h.light.position.copy( h.basePosition ).multiplyScalar( scale );
+
+		} );
+
+		vehicleLights.hazards.forEach( ( h ) => {
+
+			h.light.distance = h.baseDistance * scale;
+			h.light.position.copy( h.basePosition ).multiplyScalar( scale );
+
+		} );
+
+		if ( vehicleLights.headlightLenses ) {
+
+			vehicleLights.headlightLenses.forEach( ( lens ) => {
+
+				lens.position.copy( lens.userData.basePosition ).multiplyScalar( scale );
+				lens.scale.setScalar( scale );
+
+			} );
+
+		}
 
 	}
 

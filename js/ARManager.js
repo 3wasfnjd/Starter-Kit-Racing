@@ -363,7 +363,7 @@ export class ARManager {
 		// ─────────────────────────────────────────────────────────
 		// ✏️ TO RESIZE THE AR PLAY AREA: change this one number (in
 		// meters — half the width/depth, so 40 = an 80x80m square).
-		const AR_FLOOR_HALF_SIZE = 40;
+		const AR_FLOOR_HALF_SIZE = 500;
 		// ─────────────────────────────────────────────────────────
 
 		const halfW = AR_FLOOR_HALF_SIZE, halfD = AR_FLOOR_HALF_SIZE;
