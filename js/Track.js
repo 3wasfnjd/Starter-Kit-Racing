@@ -310,18 +310,76 @@ export function buildTrack( scene, models, customCells ) {
 
 }
 
+// Widening factor for straight/finish road pieces — doubles the drivable
+// width so there's room for two lanes (one each direction) plus a center
+// median. Corners intentionally aren't widened: their curved geometry
+// would distort under non-uniform scaling, and the matching wall math is
+// a separate, more involved fix for a later pass once an actual street
+// layout with turns is in hand.
+const TRACK_WIDTH_SCALE = 2;
+
+// Center median: a raised curb strip with trees, running the length of a
+// widened straight piece. Reuses 'decoration-forest' (pine-style trees —
+// there's no dedicated palm asset in this kit) since building a new palm
+// model is a separate task. Sits in the gap the widening opens up between
+// the two lanes.
+function buildStreetMedian( models ) {
+
+	const group = new THREE.Group();
+
+	const curb = new THREE.Mesh(
+		new THREE.BoxGeometry( 0.9, 0.16, CELL_RAW * 0.94 ),
+		new THREE.MeshStandardMaterial( { color: 0xd8d4c8, roughness: 0.9 } )
+	);
+	curb.position.y = 0.08;
+	group.add( curb );
+
+	const treeSrc = models[ 'decoration-forest' ];
+	if ( treeSrc ) {
+
+		for ( const z of [ -CELL_RAW * 0.3, 0, CELL_RAW * 0.3 ] ) {
+
+			const tree = treeSrc.clone();
+			tree.position.set( 0, 0.16, z );
+			group.add( tree );
+
+		}
+
+	}
+
+	return group;
+
+}
+
 export function placePiece( models, key, gx, gz, orient ) {
 
 	const src = models[ key ];
 	if ( ! src ) return null;
 
-	const piece = src.clone();
-	piece.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5, ( gz + 0.5 ) * CELL_RAW );
+	const outer = new THREE.Group();
+	outer.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5, ( gz + 0.5 ) * CELL_RAW );
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
-	piece.rotation.y = THREE.MathUtils.degToRad( deg );
+	outer.rotation.y = THREE.MathUtils.degToRad( deg );
 
-	return piece;
+	const mesh = src.clone();
+	if ( key === 'track-straight' || key === 'track-finish' ) {
+
+		// Scaled on the wrapped mesh only (not `outer`), so anything else
+		// added to `outer` — like the median below — keeps its real,
+		// unscaled dimensions instead of being stretched too.
+		mesh.scale.set( TRACK_WIDTH_SCALE, 1, 1 );
+
+	}
+	outer.add( mesh );
+
+	if ( key === 'track-straight' ) {
+
+		outer.add( buildStreetMedian( models ) );
+
+	}
+
+	return outer;
 
 }
 
@@ -377,8 +435,9 @@ export function decodeCells( str ) {
 
 }
 
-export function computeSpawnPosition( cells ) {
+export function computeSpawnPosition( customCells ) {
 
+	const cells = customCells || TRACK_CELLS;
 	let cell = cells[ 0 ];
 
 	for ( const c of cells ) {
