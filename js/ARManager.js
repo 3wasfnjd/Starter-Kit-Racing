@@ -602,14 +602,14 @@ export class ARManager {
 		if ( ! this._debugCtx ) {
 
 			const canvas = document.createElement( 'canvas' );
-			canvas.width = 512;
-			canvas.height = 384;
+			canvas.width = 700;
+			canvas.height = 420;
 			this._debugCtx = canvas.getContext( '2d' );
 			this._debugTexture = new THREE.CanvasTexture( canvas );
 			const material = new THREE.MeshBasicMaterial( {
 				map: this._debugTexture, transparent: true, depthTest: false,
 			} );
-			this._debugMesh = new THREE.Mesh( new THREE.PlaneGeometry( 0.6, 0.45 ), material );
+			this._debugMesh = new THREE.Mesh( new THREE.PlaneGeometry( 0.9, 0.54 ), material );
 			this._debugMesh.renderOrder = 999;
 			this.scene.add( this._debugMesh );
 
@@ -619,35 +619,48 @@ export class ARManager {
 		const camPos = new THREE.Vector3().setFromMatrixPosition( xrCam.matrixWorld );
 		const camQuat = new THREE.Quaternion().setFromRotationMatrix( xrCam.matrixWorld );
 		const forward = new THREE.Vector3( 0, 0, -1 ).applyQuaternion( camQuat );
-		this._debugMesh.position.copy( camPos ).addScaledVector( forward, 0.8 );
+		this._debugMesh.position.copy( camPos ).addScaledVector( forward, 1.0 );
 		this._debugMesh.quaternion.copy( camQuat );
 
 		const ctx = this._debugCtx;
-		ctx.clearRect( 0, 0, 512, 384 );
-		ctx.fillStyle = 'rgba(10,10,10,0.85)';
-		ctx.fillRect( 0, 0, 512, 384 );
-		ctx.fillStyle = '#fff';
-		ctx.font = '18px monospace';
+		const W = 700, H = 420;
+		ctx.clearRect( 0, 0, W, H );
+		ctx.fillStyle = 'rgba(10,10,10,0.88)';
+		ctx.fillRect( 0, 0, W, H );
+		ctx.font = '20px monospace';
 
-		let y = 26;
-		for ( const hand of [ 'left', 'right' ] ) {
+		// Two side-by-side columns so nothing gets cut off vertically.
+		const columns = [ { hand: 'left', x: 16 }, { hand: 'right', x: 366 } ];
 
+		for ( const { hand, x } of columns ) {
+
+			let y = 30;
 			const gp = this.gamepads[ hand ];
-			ctx.fillText( hand.toUpperCase() + ':  ' + ( gp ? 'connected' : 'not connected' ), 12, y );
-			y += 24;
+			ctx.fillStyle = '#fff';
+			ctx.fillText( hand.toUpperCase() + ': ' + ( gp ? 'connected' : 'not connected' ), x, y );
+			y += 30;
+
 			if ( gp && gp.buttons ) {
 
 				for ( let i = 0; i < gp.buttons.length; i ++ ) {
 
 					const b = gp.buttons[ i ];
-					ctx.fillStyle = b.pressed ? '#4CAF6D' : '#888';
-					ctx.fillText( `  [${ i }] pressed=${ b.pressed } value=${ b.value.toFixed( 2 ) }`, 12, y );
-					y += 22;
+					ctx.fillStyle = b.pressed ? '#4CAF6D' : '#999';
+					ctx.fillText( `[${ i }] pressed=${ b.pressed }`, x, y );
+					y += 26;
+					ctx.fillText( `    value=${ b.value.toFixed( 2 ) }`, x, y );
+					y += 30;
 
 				}
 
 			}
-			y += 10;
+
+			if ( gp && gp.axes ) {
+
+				ctx.fillStyle = '#ffd54f';
+				ctx.fillText( 'axes: ' + gp.axes.map( ( a ) => a.toFixed( 2 ) ).join( ', ' ), x, y );
+
+			}
 
 		}
 
