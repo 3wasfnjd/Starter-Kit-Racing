@@ -476,6 +476,41 @@ function addVehicleLights( vehicleGroup ) {
 
 	}
 
+	// Glowing "lens" overlays at the actual headlight bumps on the body
+	// (measured earlier: x:∓0.4, y:~0.3, z:1.4) — separate from the
+	// actual illuminating light above, which is roof-mounted so its beam
+	// clears the car. This is purely visual: makes the headlight bump
+	// itself look lit (bright white with a soft glow) when toggled on,
+	// since the shared body material can't be selectively recolored
+	// without touching the model file.
+	const headlightLenses = [];
+	for ( const side of [ -1, 1 ] ) {
+
+		const group = new THREE.Group();
+		group.position.set( side * 0.4, 0.3, 1.41 );
+		group.visible = false;
+
+		const core = new THREE.Mesh(
+			new THREE.CircleGeometry( 0.075, 16 ),
+			new THREE.MeshBasicMaterial( { color: 0xffffff, toneMapped: false } )
+		);
+		group.add( core );
+
+		const halo = new THREE.Mesh(
+			new THREE.CircleGeometry( 0.14, 16 ),
+			new THREE.MeshBasicMaterial( {
+				color: 0xfff2cc, transparent: true, opacity: 0.55,
+				toneMapped: false, depthWrite: false,
+			} )
+		);
+		halo.position.z = -0.002; // just behind the core, avoids z-fighting
+		group.add( halo );
+
+		bodyNode.add( group );
+		headlightLenses.push( group );
+
+	}
+
 	// Taillights: small, short-range red glow, always on — real
 	// taillights don't meaningfully illuminate anything, this is just a
 	// soft tint near the rear. (Kept at the same intensity that already
@@ -509,7 +544,7 @@ function addVehicleLights( vehicleGroup ) {
 
 	}
 
-	return { headlights, taillights, hazards };
+	return { headlights, taillights, hazards, headlightLenses };
 
 }
 
@@ -520,6 +555,11 @@ function toggleHeadlights( vehicleLights ) {
 	if ( ! vehicleLights ) return;
 	const on = ! vehicleLights.headlights[ 0 ].light.visible;
 	vehicleLights.headlights.forEach( ( h ) => { h.light.visible = on; } );
+	if ( vehicleLights.headlightLenses ) {
+
+		vehicleLights.headlightLenses.forEach( ( lens ) => { lens.visible = on; } );
+
+	}
 
 }
 
@@ -563,6 +603,18 @@ function setHighBeam( vehicleLights, on ) {
 		}
 
 	} );
+
+	if ( vehicleLights.headlightLenses ) {
+
+		const lensOn = on || vehicleLights._headlightsBeforeHighBeam;
+		vehicleLights.headlightLenses.forEach( ( lens ) => {
+
+			lens.visible = lensOn;
+			lens.scale.setScalar( on ? 1.3 : 1 );
+
+		} );
+
+	}
 
 }
 
@@ -1076,26 +1128,9 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 					if ( radioBtn.next ) gameState.radio.next();
 					if ( radioBtn.toggle ) gameState.radio.togglePlayPause();
 
-					const headlightEdge = arManager.getHeadlightToggle();
-					if ( headlightEdge ) toggleHeadlights( gameState.vehicleLights );
+					if ( arManager.getHeadlightToggle() ) toggleHeadlights( gameState.vehicleLights );
 					if ( arManager.getHazardToggle() ) toggleHazards( gameState.vehicleLights );
 					setHighBeam( gameState.vehicleLights, arManager.getHighBeamHold() );
-
-					if ( gameState.vehicleLights ) {
-
-						arManager.setDebugExtra( [
-							'headlightEdge=' + headlightEdge,
-							'headlight.visible=' + gameState.vehicleLights.headlights[ 0 ].light.visible,
-							'headlight.intensity=' + gameState.vehicleLights.headlights[ 0 ].light.intensity,
-						] );
-
-					} else {
-
-						arManager.setDebugExtra( [ 'vehicleLights is NULL' ] );
-
-					}
-
-					arManager.renderDebugHUD();
 
 					dirLight.position.set(
 						gameState.vehicle.spherePos.x + 11.4,

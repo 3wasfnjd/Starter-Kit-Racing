@@ -411,7 +411,10 @@ export class ARManager {
 
 		}
 
-		this._buildVisibleFloorGrid();
+		// Visible grid disabled — it did its job confirming the
+		// headlights actually work, but shouldn't show during normal
+		// play. Re-enable by uncommenting if needed for testing again.
+		// this._buildVisibleFloorGrid( AR_FLOOR_HALF_SIZE );
 
 	}
 
@@ -420,10 +423,11 @@ export class ARManager {
 	// illuminate. Real-world passthrough is just camera video; virtual
 	// lights have zero effect on it. Only virtual objects (like this
 	// grid, or the car itself) can visibly react to our lights.
-	_buildVisibleFloorGrid() {
+	_buildVisibleFloorGrid( size ) {
 
-		const size = 10; // 20x20m visible grid, independent of the much
-		// larger invisible physics floor/walls above
+		// size = same half-size as the physics floor/walls, so the
+		// visible grid always covers the full playable area — matters
+		// once the car can be scaled up much larger than the default.
 
 		const canvas = document.createElement( 'canvas' );
 		canvas.width = 128;
@@ -618,122 +622,9 @@ export class ARManager {
 
 	}
 
-	// Left thumbstick click (xr-standard index 3) — switched away from
-	// left grip, which proved unreliable for scale-adjust earlier
-	// (squeeze sensors often need an unusually firm press). Rising-edge.
-	// Right thumbstick click (xr-standard index 3). Moved here after both
-	// left-hand attempts (grip, then left-stick-click) failed to
-	// register reliably, while every right-hand button tried so far
-	// (hazards on A) has worked — switching hands as the fix.
-	// TEMPORARY diagnostic HUD — floats in front of the player once driving,
-	// showing every button's raw pressed state on both controllers. Meant
-	// to find out exactly which button index actually registers when
-	// physically pressed, after several guessed mappings didn't work.
-	// Safe to remove once headlights are sorted out.
-	// Lets main.js feed extra state (e.g. actual light.visible values)
-	// into the HUD, so we can see whether toggle logic actually ran,
-	// separate from whether a button press registered.
-	setDebugExtra( lines ) {
-
-		this._extraDebugLines = lines;
-
-	}
-
-	// Renders the debug HUD. Called explicitly by main.js at the END of
-	// its frame update (after button checks and setDebugExtra), so what's
-	// displayed is always from the SAME frame, not one frame stale like
-	// when this ran automatically inside update() earlier in the frame.
-	renderDebugHUD() {
-
-		if ( ! this.placed ) return;
-
-		if ( ! this._debugCtx ) {
-
-			const canvas = document.createElement( 'canvas' );
-			canvas.width = 1000;
-			canvas.height = 620;
-			this._debugCtx = canvas.getContext( '2d' );
-			this._debugTexture = new THREE.CanvasTexture( canvas );
-			const material = new THREE.MeshBasicMaterial( {
-				map: this._debugTexture, transparent: true, depthTest: false,
-			} );
-			this._debugMesh = new THREE.Mesh( new THREE.PlaneGeometry( 1.1, 0.68 ), material );
-			this._debugMesh.renderOrder = 999;
-			this.scene.add( this._debugMesh );
-
-		}
-
-		const xrCam = this.renderer.xr.getCamera();
-		const camPos = new THREE.Vector3().setFromMatrixPosition( xrCam.matrixWorld );
-		const camQuat = new THREE.Quaternion().setFromRotationMatrix( xrCam.matrixWorld );
-		const forward = new THREE.Vector3( 0, 0, -1 ).applyQuaternion( camQuat );
-		this._debugMesh.position.copy( camPos ).addScaledVector( forward, 1.1 );
-		this._debugMesh.quaternion.copy( camQuat );
-
-		const ctx = this._debugCtx;
-		const W = 1000, H = 620;
-		ctx.clearRect( 0, 0, W, H );
-		ctx.fillStyle = 'rgba(10,10,10,0.88)';
-		ctx.fillRect( 0, 0, W, H );
-		ctx.font = '20px monospace';
-
-		// Two side-by-side controller columns, plus a third column for
-		// extra state (light visibility etc) — kept fully separate so
-		// nothing overlaps, unlike the previous cramped layout.
-		const columns = [ { hand: 'left', x: 16 }, { hand: 'right', x: 340 } ];
-
-		for ( const { hand, x } of columns ) {
-
-			let y = 30;
-			const gp = this.gamepads[ hand ];
-			ctx.fillStyle = '#fff';
-			ctx.fillText( hand.toUpperCase() + ': ' + ( gp ? 'connected' : 'not connected' ), x, y );
-			y += 34;
-
-			if ( gp && gp.buttons ) {
-
-				for ( let i = 0; i < gp.buttons.length; i ++ ) {
-
-					const b = gp.buttons[ i ];
-					ctx.fillStyle = b.pressed ? '#4CAF6D' : '#999';
-					ctx.fillText( `[${ i }] pressed=${ b.pressed }`, x, y );
-					y += 26;
-					ctx.fillText( `    value=${ b.value.toFixed( 2 ) }`, x, y );
-					y += 32;
-
-				}
-
-			}
-
-			if ( gp && gp.axes ) {
-
-				ctx.fillStyle = '#ffd54f';
-				ctx.fillText( 'axes: ' + gp.axes.map( ( a ) => a.toFixed( 2 ) ).join( ', ' ), x, y );
-
-			}
-
-		}
-
-		if ( this._extraDebugLines && this._extraDebugLines.length ) {
-
-			const x3 = 680;
-			let ey = 30;
-			ctx.fillStyle = '#7ec8ff';
-			ctx.fillText( 'STATE:', x3, ey );
-			ey += 34;
-			for ( const line of this._extraDebugLines ) {
-
-				ctx.fillText( line, x3, ey );
-				ey += 28;
-
-			}
-
-		}
-
-		this._debugTexture.needsUpdate = true;
-
-	}
-
+	// Right thumbstick click (xr-standard index 3). Landed here after
+	// left-hand attempts (grip, then left-stick-click) proved unreliable,
+	// while every right-hand button tried has worked. Rising-edge only.
 	getHeadlightToggle() {
 
 		const right = this.gamepads.right;
