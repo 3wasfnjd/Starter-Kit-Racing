@@ -411,6 +411,43 @@ export class ARManager {
 
 		}
 
+		this._buildVisibleFloorGrid();
+
+	}
+
+	// A visible (semi-transparent) floor grid that responds to real
+	// lighting — added specifically so the headlights have SOMETHING to
+	// illuminate. Real-world passthrough is just camera video; virtual
+	// lights have zero effect on it. Only virtual objects (like this
+	// grid, or the car itself) can visibly react to our lights.
+	_buildVisibleFloorGrid() {
+
+		const size = 10; // 20x20m visible grid, independent of the much
+		// larger invisible physics floor/walls above
+
+		const canvas = document.createElement( 'canvas' );
+		canvas.width = 128;
+		canvas.height = 128;
+		const ctx = canvas.getContext( '2d' );
+		ctx.strokeStyle = 'rgba(21,162,73,0.9)';
+		ctx.lineWidth = 3;
+		ctx.strokeRect( 1, 1, 126, 126 );
+
+		const texture = new THREE.CanvasTexture( canvas );
+		texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+		texture.repeat.set( size * 2, size * 2 ); // ~1m grid cells
+
+		const material = new THREE.MeshStandardMaterial( {
+			map: texture, transparent: true, opacity: 0.45,
+			roughness: 0.95, metalness: 0, side: THREE.DoubleSide,
+		} );
+
+		const mesh = new THREE.Mesh( new THREE.PlaneGeometry( size * 2, size * 2 ), material );
+		mesh.rotation.x = - Math.PI / 2;
+		mesh.position.set( this.arPosition.x, this.arPosition.y - 0.02, this.arPosition.z );
+		this.scene.add( mesh );
+		this._visibleFloorGrid = mesh;
+
 	}
 
 	// Best-effort real-world collision: uses Meta's WebXR mesh-detection
