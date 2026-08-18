@@ -277,7 +277,7 @@ function createModeMenu( { arAvailable } ) {
 				</div>
 				<div class="hw-footer">
 					<b>ABODEN GAMES</b> &nbsp;&middot;&nbsp; &copy; 2026 &nbsp;&middot;&nbsp; جميع الحقوق محفوظة
-					<br/><a href="#" class="hw-features-link">✨ الإضافات الجديدة</a>
+					<br/><a href="#" class="hw-features-link">✨ عن اللعبة</a>
 				</div>
 			</div>
 		`;
@@ -417,10 +417,10 @@ function showFeaturesModal() {
 	overlay.dir = 'rtl';
 	overlay.innerHTML = `
 		<div class="hwf-card">
-			<div class="hwf-title">الإضافات الجديدة</div>
-			<div class="hwf-sub">أهم التطويرات على هجولة عتابة</div>
+			<div class="hwf-title">هجولة عتابة</div>
+			<div class="hwf-sub">مميزات اللعبة</div>
 			<div class="hwf-about">
-				طوّر هذه الإضافات <b>ABODEN GAMES</b> بمساعدة <b>Claude</b> من Anthropic.
+				طوّر هذه اللعبة <b>ABODEN GAMES</b> بمساعدة <b>Claude</b> من Anthropic.
 				<br/>المشروع الأصلي: <b>Kenney</b> (تصميم) · <b>mrdoob</b> (Three.js) · <b>crashcat</b> (فيزياء).
 			</div>
 			${ FEATURES.map( ( f ) => `
@@ -461,6 +461,99 @@ function createGlowTexture( color ) {
 	ctx.fillRect( 0, 0, size, size );
 
 	return new THREE.CanvasTexture( canvas );
+
+}
+
+// ─── Free-roam circuit environment (asphalt + grandstands) ──
+
+function createAsphaltTexture() {
+
+	const size = 256;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = canvas.height = size;
+	const ctx = canvas.getContext( '2d' );
+	ctx.fillStyle = '#3a3a3e';
+	ctx.fillRect( 0, 0, size, size );
+
+	for ( let i = 0; i < 1400; i ++ ) {
+
+		const x = Math.random() * size, y = Math.random() * size;
+		const v = 26 + Math.random() * 34;
+		ctx.fillStyle = `rgba(${ v },${ v },${ v + 3 },${ 0.25 + Math.random() * 0.3 })`;
+		ctx.fillRect( x, y, 1.4, 1.4 );
+
+	}
+
+	const texture = new THREE.CanvasTexture( canvas );
+	texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+	return texture;
+
+}
+
+function createCrowdTexture() {
+
+	const w = 256, h = 64;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = w;
+	canvas.height = h;
+	const ctx = canvas.getContext( '2d' );
+	ctx.fillStyle = '#1c1f26';
+	ctx.fillRect( 0, 0, w, h );
+
+	const colors = [ '#e2725b', '#f2c230', '#4CAF6D', '#5B8CFF', '#f4f4f4', '#8B5FBF', '#D9534F' ];
+	for ( let y = 6; y < h; y += 9 ) {
+
+		const rowOffset = ( Math.round( y / 9 ) % 2 === 0 ) ? 4 : 8.5;
+		for ( let x = rowOffset; x < w; x += 8.5 ) {
+
+			ctx.fillStyle = colors[ Math.floor( Math.random() * colors.length ) ];
+			ctx.beginPath();
+			ctx.arc( x, y, 2.5, 0, Math.PI * 2 );
+			ctx.fill();
+
+		}
+
+	}
+
+	const texture = new THREE.CanvasTexture( canvas );
+	texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+	return texture;
+
+}
+
+// Builds a 3-tier stepped grandstand (like Riyadh's Reem circuit) along
+// one perimeter wall. axis 'x' = wall runs along X (north/south walls,
+// fixedCoord is their Z); axis 'z' = wall runs along Z (east/west walls,
+// fixedCoord is their X). direction (+1/-1) is which way it extends
+// away from the track.
+function buildGrandstandWall( scene, axis, length, fixedCoord, baseDistance, direction ) {
+
+	const tiers = [ { h: 2.0, d: 2.2 }, { h: 4.0, d: 2.2 }, { h: 6.0, d: 2.2 } ];
+	let offset = 0;
+
+	tiers.forEach( ( t ) => {
+
+		const centerDist = baseDistance + offset + t.d / 2;
+		const sizeX = axis === 'x' ? length : t.d;
+		const sizeZ = axis === 'x' ? t.d : length;
+
+		const texture = createCrowdTexture();
+		texture.repeat.set( axis === 'x' ? length / 4 : Math.max( 1, Math.round( t.h / 2 ) ),
+			axis === 'x' ? Math.max( 1, Math.round( t.h / 2 ) ) : length / 4 );
+
+		const material = new THREE.MeshStandardMaterial( { map: texture, roughness: 1, metalness: 0 } );
+		const mesh = new THREE.Mesh( new THREE.BoxGeometry( sizeX, t.h, sizeZ ), material );
+		mesh.position.set(
+			axis === 'x' ? 0 : fixedCoord + direction * centerDist,
+			t.h / 2,
+			axis === 'x' ? fixedCoord + direction * centerDist : 0
+		);
+		mesh.receiveShadow = true;
+		scene.add( mesh );
+
+		offset += t.d;
+
+	} );
 
 }
 
@@ -951,8 +1044,22 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			restitution: 0.0,
 		} );
 
+		// Visible asphalt ground, matching the invisible physics floor.
+		const asphaltTexture = createAsphaltTexture();
+		asphaltTexture.repeat.set( groundSize / 8, groundSize / 8 );
+		const groundMesh = new THREE.Mesh(
+			new THREE.PlaneGeometry( groundSize, groundSize ),
+			new THREE.MeshStandardMaterial( { map: asphaltTexture, roughness: 1, metalness: 0 } )
+		);
+		groundMesh.rotation.x = - Math.PI / 2;
+		groundMesh.position.set( 0, - 0.12, 0 );
+		groundMesh.receiveShadow = true;
+		scene.add( groundMesh );
+
 		// Solid perimeter walls so the car bounces off the edge instead of
-		// driving past it and falling into the void.
+		// driving past it and falling into the void — now with visible
+		// grandstands (crowd included, Reem-circuit style) instead of an
+		// invisible boundary.
 		const wallHalfHeight = 1.0;
 		const wallThickness = 0.2;
 		const wallY = - 0.125 + wallHalfHeight;
@@ -976,6 +1083,9 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 				friction: 0.2,
 				restitution: 0.3,
 			} );
+
+			buildGrandstandWall( scene, 'x', roadHalf * 2, sign * roadHalf, wallThickness, sign );
+			buildGrandstandWall( scene, 'z', roadHalf * 2, sign * roadHalf, wallThickness, sign );
 
 		}
 
