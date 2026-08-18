@@ -597,6 +597,15 @@ export class ARManager {
 	// to find out exactly which button index actually registers when
 	// physically pressed, after several guessed mappings didn't work.
 	// Safe to remove once headlights are sorted out.
+	// Lets main.js feed extra state (e.g. actual light.visible values)
+	// into the HUD, so we can see whether toggle logic actually ran,
+	// separate from whether a button press registered.
+	setDebugExtra( lines ) {
+
+		this._extraDebugLines = lines;
+
+	}
+
 	_updateDebugHUD() {
 
 		if ( ! this._debugCtx ) {
@@ -659,6 +668,19 @@ export class ARManager {
 
 				ctx.fillStyle = '#ffd54f';
 				ctx.fillText( 'axes: ' + gp.axes.map( ( a ) => a.toFixed( 2 ) ).join( ', ' ), x, y );
+
+			}
+
+		}
+
+		if ( this._extraDebugLines && this._extraDebugLines.length ) {
+
+			let ey = H - 14 - ( this._extraDebugLines.length - 1 ) * 24;
+			ctx.fillStyle = '#7ec8ff';
+			for ( const line of this._extraDebugLines ) {
+
+				ctx.fillText( line, 16, ey );
+				ey += 24;
 
 			}
 

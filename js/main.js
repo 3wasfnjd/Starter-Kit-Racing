@@ -444,11 +444,14 @@ function addVehicleLights( vehicleGroup ) {
 	// Modern three.js uses physically-correct (candela) light units, so
 	// a light meant to reach several real meters needs a much higher
 	// intensity than the old-style small numbers, or it's invisible.
+	// Bumped substantially again after the first pass still wasn't
+	// visible — this is a second guess, still untested on-device.
 	const headlights = [];
 	for ( const side of [ -1, 1 ] ) {
 
-		const baseDistance = 8;
-		const light = new THREE.SpotLight( 0xfff2cc, 500, baseDistance, Math.PI / 7, 0.5, 1.5 );
+		const baseDistance = 10;
+		const baseIntensity = 2000;
+		const light = new THREE.SpotLight( 0xfff2cc, baseIntensity, baseDistance, Math.PI / 7, 0.4, 2 );
 		light.position.set( side * 0.4, 0.3, 1.42 );
 		light.visible = false;
 
@@ -458,7 +461,7 @@ function addVehicleLights( vehicleGroup ) {
 		light.target = target;
 
 		bodyNode.add( light );
-		headlights.push( { light, baseDistance } );
+		headlights.push( { light, baseDistance, baseIntensity } );
 
 	}
 
@@ -521,6 +524,37 @@ function toggleHazards( vehicleLights ) {
 
 }
 
+// High beam is held, not toggled — while held, headlights go brighter
+// and farther-reaching (and force ON even if the player hadn't turned
+// regular headlights on, matching a real high-beam flasher stalk).
+function setHighBeam( vehicleLights, on ) {
+
+	if ( ! vehicleLights ) return;
+	if ( vehicleLights._highBeamOn === on ) return; // no change, skip
+
+	if ( on ) vehicleLights._headlightsBeforeHighBeam = vehicleLights.headlights[ 0 ].light.visible;
+	vehicleLights._highBeamOn = on;
+
+	vehicleLights.headlights.forEach( ( h ) => {
+
+		if ( on ) {
+
+			h.light.visible = true;
+			h.light.intensity = h.baseIntensity * 2.5;
+			h.light.angle = Math.PI / 5;
+
+		} else {
+
+			h.light.intensity = h.baseIntensity;
+			h.light.angle = Math.PI / 7;
+			h.light.visible = vehicleLights._headlightsBeforeHighBeam;
+
+		}
+
+	} );
+
+}
+
 // Call every frame; handles the hazard blink timing and keeps light
 // range proportional to the vehicle's current scale (AR resize control) —
 // a light's `.distance` is in local units and does NOT automatically
@@ -580,6 +614,7 @@ function setupRadioTouchUI( radio, vehicleLights ) {
 	const toggleBtn = makeTapButton( '⏯' );
 	const headlightBtn = makeTapButton( '💡' );
 	const hazardBtn = makeTapButton( '⚠️' );
+	const highBeamBtn = makeTapButton( '🔆' );
 
 	// pointerdown (not click) for lower latency and to match the steering
 	// zone's own event type; stopPropagation so the tap doesn't also get
@@ -609,10 +644,29 @@ function setupRadioTouchUI( radio, vehicleLights ) {
 
 	} );
 
+	// High beam is a hold, not a tap — on while pressed, off on release.
+	highBeamBtn.addEventListener( 'pointerdown', ( e ) => {
+
+		e.stopPropagation();
+		setHighBeam( vehicleLights, true );
+
+	} );
+	[ 'pointerup', 'pointerleave', 'pointercancel' ].forEach( ( evt ) => {
+
+		highBeamBtn.addEventListener( evt, ( e ) => {
+
+			e.stopPropagation();
+			setHighBeam( vehicleLights, false );
+
+		} );
+
+	} );
+
 	wrap.appendChild( nextBtn );
 	wrap.appendChild( toggleBtn );
 	wrap.appendChild( headlightBtn );
 	wrap.appendChild( hazardBtn );
+	wrap.appendChild( highBeamBtn );
 	document.body.appendChild( wrap );
 
 }
@@ -848,10 +902,12 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			const tKey = !! controls.keys[ 'KeyT' ];
 			const lKey = !! controls.keys[ 'KeyL' ];
 			const hKey = !! controls.keys[ 'KeyH' ];
+			const nKey = !! controls.keys[ 'KeyN' ];
 			if ( rKey && ! prevKeys.r ) radio.next();
 			if ( tKey && ! prevKeys.t ) radio.togglePlayPause();
 			if ( lKey && ! prevKeys.l ) toggleHeadlights( vehicleLights );
 			if ( hKey && ! prevKeys.h ) toggleHazards( vehicleLights );
+			setHighBeam( vehicleLights, nKey );
 			prevKeys = { r: rKey, t: tKey, l: lKey, h: hKey };
 
 			dirLight.position.set(
@@ -1011,6 +1067,7 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 
 					if ( arManager.getHeadlightToggle() ) toggleHeadlights( gameState.vehicleLights );
 					if ( arManager.getHazardToggle() ) toggleHazards( gameState.vehicleLights );
+					setHighBeam( gameState.vehicleLights, arManager.getHighBeamHold() );
 
 					dirLight.position.set(
 						gameState.vehicle.spherePos.x + 11.4,
