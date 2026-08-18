@@ -428,24 +428,16 @@ export class ARManager {
 	_buildVisibleFloorGrid( size ) {
 
 		// size = same half-size as the physics floor/walls, so the
-		// visible grid always covers the full playable area — matters
-		// once the car can be scaled up much larger than the default.
-
-		const canvas = document.createElement( 'canvas' );
-		canvas.width = 128;
-		canvas.height = 128;
-		const ctx = canvas.getContext( '2d' );
-		ctx.strokeStyle = 'rgba(21,162,73,0.5)'; // subtler than the first pass
-		ctx.lineWidth = 2;
-		ctx.strokeRect( 1, 1, 126, 126 );
-
-		const texture = new THREE.CanvasTexture( canvas );
-		texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-		texture.repeat.set( size * 2, size * 2 ); // ~1m grid cells
-
+		// surface always covers the full playable area — matters once
+		// the car can be scaled up much larger than the default.
+		//
+		// No grid lines/texture on purpose — a visible pattern read as
+		// an obvious overlay and broke the AR feel. Plain, very low
+		// opacity, matte material instead: nearly invisible where unlit,
+		// so only the patch the headlight beam actually hits stands out.
 		const material = new THREE.MeshStandardMaterial( {
-			map: texture, transparent: true, opacity: 0.25,
-			roughness: 0.95, metalness: 0, side: THREE.DoubleSide,
+			color: 0x333333, transparent: true, opacity: 0.12,
+			roughness: 1.0, metalness: 0, side: THREE.DoubleSide,
 		} );
 
 		const mesh = new THREE.Mesh( new THREE.PlaneGeometry( size * 2, size * 2 ), material );
