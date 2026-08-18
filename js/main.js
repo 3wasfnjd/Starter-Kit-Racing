@@ -216,10 +216,10 @@ function createModeMenu( { arAvailable } ) {
 		menu.dir = 'rtl';
 
 		const VEHICLE_OPTIONS = [
-			{ key: 'vehicle-truck-yellow', label: 'أصفر', thumb: 'images/menu/thumb-yellow.png' },
-			{ key: 'vehicle-truck-green', label: 'أخضر', thumb: 'images/menu/thumb-green.png' },
 			{ key: 'vehicle-truck-purple', label: 'أسود', thumb: 'images/menu/thumb-black.png' },
 			{ key: 'vehicle-truck-red', label: 'أحمر', thumb: 'images/menu/thumb-red.png' },
+			{ key: 'vehicle-truck-yellow', label: 'أصفر', thumb: 'images/menu/thumb-yellow.png' },
+			{ key: 'vehicle-truck-green', label: 'أخضر', thumb: 'images/menu/thumb-green.png' },
 		];
 		let selectedVehicle = VEHICLE_OPTIONS[ 0 ].key;
 		const vehicleSwatches = [];
