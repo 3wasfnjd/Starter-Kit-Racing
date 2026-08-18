@@ -219,7 +219,7 @@ function createModeMenu( { arAvailable } ) {
 			{ key: 'vehicle-truck-purple', label: 'أسود', thumb: 'images/menu/thumb-black.png' },
 			{ key: 'vehicle-truck-red', label: 'أحمر', thumb: 'images/menu/thumb-red.png' },
 			{ key: 'vehicle-truck-yellow', label: 'أصفر', thumb: 'images/menu/thumb-yellow.png' },
-			{ key: 'vehicle-truck-green', label: 'أخضر', thumb: 'images/menu/thumb-green.png' },
+			{ key: 'vehicle-truck-green', label: 'رملي', thumb: 'images/menu/thumb-green.png' },
 		];
 		let selectedVehicle = VEHICLE_OPTIONS[ 0 ].key;
 		const vehicleSwatches = [];
@@ -853,22 +853,13 @@ function updateVehicleLights( vehicleLights, dt, scale ) {
 
 	if ( ! vehicleLights ) return;
 
-	if ( scale !== undefined ) {
-
-		// Only .distance needs manual scaling — it's a light-specific
-		// property, not part of the transform hierarchy. Positions
-		// DON'T need this: headlights/taillights/hazards/lenses are all
-		// children of bodyNode, which is already inside the scaled
-		// vehicleModel, so their positions shrink/grow automatically.
-		// An earlier version also multiplied positions manually here,
-		// which double-scaled them on top of the automatic hierarchy
-		// scaling — that's what was causing the lens to sink into the
-		// body / vanish as the car was resized. Fixed by removing that.
-		vehicleLights.headlights.forEach( ( h ) => { h.light.distance = h.baseDistance * scale; } );
-		vehicleLights.taillights.forEach( ( h ) => { h.light.distance = h.baseDistance * scale; } );
-		vehicleLights.hazards.forEach( ( h ) => { h.light.distance = h.baseDistance * scale; } );
-
-	}
+	// Deliberately NOT scaling light .distance with vehicle size — the
+	// headlight's job is to illuminate the real room, which stays the
+	// same size regardless of how small the car gets. Shrinking the
+	// range along with the car meant a small car's light barely reached
+	// anything, looking like it "faded off" as it shrank. Range now
+	// stays constant no matter the car size (position/visual size still
+	// track the car normally, via the transform hierarchy).
 
 	if ( vehicleLights.hazardsOn ) {
 
