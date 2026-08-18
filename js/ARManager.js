@@ -611,14 +611,14 @@ export class ARManager {
 		if ( ! this._debugCtx ) {
 
 			const canvas = document.createElement( 'canvas' );
-			canvas.width = 700;
-			canvas.height = 420;
+			canvas.width = 1000;
+			canvas.height = 620;
 			this._debugCtx = canvas.getContext( '2d' );
 			this._debugTexture = new THREE.CanvasTexture( canvas );
 			const material = new THREE.MeshBasicMaterial( {
 				map: this._debugTexture, transparent: true, depthTest: false,
 			} );
-			this._debugMesh = new THREE.Mesh( new THREE.PlaneGeometry( 0.9, 0.54 ), material );
+			this._debugMesh = new THREE.Mesh( new THREE.PlaneGeometry( 1.1, 0.68 ), material );
 			this._debugMesh.renderOrder = 999;
 			this.scene.add( this._debugMesh );
 
@@ -628,18 +628,20 @@ export class ARManager {
 		const camPos = new THREE.Vector3().setFromMatrixPosition( xrCam.matrixWorld );
 		const camQuat = new THREE.Quaternion().setFromRotationMatrix( xrCam.matrixWorld );
 		const forward = new THREE.Vector3( 0, 0, -1 ).applyQuaternion( camQuat );
-		this._debugMesh.position.copy( camPos ).addScaledVector( forward, 1.0 );
+		this._debugMesh.position.copy( camPos ).addScaledVector( forward, 1.1 );
 		this._debugMesh.quaternion.copy( camQuat );
 
 		const ctx = this._debugCtx;
-		const W = 700, H = 420;
+		const W = 1000, H = 620;
 		ctx.clearRect( 0, 0, W, H );
 		ctx.fillStyle = 'rgba(10,10,10,0.88)';
 		ctx.fillRect( 0, 0, W, H );
 		ctx.font = '20px monospace';
 
-		// Two side-by-side columns so nothing gets cut off vertically.
-		const columns = [ { hand: 'left', x: 16 }, { hand: 'right', x: 366 } ];
+		// Two side-by-side controller columns, plus a third column for
+		// extra state (light visibility etc) — kept fully separate so
+		// nothing overlaps, unlike the previous cramped layout.
+		const columns = [ { hand: 'left', x: 16 }, { hand: 'right', x: 340 } ];
 
 		for ( const { hand, x } of columns ) {
 
@@ -647,7 +649,7 @@ export class ARManager {
 			const gp = this.gamepads[ hand ];
 			ctx.fillStyle = '#fff';
 			ctx.fillText( hand.toUpperCase() + ': ' + ( gp ? 'connected' : 'not connected' ), x, y );
-			y += 30;
+			y += 34;
 
 			if ( gp && gp.buttons ) {
 
@@ -658,7 +660,7 @@ export class ARManager {
 					ctx.fillText( `[${ i }] pressed=${ b.pressed }`, x, y );
 					y += 26;
 					ctx.fillText( `    value=${ b.value.toFixed( 2 ) }`, x, y );
-					y += 30;
+					y += 32;
 
 				}
 
@@ -675,12 +677,15 @@ export class ARManager {
 
 		if ( this._extraDebugLines && this._extraDebugLines.length ) {
 
-			let ey = H - 14 - ( this._extraDebugLines.length - 1 ) * 24;
+			const x3 = 680;
+			let ey = 30;
 			ctx.fillStyle = '#7ec8ff';
+			ctx.fillText( 'STATE:', x3, ey );
+			ey += 34;
 			for ( const line of this._extraDebugLines ) {
 
-				ctx.fillText( line, 16, ey );
-				ey += 24;
+				ctx.fillText( line, x3, ey );
+				ey += 28;
 
 			}
 
