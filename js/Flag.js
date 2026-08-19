@@ -14,11 +14,15 @@ const SEG_Y = 10;
 const POLE_HEIGHT = 1.5;
 const POLE_RADIUS = 0.022;
 
-// How the pole is aimed off the vehicle's rear-left corner. Yaw carries
-// it outward/backward (90° = straight back); pitch leans it back and up
-// like a real pole planted against the rear bumper/spare-tire area,
-// angling up and out rather than standing bolt upright.
-const FLAG_YAW = THREE.MathUtils.degToRad( 100 );
+// How the pole is aimed off the vehicle's rear-left corner. This matters
+// a lot for visibility: the flag's broad face is roughly perpendicular
+// to its streaming direction (like any real flag), and the default
+// in-game camera chases from behind — so a yaw near 90° (streaming
+// almost straight back) puts the flag nearly edge-on to that camera,
+// making a genuinely large flag look like a thin sliver. A shallower
+// yaw keeps it angled out to the side, where the chase camera actually
+// sees its full width.
+const FLAG_YAW = THREE.MathUtils.degToRad( 50 );
 const FLAG_PITCH = THREE.MathUtils.degToRad( -28 );
 
 function createPlaceholderTexture() {
