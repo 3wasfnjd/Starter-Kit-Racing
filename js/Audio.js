@@ -188,6 +188,8 @@ export class GameAudio {
 
 		};
 
+		this._unlock = unlock;
+
 		window.addEventListener( 'keydown', unlock );
 		window.addEventListener( 'click', unlock );
 		window.addEventListener( 'touchstart', unlock );
@@ -288,6 +290,18 @@ export class GameAudio {
 	startSounds() {
 
 		if ( this.skidSound.buffer && ! this.skidSound.isPlaying ) this.skidSound.play();
+
+	}
+
+	// Public escape hatch for contexts where the normal click/touchstart/
+	// keydown listeners above will never fire — namely an active WebXR AR
+	// session, where all input comes through XR controller triggers, not
+	// DOM events. Safe to call directly once we know a real user gesture
+	// already happened (e.g. the "Start AR" button press that got us into
+	// the session in the first place).
+	forceUnlock() {
+
+		if ( this._unlock ) this._unlock();
 
 	}
 

@@ -755,12 +755,14 @@ function addVehicleLights( vehicleGroup ) {
 	// Reverse (backup) lights: white glow at the rear, next to the
 	// taillights, only lit while the car is actually reversing (driven
 	// from linearSpeed < 0 in updateVehicleLights — no manual toggle,
-	// same as a real car). Small lens glow like the headlight bumps.
+	// same as a real car). Small lens glow like the headlight bumps —
+	// intentionally subtle/small (a real backup light is a dim little
+	// bulb, not a headlight-strength beam).
 	const reverseLights = [];
 	for ( const side of [ -1, 1 ] ) {
 
-		const baseDistance = 1.4;
-		const baseIntensity = 4;
+		const baseDistance = 0.8;
+		const baseIntensity = 1.2;
 		const light = new THREE.PointLight( 0xf5f9ff, baseIntensity, baseDistance, 2 );
 		const basePosition = new THREE.Vector3( side * 0.25, 0.43, -1.34 );
 		light.position.copy( basePosition );
@@ -768,7 +770,7 @@ function addVehicleLights( vehicleGroup ) {
 		bodyNode.add( light );
 
 		const lens = new THREE.Mesh(
-			new THREE.CircleGeometry( 0.05, 16 ),
+			new THREE.CircleGeometry( 0.035, 16 ),
 			new THREE.MeshBasicMaterial( { color: 0xffffff, toneMapped: false } )
 		);
 		lens.position.copy( basePosition );
@@ -1325,6 +1327,13 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 
 		const audio = new GameAudio();
 		audio.init( renderer.xr.getCamera(), vehicleGroup ); // XR camera rig instead of the NORMAL-mode chase Camera
+		// AR mode has no DOM click/touchstart/keydown once inside the XR
+		// session (input is XR controller triggers only), so Audio.js's
+		// normal gesture-based unlock() would never fire and every sound
+		// would stay silent forever. We already know a real user gesture
+		// happened (the "Start AR" button press that got us into this
+		// session), so it's safe to unlock immediately here instead.
+		audio.forceUnlock();
 
 		const radio = new Radio( audio.listener, vehicleGroup );
 
