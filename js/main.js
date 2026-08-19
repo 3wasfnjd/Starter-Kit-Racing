@@ -726,10 +726,9 @@ function addVehicleFlag( vehicleGroup, imageUrl ) {
 	if ( ! bodyNode ) return null;
 
 	const flag = createFlag( imageUrl );
-	// Pulled further left (clear of the bumper's width), further back
-	// (clear of its depth), and a bit higher — the pole base was
-	// clipping into the bumper mesh at the previous, tighter position.
-	flag.group.position.set( -0.66, 0.16, -1.5 );
+	// Pole planted right at the rear bumper — pulled left (clear of the
+	// bumper's width) and just past its depth, not floating away from it.
+	flag.group.position.set( -0.64, 0.14, -1.42 );
 	bodyNode.add( flag.group );
 
 	return flag;
