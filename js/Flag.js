@@ -23,7 +23,7 @@ const POLE_RADIUS = 0.022;
 // yaw keeps it angled out to the side, where the chase camera actually
 // sees its full width.
 const FLAG_YAW = THREE.MathUtils.degToRad( 50 );
-const FLAG_PITCH = THREE.MathUtils.degToRad( -28 );
+const FLAG_PITCH = 0; // upright pole, no backward lean
 
 function createPlaceholderTexture() {
 
