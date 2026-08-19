@@ -6,7 +6,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle, MAX_SPEED } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds } from './Track.js';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath } from './Track.js';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { DriftMarks } from './DriftMarks.js';
@@ -968,6 +968,72 @@ function buildWarningSign( scene, x, z, rotationY ) {
 
 }
 
+// ─── AI opponents (kinematic waypoint following) ───────────
+// Not physics-driven — these just move along the track's waypoint loop
+// at a steady pace with smoothed turning. Good enough to feel like
+// competing traffic without needing full AI-driven vehicle physics,
+// which would be a much larger undertaking.
+
+function createAIDrivers( npcVehicles, path ) {
+
+	if ( ! path || path.length < 2 ) return [];
+
+	return npcVehicles.map( ( npc, i ) => {
+
+		let bestIdx = 0, bestDist = Infinity;
+		for ( let j = 0; j < path.length; j ++ ) {
+
+			const dx = path[ j ].x - npc.position.x, dz = path[ j ].z - npc.position.z;
+			const d = dx * dx + dz * dz;
+			if ( d < bestDist ) { bestDist = d; bestIdx = j; }
+
+		}
+
+		return {
+			npc, idx: bestIdx,
+			// slightly different speeds so they spread out over a lap
+			// instead of staying bunched together like a train
+			speed: 6.5 + i * 0.6 + Math.random() * 0.8,
+			heading: npc.rotation.y,
+		};
+
+	} );
+
+}
+
+function updateAIDrivers( drivers, path, dt ) {
+
+	if ( ! path || path.length < 2 ) return;
+
+	for ( const d of drivers ) {
+
+		const target = path[ ( d.idx + 1 ) % path.length ];
+		const dx = target.x - d.npc.position.x, dz = target.z - d.npc.position.z;
+		const dist = Math.hypot( dx, dz );
+
+		if ( dist < 0.6 ) {
+
+			d.idx = ( d.idx + 1 ) % path.length;
+			continue;
+
+		}
+
+		const moveDist = Math.min( dist, d.speed * dt );
+		d.npc.position.x += ( dx / dist ) * moveDist;
+		d.npc.position.z += ( dz / dist ) * moveDist;
+
+		// Smoothed turning toward the target heading (shortest angular
+		// path) instead of snapping, so corners look like actual driving.
+		const targetHeading = Math.atan2( dx, dz );
+		let delta = targetHeading - d.heading;
+		delta = ( ( delta + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
+		d.heading += delta * Math.min( 1, dt * 4 );
+		d.npc.rotation.y = d.heading;
+
+	}
+
+}
+
 // ─── Custom windshield/tailgate text decal ─────────────────
 
 function createTextTexture( text ) {
@@ -1528,6 +1594,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	const world = createPhysicsWorld();
 	let sphereBody, vehicleSpawn, lapTimer = null;
+	let trackPath = null, aiDrivers = [];
 
 	if ( freeRoam ) {
 
@@ -1540,8 +1607,8 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		// mode keeps its normal daylight scene.
 		scene.background = new THREE.Color( 0x05060a );
 		scene.fog.color.set( 0x05060a );
-		dirLight.intensity = 0.4; // faint moonlight fill, floodlights carry the scene
-		hemiLight.intensity = 0.35;
+		dirLight.intensity = 3; // restored — floodlights removed, no longer relying on them to carry the scene
+		hemiLight.intensity = 2;
 
 		const roadHalf = groundSize / 2;
 
@@ -1619,18 +1686,8 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 		}
 
-		// Floodlight poles at the four corners, all aimed back at center —
-		// the actual light source for the night-stadium look set above.
-		const poleInset = roadHalf * 0.82;
-		for ( const cx of [ -1, 1 ] ) {
-
-			for ( const cz of [ -1, 1 ] ) {
-
-				buildFloodlightPole( scene, cx * poleInset, cz * poleInset, { x: 0, z: 0 } );
-
-			}
-
-		}
+		// Floodlight poles removed (performance) — plain daylight-style
+		// lighting above instead of relying on 4 always-on SpotLights.
 
 		// Dry desert surround, peeking out beyond the paved arena's edge —
 		// sits just below the asphalt so it only shows past its footprint.
@@ -1646,20 +1703,9 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		sandMesh.receiveShadow = true;
 		scene.add( sandMesh );
 
-		// Burnout circles + drift trails, baked once across the whole
-		// paved surface — a proper tiled texture would look obviously
-		// repeated at this scale.
-		const skidMarksTexture = createSkidMarksTexture( groundSize );
-		const skidOverlay = new THREE.Mesh(
-			new THREE.PlaneGeometry( groundSize, groundSize ),
-			new THREE.MeshStandardMaterial( {
-				map: skidMarksTexture, transparent: true, roughness: 1,
-				metalness: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1,
-			} )
-		);
-		skidOverlay.rotation.x = - Math.PI / 2;
-		skidOverlay.position.set( 0, - 0.1195, 0 );
-		scene.add( skidOverlay );
+		// Skid-marks overlay texture removed (performance) — was a
+		// synchronous 512x512 canvas generation at load time, the most
+		// likely cause of the freeze on entering free-roam.
 
 		// Concrete barriers dressing the same line as the invisible
 		// collision walls above (no extra physics needed — the collider's
@@ -1714,7 +1760,9 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		scene.fog.near = groundSize * 0.4;
 		scene.fog.far = groundSize * 0.8;
 
-		buildTrack( scene, models, customCells );
+		const { npcVehicles } = buildTrack( scene, models, customCells );
+		trackPath = computeTrackPath( customCells );
+		aiDrivers = createAIDrivers( npcVehicles, trackPath );
 
 		// Probes
 		const probeHeight = 6;
@@ -1817,6 +1865,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 			updateVehicleAndFx( dt, input, ctx );
 			updateVehicleLights( vehicleLights, dt, 1, vehicle.linearSpeed < -0.01 );
+			updateAIDrivers( aiDrivers, trackPath, dt );
 
 			const rKey = !! controls.keys[ 'KeyR' ];
 			const tKey = !! controls.keys[ 'KeyT' ];
