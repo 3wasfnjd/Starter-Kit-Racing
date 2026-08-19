@@ -11,6 +11,7 @@ import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { DriftMarks } from './DriftMarks.js';
 import { GameAudio } from './Audio.js';
+import { createFlag } from './Flag.js';
 import { LapTimer } from './LapTimer.js';
 import { ColorMapGLTFLoader } from './Loader.js';
 import { ARManager } from './ARManager.js';
@@ -186,6 +187,22 @@ function createModeMenu( { arAvailable } ) {
 			}
 			#hajwalah-menu .hw-swatch img { width: 90%; height: 90%; object-fit: contain; }
 			#hajwalah-menu .hw-swatch.selected { border-color: #5B8CFF; box-shadow: 0 0 14px rgba(91,140,255,0.55); }
+			#hajwalah-menu .hw-flag-row { display: flex; align-items: center; gap: 12px; justify-content: center; }
+			#hajwalah-menu .hw-flag-pick {
+				display: flex; align-items: center; justify-content: center; gap: 8px;
+				padding: 10px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14);
+				background: rgba(255,255,255,0.06); color: #cfc9e0; font-size: 13px; cursor: pointer;
+			}
+			#hajwalah-menu .hw-flag-pick:active { background: rgba(255,255,255,0.12); }
+			#hajwalah-menu .hw-flag-preview {
+				width: 44px; height: 44px; border-radius: 8px; object-fit: cover;
+				border: 1px solid rgba(255,255,255,0.18); display: none;
+			}
+			#hajwalah-menu .hw-flag-preview.shown { display: block; }
+			#hajwalah-menu .hw-flag-clear {
+				display: none; color: #ff8a8a; font-size: 12px; background: none; border: none; cursor: pointer;
+			}
+			#hajwalah-menu .hw-flag-clear.shown { display: inline-block; }
 			#hajwalah-menu .hw-checkbox-row { display: flex; align-items: center; gap: 10px; color: #cfc9e0; font-size: 13.5px; justify-content: center; cursor: pointer; }
 			#hajwalah-menu .hw-checkbox-row input { width: 20px; height: 20px; accent-color: #8B5FBF; }
 			#hajwalah-menu .hw-mode-row { display: flex; gap: 12px; }
@@ -219,7 +236,7 @@ function createModeMenu( { arAvailable } ) {
 			{ key: 'vehicle-truck-purple', label: 'أسود', thumb: 'images/menu/thumb-black.png' },
 			{ key: 'vehicle-truck-red', label: 'أحمر', thumb: 'images/menu/thumb-red.png' },
 			{ key: 'vehicle-truck-yellow', label: 'أصفر', thumb: 'images/menu/thumb-yellow.png' },
-			{ key: 'vehicle-truck-green', label: 'أخضر', thumb: 'images/menu/thumb-green.png' },
+			{ key: 'vehicle-truck-green', label: 'رملي', thumb: 'images/menu/thumb-green.png' },
 		];
 		let selectedVehicle = VEHICLE_OPTIONS[ 0 ].key;
 		const vehicleSwatches = [];
@@ -247,6 +264,17 @@ function createModeMenu( { arAvailable } ) {
 					<div>
 						<div class="hw-field-label">لون السيارة</div>
 						<div class="hw-swatches"></div>
+					</div>
+					<div>
+						<div class="hw-field-label">صورة العلم الخلفي — اختياري</div>
+						<div class="hw-flag-row">
+							<label class="hw-flag-pick">
+								📷 اختر صورة
+								<input type="file" accept="image/*" class="hw-flag-input" hidden />
+							</label>
+							<img class="hw-flag-preview" />
+							<button type="button" class="hw-flag-clear">إزالة</button>
+						</div>
 					</div>
 					<label class="hw-checkbox-row">
 						<input type="checkbox" class="hw-freeroam-checkbox" />
@@ -304,6 +332,42 @@ function createModeMenu( { arAvailable } ) {
 		} );
 		refreshSwatchSelection();
 
+		// Flag image: read locally as a data URL via FileReader — no
+		// server/upload involved, works fully offline, and the resulting
+		// data: URL is exactly what THREE.TextureLoader/createFlag()
+		// already accepts as an imageUrl.
+		let flagImageDataUrl = null;
+		const flagInput = menu.querySelector( '.hw-flag-input' );
+		const flagPreview = menu.querySelector( '.hw-flag-preview' );
+		const flagClear = menu.querySelector( '.hw-flag-clear' );
+
+		flagInput.addEventListener( 'change', () => {
+
+			const file = flagInput.files && flagInput.files[ 0 ];
+			if ( ! file ) return;
+
+			const reader = new FileReader();
+			reader.onload = () => {
+
+				flagImageDataUrl = reader.result;
+				flagPreview.src = flagImageDataUrl;
+				flagPreview.classList.add( 'shown' );
+				flagClear.classList.add( 'shown' );
+
+			};
+			reader.readAsDataURL( file );
+
+		} );
+
+		flagClear.addEventListener( 'click', () => {
+
+			flagImageDataUrl = null;
+			flagInput.value = '';
+			flagPreview.classList.remove( 'shown' );
+			flagClear.classList.remove( 'shown' );
+
+		} );
+
 		const textInput = menu.querySelector( '.hw-text-input' );
 		const freeRoamCheckbox = menu.querySelector( '.hw-freeroam-checkbox' );
 		const normalBtn = menu.querySelector( '.hw-normal-btn' );
@@ -313,7 +377,7 @@ function createModeMenu( { arAvailable } ) {
 
 			requestFullscreenSafe();
 			menu.remove();
-			resolve( { choice: 'normal', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked, vehicleKey: selectedVehicle } );
+			resolve( { choice: 'normal', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked, vehicleKey: selectedVehicle, flagImage: flagImageDataUrl } );
 
 		} );
 
@@ -338,7 +402,7 @@ function createModeMenu( { arAvailable } ) {
 			menu.remove();
 			resolve( {
 				choice: 'ar', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked,
-				vehicleKey: selectedVehicle, sessionPromise,
+				vehicleKey: selectedVehicle, flagImage: flagImageDataUrl, sessionPromise,
 			} );
 
 		} );
@@ -490,10 +554,10 @@ function createAsphaltTexture() {
 
 }
 
-// Subtle grid of dashed lane-marking lines — the vast open free-roam
-// ground felt like an empty void with nothing to gauge speed/position
-// against, so this gives visual reference points scattered across it,
-// loosely evoking street lane markings.
+// Subtle grid of dashed lane-marking lines — gives visual reference
+// points scattered across the open paved area, loosely evoking street
+// lane markings (useful even with the barrier/stand dressing, since the
+// middle of a large arena can still feel empty without them).
 function createLaneMarkingsTexture() {
 
 	const size = 256;
@@ -512,6 +576,127 @@ function createLaneMarkingsTexture() {
 
 	const texture = new THREE.CanvasTexture( canvas );
 	texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+	return texture;
+
+}
+
+function createSandTexture() {
+
+	const size = 256;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = canvas.height = size;
+	const ctx = canvas.getContext( '2d' );
+	ctx.fillStyle = '#c9a877';
+	ctx.fillRect( 0, 0, size, size );
+
+	for ( let i = 0; i < 2200; i ++ ) {
+
+		const x = Math.random() * size, y = Math.random() * size;
+		const v = Math.random();
+		const shade = v < 0.5 ? `rgba(150,120,80,${ 0.08 + Math.random() * 0.12 })` : `rgba(230,205,160,${ 0.08 + Math.random() * 0.15 })`;
+		ctx.fillStyle = shade;
+		ctx.fillRect( x, y, 1.6, 1.6 );
+
+	}
+
+	// Faint wind-ripple streaks
+	ctx.strokeStyle = 'rgba(120,95,60,0.08)';
+	ctx.lineWidth = 2;
+	for ( let i = 0; i < 18; i ++ ) {
+
+		const y = Math.random() * size;
+		ctx.beginPath();
+		ctx.moveTo( 0, y );
+		ctx.bezierCurveTo( size * 0.3, y + ( Math.random() - 0.5 ) * 20, size * 0.7, y + ( Math.random() - 0.5 ) * 20, size, y );
+		ctx.stroke();
+
+	}
+
+	const texture = new THREE.CanvasTexture( canvas );
+	texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+	return texture;
+
+}
+
+// Large, non-repeating overlay of burnout circles and drift streaks laid
+// once across the whole paved arena — a tiled texture would look
+// obviously patterned at this scale, so this is drawn once at full size.
+function createSkidMarksTexture( worldSize ) {
+
+	const size = 1024;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = canvas.height = size;
+	const ctx = canvas.getContext( '2d' );
+
+	const toPx = ( w ) => ( w / worldSize + 0.5 ) * size;
+
+	ctx.strokeStyle = 'rgba(10,10,12,0.35)';
+	ctx.lineCap = 'round';
+
+	// Burnout circles: paired concentric-ish rings with a slightly wobbly
+	// radius, like a real donut/burnout mark.
+	const circleCount = 7;
+	for ( let c = 0; c < circleCount; c ++ ) {
+
+		const cx = toPx( ( Math.random() - 0.5 ) * worldSize * 0.75 );
+		const cy = toPx( ( Math.random() - 0.5 ) * worldSize * 0.75 );
+		const r = size * ( 0.02 + Math.random() * 0.035 );
+
+		for ( const offset of [ -3, 3 ] ) {
+
+			ctx.lineWidth = 2.5 + Math.random() * 1.5;
+			ctx.beginPath();
+			const segs = 48;
+			for ( let i = 0; i <= segs; i ++ ) {
+
+				const a = ( i / segs ) * Math.PI * 2;
+				const wob = Math.sin( a * 5 + c ) * r * 0.05;
+				const px = cx + Math.cos( a ) * ( r + offset + wob );
+				const py = cy + Math.sin( a ) * ( r + offset + wob );
+				if ( i === 0 ) ctx.moveTo( px, py ); else ctx.lineTo( px, py );
+
+			}
+
+			ctx.stroke();
+
+		}
+
+	}
+
+	// Long curved drift trails: pairs of near-parallel tracks following a
+	// sweeping bezier path.
+	const trailCount = 10;
+	for ( let t = 0; t < trailCount; t ++ ) {
+
+		const x0 = ( Math.random() - 0.5 ) * worldSize * 0.9;
+		const y0 = ( Math.random() - 0.5 ) * worldSize * 0.9;
+		const ang = Math.random() * Math.PI * 2;
+		const len = worldSize * ( 0.15 + Math.random() * 0.25 );
+		const bend = ( Math.random() - 0.5 ) * len * 0.6;
+
+		const x1 = x0 + Math.cos( ang ) * len;
+		const y1 = y0 + Math.sin( ang ) * len;
+		const mx = ( x0 + x1 ) / 2 - Math.sin( ang ) * bend;
+		const my = ( y0 + y1 ) / 2 + Math.cos( ang ) * bend;
+
+		for ( const offset of [ -4, 4 ] ) {
+
+			ctx.lineWidth = 3 + Math.random();
+			ctx.globalAlpha = 0.5 + Math.random() * 0.3;
+			ctx.beginPath();
+			ctx.moveTo( toPx( x0 + Math.cos( ang + Math.PI / 2 ) * offset ), toPx( y0 + Math.sin( ang + Math.PI / 2 ) * offset ) );
+			ctx.quadraticCurveTo(
+				toPx( mx + Math.cos( ang + Math.PI / 2 ) * offset ), toPx( my + Math.sin( ang + Math.PI / 2 ) * offset ),
+				toPx( x1 + Math.cos( ang + Math.PI / 2 ) * offset ), toPx( y1 + Math.sin( ang + Math.PI / 2 ) * offset )
+			);
+			ctx.stroke();
+
+		}
+
+	}
+	ctx.globalAlpha = 1;
+
+	const texture = new THREE.CanvasTexture( canvas );
 	return texture;
 
 }
@@ -585,6 +770,172 @@ function buildGrandstandWall( scene, axis, length, fixedCoord, baseDistance, dir
 		offset += t.d;
 
 	} );
+
+}
+
+// Stadium floodlight pole: a tall mast + lamp head, with a real SpotLight
+// aiming down at the track — matching the bright white floodlights over
+// a real night "تفحيط" show.
+function buildFloodlightPole( scene, x, z, aimTarget ) {
+
+	const poleHeight = 9;
+	const pole = new THREE.Mesh(
+		new THREE.CylinderGeometry( 0.12, 0.16, poleHeight, 8 ),
+		new THREE.MeshStandardMaterial( { color: 0x3a3a3e, roughness: 0.7, metalness: 0.4 } )
+	);
+	pole.position.set( x, poleHeight / 2, z );
+	pole.castShadow = true;
+	scene.add( pole );
+
+	// Small lamp head cluster at the top, tilted toward the track.
+	const headGroup = new THREE.Group();
+	headGroup.position.set( x, poleHeight - 0.1, z );
+	headGroup.lookAt( aimTarget.x, 0, aimTarget.z );
+	scene.add( headGroup );
+
+	const headMat = new THREE.MeshStandardMaterial( { color: 0x111114, roughness: 0.5, metalness: 0.6 } );
+	for ( let i = -1; i <= 1; i ++ ) {
+
+		const lamp = new THREE.Mesh( new THREE.BoxGeometry( 0.5, 0.35, 0.15 ), headMat );
+		lamp.position.set( i * 0.6, 0, 0.3 );
+		lamp.rotation.x = -0.5;
+		headGroup.add( lamp );
+
+	}
+
+	const light = new THREE.SpotLight( 0xf5f7ff, 25, 45, THREE.MathUtils.degToRad( 38 ), 0.4, 1.2 );
+	light.position.set( x, poleHeight - 0.1, z );
+	light.target.position.set( aimTarget.x, 0, aimTarget.z );
+	light.castShadow = false; // 4 shadow-casting spotlights would be very expensive; dirLight still casts the car's shadow
+	scene.add( light );
+	scene.add( light.target );
+
+}
+
+// ─── Drift arena dressing: barriers, tire stacks, gate, signs ─
+
+// Concrete jersey barrier segment: gray base + a painted orange/white
+// hazard stripe near the top, the standard look for track-edge barriers.
+function buildBarrierSegment( scene, world, x, z, length, axis ) {
+
+	const h = 0.6, w = 0.35;
+	const sizeX = axis === 'x' ? length : w;
+	const sizeZ = axis === 'x' ? w : length;
+
+	const body = new THREE.Mesh(
+		new THREE.BoxGeometry( sizeX, h, sizeZ ),
+		new THREE.MeshStandardMaterial( { color: 0x9a9a92, roughness: 0.95, metalness: 0 } )
+	);
+	body.position.set( x, h / 2, z );
+	body.castShadow = true;
+	body.receiveShadow = true;
+	scene.add( body );
+
+	const stripe = new THREE.Mesh(
+		new THREE.BoxGeometry( axis === 'x' ? sizeX : sizeX * 1.02, 0.12, axis === 'x' ? sizeZ * 1.02 : sizeZ ),
+		new THREE.MeshStandardMaterial( { color: 0xE0621B, roughness: 0.8 } )
+	);
+	stripe.position.set( x, h * 0.72, z );
+	scene.add( stripe );
+
+	if ( world ) {
+
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: [ sizeX / 2, h / 2, sizeZ / 2 ] } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position: [ x, h / 2 - 0.125, z ],
+			friction: 0.3,
+			restitution: 0.25,
+		} );
+
+	}
+
+}
+
+// A stack of tires (torus "tires", genuinely stacked) — decorative corner
+// dressing, common at any real drift arena's edge.
+function buildTireStack( scene, x, z, count ) {
+
+	const tireMat = new THREE.MeshStandardMaterial( { color: 0x1c1c1e, roughness: 0.9, metalness: 0 } );
+	let y = 0.12;
+
+	for ( let i = 0; i < count; i ++ ) {
+
+		const tire = new THREE.Mesh( new THREE.TorusGeometry( 0.35, 0.13, 10, 20 ), tireMat );
+		tire.rotation.x = Math.PI / 2;
+		tire.position.set( x + ( Math.random() - 0.5 ) * 0.04, y, z + ( Math.random() - 0.5 ) * 0.04 );
+		tire.castShadow = true;
+		tire.receiveShadow = true;
+		scene.add( tire );
+		y += 0.23;
+
+	}
+
+}
+
+// Entrance gate: two pillars + a header beam, straddling one edge of the
+// arena — purely a visual landmark (the barrier line behind it is still
+// the actual boundary).
+function buildEntranceGate( scene, x, z, axis ) {
+
+	const pillarH = 4.2, pillarSize = 0.35, gap = 3.6;
+	const mat = new THREE.MeshStandardMaterial( { color: 0x2c2c30, roughness: 0.6, metalness: 0.5 } );
+
+	for ( const side of [ -1, 1 ] ) {
+
+		const px = axis === 'x' ? x + side * gap / 2 : x;
+		const pz = axis === 'x' ? z : z + side * gap / 2;
+		const pillar = new THREE.Mesh( new THREE.BoxGeometry( pillarSize, pillarH, pillarSize ), mat );
+		pillar.position.set( px, pillarH / 2, pz );
+		pillar.castShadow = true;
+		scene.add( pillar );
+
+	}
+
+	const beam = new THREE.Mesh(
+		new THREE.BoxGeometry( axis === 'x' ? gap + pillarSize : pillarSize, 0.4, axis === 'x' ? pillarSize : gap + pillarSize ),
+		mat
+	);
+	beam.position.set( x, pillarH + 0.2, z );
+	beam.castShadow = true;
+	scene.add( beam );
+
+}
+
+// Warning sign: yellow triangle on a post — no text/glyphs, just the
+// hazard-triangle shape.
+function buildWarningSign( scene, x, z, rotationY ) {
+
+	const post = new THREE.Mesh(
+		new THREE.CylinderGeometry( 0.03, 0.03, 1.1, 6 ),
+		new THREE.MeshStandardMaterial( { color: 0x333333, roughness: 0.7 } )
+	);
+	post.position.set( x, 0.55, z );
+	scene.add( post );
+
+	const shape = new THREE.Shape();
+	shape.moveTo( 0, 0.32 );
+	shape.lineTo( -0.28, -0.18 );
+	shape.lineTo( 0.28, -0.18 );
+	shape.closePath();
+
+	const face = new THREE.Mesh(
+		new THREE.ShapeGeometry( shape ),
+		new THREE.MeshStandardMaterial( { color: 0xF2C230, roughness: 0.6, side: THREE.DoubleSide } )
+	);
+	const border = new THREE.Mesh(
+		new THREE.RingGeometry( 0.26, 0.30, 3 ),
+		new THREE.MeshStandardMaterial( { color: 0x1a1a1a, roughness: 0.6, side: THREE.DoubleSide } )
+	);
+	border.rotation.z = Math.PI; // point the ring-triangle the same way as the face
+
+	const signGroup = new THREE.Group();
+	signGroup.add( face );
+	signGroup.add( border );
+	signGroup.position.set( x, 1.15, z );
+	signGroup.rotation.y = rotationY;
+	scene.add( signGroup );
 
 }
 
@@ -665,6 +1016,35 @@ function addCustomTextDecals( vehicleGroup, text ) {
 	tailgateDecal.rotation.y = Math.PI; // face backward
 	tailgateDecal.renderOrder = 10;
 	bodyNode.add( tailgateDecal );
+
+}
+
+// ─── Rear flag: pole-mounted, driver's-side corner ───────────
+// Saudi Arabia drives left-hand-drive (driver's seat on the left), so
+// "driver's side" = the vehicle's left = negative local x, matching the
+// side=-1 convention already used for the taillights/reverse lights
+// below. Mounted low, at rear-bumper/spare-tire height (not roof height)
+// and near the left edge — matching a real full-size flag planted at the
+// back of the vehicle, leaning up and outward, rather than a small
+// roof-mounted pennant.
+function addVehicleFlag( vehicleGroup, imageUrl ) {
+
+	const vehicleModel = vehicleGroup.children[ 0 ];
+	let bodyNode = null;
+	vehicleModel.traverse( ( child ) => {
+
+		if ( child.name.toLowerCase() === 'body' ) bodyNode = child;
+
+	} );
+	if ( ! bodyNode ) return null;
+
+	const flag = createFlag( imageUrl );
+	// Pole planted right at the rear bumper — pulled left (clear of the
+	// bumper's width) and just past its depth, not floating away from it.
+	flag.group.position.set( -0.6, 0.14, -1.36 );
+	bodyNode.add( flag.group );
+
+	return flag;
 
 }
 
@@ -778,6 +1158,36 @@ function addVehicleLights( vehicleGroup ) {
 
 	}
 
+	// Reverse (backup) lights: white glow at the rear, next to the
+	// taillights, only lit while the car is actually reversing (driven
+	// from linearSpeed < 0 in updateVehicleLights — no manual toggle,
+	// same as a real car). Small lens glow like the headlight bumps —
+	// intentionally subtle/small (a real backup light is a dim little
+	// bulb, not a headlight-strength beam).
+	const reverseLights = [];
+	for ( const side of [ -1, 1 ] ) {
+
+		const baseDistance = 0.8;
+		const baseIntensity = 1.2;
+		const light = new THREE.PointLight( 0xf5f9ff, baseIntensity, baseDistance, 2 );
+		const basePosition = new THREE.Vector3( side * 0.25, 0.43, -1.34 );
+		light.position.copy( basePosition );
+		light.visible = false;
+		bodyNode.add( light );
+
+		const lens = new THREE.Mesh(
+			new THREE.CircleGeometry( 0.035, 16 ),
+			new THREE.MeshBasicMaterial( { color: 0xffffff, toneMapped: false } )
+		);
+		lens.position.copy( basePosition );
+		lens.rotation.y = Math.PI; // face backward, out through the taillight bump
+		lens.visible = false;
+		bodyNode.add( lens );
+
+		reverseLights.push( { light, lens, basePosition, baseDistance, baseIntensity } );
+
+	}
+
 	// Hazard/emergency lights: orange, blinking, at all 4 corners. Off
 	// by default — toggled by the player, blink handled per-frame.
 	const hazards = [];
@@ -797,7 +1207,7 @@ function addVehicleLights( vehicleGroup ) {
 
 	}
 
-	return { headlights, taillights, hazards, headlightLenses };
+	return { headlights, taillights, hazards, headlightLenses, reverseLights };
 
 }
 
@@ -875,23 +1285,37 @@ function setHighBeam( vehicleLights, on ) {
 // range proportional to the vehicle's current scale (AR resize control) —
 // a light's `.distance` is in local units and does NOT automatically
 // scale with its parent's transform the way position/rotation do.
-function updateVehicleLights( vehicleLights, dt, scale ) {
+function updateVehicleLights( vehicleLights, dt, scale, isReversing = false ) {
 
 	if ( ! vehicleLights ) return;
 
-	// Beam range/brightness now track car size — a tiny car needs a
-	// proportionally tiny beam or it looks like a searchlight (as shown
-	// in the photos). A floor keeps it from going fully useless at the
-	// smallest scale. This does mean a very small car's headlight won't
-	// reach far in absolute terms — an unavoidable trade-off between
-	// "looks proportionate" and "always reaches the same real distance".
-	if ( scale !== undefined ) {
+	// Headlight distance/intensity scale WITH the vehicle size now — a
+	// tiny (scale ~0.03) toy-sized car casting a fixed ~14-unit beam
+	// looked absurdly oversized/disconnected from the car; a huge
+	// (scale ~3) car needs more than the default's reach. Distance scales
+	// linearly with `scale` (so it's exactly baseDistance at scale=1,
+	// matching the original tuning) and intensity scales with scale²,
+	// following inverse-square falloff so the illuminated patch looks
+	// like it belongs to a light of that size rather than getting
+	// dimmer/brighter than it should as the beam's own reach changes.
+	if ( vehicleLights.headlights ) {
 
-		const s = Math.max( scale, 0.15 );
+		const s = Math.max( scale, 0.001 );
 		vehicleLights.headlights.forEach( ( h ) => {
 
-			h.light.distance = Math.max( h.baseDistance * s, 1.2 );
-			h.light.intensity = h.baseIntensity * s;
+			h.light.distance = h.baseDistance * s;
+			h.light.intensity = h.baseIntensity * s * s;
+
+		} );
+
+	}
+
+	if ( vehicleLights.reverseLights ) {
+
+		vehicleLights.reverseLights.forEach( ( r ) => {
+
+			r.light.visible = isReversing;
+			if ( r.lens ) r.lens.visible = isReversing;
 
 		} );
 
@@ -1049,14 +1473,16 @@ function createPhysicsWorld() {
 
 function updateVehicleAndFx( dt, input, ctx ) {
 
-	const { world, vehicle, particles, driftMarks, audio, lapTimer, contactListener } = ctx;
+	const { world, vehicle, particles, driftMarks, audio, lapTimer, contactListener, vehicleFlag } = ctx;
 
 	updateWorld( world, contactListener, dt );
 	vehicle.update( dt, input );
 
 	particles.update( dt, vehicle );
 	driftMarks.update( dt, vehicle );
-	audio.update( dt, vehicle.linearSpeed / MAX_SPEED, input.z, vehicle.driftIntensity );
+	audio.update( dt, vehicle.linearSpeed / MAX_SPEED, input.z, vehicle.driftIntensity, vehicle.linearSpeed < -0.01 );
+	if ( vehicle.justLaunched ) audio.playLaunch();
+	if ( vehicleFlag ) vehicleFlag.updateFlutter( dt, Math.abs( vehicle.linearSpeed / MAX_SPEED ) );
 
 	if ( lapTimer ) {
 
@@ -1069,7 +1495,7 @@ function updateVehicleAndFx( dt, input, ctx ) {
 
 // ─── NORMAL MODE (unchanged behavior from the original game) ──
 
-function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey } ) {
+function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } ) {
 
 	const world = createPhysicsWorld();
 	let sphereBody, vehicleSpawn, lapTimer = null;
@@ -1077,19 +1503,29 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	if ( freeRoam ) {
 
 		// Open sandbox: no track, no walls — just a big flat ground.
-		const groundSize = 200;
+		const groundSize = 110;
 
-		const shadowExtent = 40;
+		// Night stadium look (matching a real "تفحيط" show — dark sky,
+		// the floodlight poles below doing the actual lighting instead of
+		// flat daylight). Scoped to free-roam only; the classic track
+		// mode keeps its normal daylight scene.
+		scene.background = new THREE.Color( 0x05060a );
+		scene.fog.color.set( 0x05060a );
+		dirLight.intensity = 0.4; // faint moonlight fill, floodlights carry the scene
+		hemiLight.intensity = 0.35;
+
+		const roadHalf = groundSize / 2;
+
+		const shadowExtent = roadHalf;
 		dirLight.shadow.camera.left = - shadowExtent;
 		dirLight.shadow.camera.right = shadowExtent;
 		dirLight.shadow.camera.top = shadowExtent;
 		dirLight.shadow.camera.bottom = - shadowExtent;
 		dirLight.shadow.camera.updateProjectionMatrix();
 
-		scene.fog.near = 60;
-		scene.fog.far = 140;
+		scene.fog.near = groundSize * 0.5;
+		scene.fog.far = groundSize * 1.1;
 
-		const roadHalf = groundSize / 2;
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents: [ roadHalf, 0.01, roadHalf ] } ),
 			motionType: MotionType.STATIC,
@@ -1153,6 +1589,80 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			buildGrandstandWall( scene, 'z', roadHalf * 2, sign * roadHalf, wallThickness, sign );
 
 		}
+
+		// Floodlight poles at the four corners, all aimed back at center —
+		// the actual light source for the night-stadium look set above.
+		const poleInset = roadHalf * 0.82;
+		for ( const cx of [ -1, 1 ] ) {
+
+			for ( const cz of [ -1, 1 ] ) {
+
+				buildFloodlightPole( scene, cx * poleInset, cz * poleInset, { x: 0, z: 0 } );
+
+			}
+
+		}
+
+		// Dry desert surround, peeking out beyond the paved arena's edge —
+		// sits just below the asphalt so it only shows past its footprint.
+		const sandTexture = createSandTexture();
+		const sandSize = groundSize * 2;
+		sandTexture.repeat.set( sandSize / 10, sandSize / 10 );
+		const sandMesh = new THREE.Mesh(
+			new THREE.PlaneGeometry( sandSize, sandSize ),
+			new THREE.MeshStandardMaterial( { map: sandTexture, roughness: 1, metalness: 0 } )
+		);
+		sandMesh.rotation.x = - Math.PI / 2;
+		sandMesh.position.set( 0, - 0.121, 0 );
+		sandMesh.receiveShadow = true;
+		scene.add( sandMesh );
+
+		// Burnout circles + drift trails, baked once across the whole
+		// paved surface — a proper tiled texture would look obviously
+		// repeated at this scale.
+		const skidMarksTexture = createSkidMarksTexture( groundSize );
+		const skidOverlay = new THREE.Mesh(
+			new THREE.PlaneGeometry( groundSize, groundSize ),
+			new THREE.MeshStandardMaterial( {
+				map: skidMarksTexture, transparent: true, roughness: 1,
+				metalness: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1,
+			} )
+		);
+		skidOverlay.rotation.x = - Math.PI / 2;
+		skidOverlay.position.set( 0, - 0.1195, 0 );
+		scene.add( skidOverlay );
+
+		// Concrete barriers dressing the same line as the invisible
+		// collision walls above (no extra physics needed — the collider's
+		// already there). One gap left open on the +Z side for the
+		// entrance gate.
+		const barrierSeg = 8;
+		for ( const sign of [ 1, -1 ] ) {
+
+			for ( let p = - roadHalf; p < roadHalf; p += barrierSeg ) {
+
+				const segLen = Math.min( barrierSeg, roadHalf - p ) - 0.3; // small gaps between segments, like real jersey barrier sections
+				if ( segLen <= 0 ) continue;
+				const center = p + segLen / 2;
+
+				// Leave the entrance gate gap on the north wall (+Z, sign=1, axis 'x')
+				if ( sign === 1 && Math.abs( center ) < 3 ) continue;
+
+				buildBarrierSegment( scene, null, center, sign * roadHalf, segLen, 'x' );
+				buildBarrierSegment( scene, null, sign * roadHalf, center, segLen, 'z' );
+
+			}
+
+		}
+
+		buildEntranceGate( scene, 0, roadHalf, 'x' );
+
+		// Tire stacks in two corners, warning signs flanking the gate.
+		buildTireStack( scene, roadHalf - 3, roadHalf - 3, 5 );
+		buildTireStack( scene, - ( roadHalf - 3 ), - ( roadHalf - 3 ), 4 );
+		buildTireStack( scene, roadHalf - 3, - ( roadHalf - 3 ), 6 );
+		buildWarningSign( scene, -4.5, roadHalf - 1, Math.PI );
+		buildWarningSign( scene, 4.5, roadHalf - 1, Math.PI );
 
 		vehicleSpawn = { position: [ 0, 0.5, 0 ], angle: 0 };
 		sphereBody = createSphereBody( world, vehicleSpawn.position );
@@ -1224,6 +1734,10 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	scene.add( vehicleGroup );
 	addCustomTextDecals( vehicleGroup, customText );
 	const vehicleLights = addVehicleLights( vehicleGroup );
+	// flagImage comes from the main menu's image picker (a data: URL, see
+	// createModeMenu) — falls back to the placeholder banner in Flag.js
+	// if the player didn't pick one.
+	const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 
 	dirLight.target = vehicleGroup;
 
@@ -1259,7 +1773,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		}
 	};
 
-	const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer, contactListener };
+	const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer, contactListener, vehicleFlag };
 
 	// Radio controls for NORMAL mode (no VR controllers here, so keyboard
 	// instead): R = next track, T = play/pause. L = headlights, H =
@@ -1273,7 +1787,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			const input = controls.update();
 
 			updateVehicleAndFx( dt, input, ctx );
-			updateVehicleLights( vehicleLights, dt, 1 );
+			updateVehicleLights( vehicleLights, dt, 1, vehicle.linearSpeed < -0.01 );
 
 			const rKey = !! controls.keys[ 'KeyR' ];
 			const tKey = !! controls.keys[ 'KeyT' ];
@@ -1285,6 +1799,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			if ( lKey && ! prevKeys.l ) toggleHeadlights( vehicleLights );
 			if ( hKey && ! prevKeys.h ) toggleHazards( vehicleLights );
 			setHighBeam( vehicleLights, nKey || touchState.highBeamHeld );
+			audio.setHorn( !! controls.keys[ 'Space' ] );
 			prevKeys = { r: rKey, t: tKey, l: lKey, h: hKey };
 
 			dirLight.position.set(
@@ -1307,7 +1822,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 // ─── AR MODE (Meta Quest 3 passthrough) ────────────────────
 
-async function startARMode( { mapParam, customText, vehicleKey, sessionPromise } ) {
+async function startARMode( { mapParam, customText, vehicleKey, flagImage, sessionPromise } ) {
 
 	const arManager = new ARManager( { renderer, scene, models } );
 	const world = createPhysicsWorld();
@@ -1335,6 +1850,7 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 		scene.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
 		const vehicleLights = addVehicleLights( vehicleGroup );
+		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 
 		dirLight.target = vehicleGroup;
 
@@ -1355,6 +1871,13 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 
 		const audio = new GameAudio();
 		audio.init( renderer.xr.getCamera(), vehicleGroup ); // XR camera rig instead of the NORMAL-mode chase Camera
+		// AR mode has no DOM click/touchstart/keydown once inside the XR
+		// session (input is XR controller triggers only), so Audio.js's
+		// normal gesture-based unlock() would never fire and every sound
+		// would stay silent forever. We already know a real user gesture
+		// happened (the "Start AR" button press that got us into this
+		// session), so it's safe to unlock immediately here instead.
+		audio.forceUnlock();
 
 		const radio = new Radio( audio.listener, vehicleGroup );
 
@@ -1378,7 +1901,7 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 		// No lapTimer — free-roam has no track/laps.
 		gameState = {
 			vehicle, vehicleGroup, vehicleModel, vehicleModelMinY, vehicleScale: 1,
-			particles, driftMarks, audio, radio, vehicleLights, contactListener
+			particles, driftMarks, audio, radio, vehicleLights, vehicleFlag, contactListener
 		};
 
 	};
@@ -1414,10 +1937,11 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 						x: Math.abs( arInput.x ) > Math.abs( kbInput.x ) ? arInput.x : kbInput.x,
 						z: Math.abs( arInput.z ) > Math.abs( kbInput.z ) ? arInput.z : kbInput.z,
 						touchActive: kbInput.touchActive,
+						handbrake: kbInput.handbrake || arManager.getHandbrakeHold(),
 					};
 
 					updateVehicleAndFx( dt, input, { world, ...gameState } );
-					updateVehicleLights( gameState.vehicleLights, dt, gameState.vehicleScale );
+					updateVehicleLights( gameState.vehicleLights, dt, gameState.vehicleScale, gameState.vehicle.linearSpeed < -0.01 );
 
 					const scaleInput = arManager.getScaleAdjustInput();
 					if ( scaleInput !== 0 ) {
@@ -1445,6 +1969,7 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 					if ( arManager.getHeadlightToggle() ) toggleHeadlights( gameState.vehicleLights );
 					if ( arManager.getHazardToggle() ) toggleHazards( gameState.vehicleLights );
 					setHighBeam( gameState.vehicleLights, arManager.getHighBeamHold() );
+					gameState.audio.setHorn( arManager.getHornHold() );
 
 					if ( gameState.vehicleLights ) {
 
@@ -1572,13 +2097,13 @@ async function init() {
 	// eslint-disable-next-line no-constant-condition
 	while ( true ) {
 
-		const { choice, customText, freeRoam, vehicleKey, sessionPromise } = await createModeMenu( { arAvailable } );
+		const { choice, customText, freeRoam, vehicleKey, flagImage, sessionPromise } = await createModeMenu( { arAvailable } );
 
 		if ( choice === 'ar' ) {
 
 			try {
 
-				activeMode = await startARMode( { mapParam, customText, vehicleKey, sessionPromise } );
+				activeMode = await startARMode( { mapParam, customText, vehicleKey, flagImage, sessionPromise } );
 				break;
 
 			} catch ( e ) {
@@ -1600,7 +2125,7 @@ async function init() {
 
 		} else {
 
-			activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey } );
+			activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } );
 			break;
 
 		}
