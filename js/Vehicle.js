@@ -265,7 +265,14 @@ export class Vehicle {
 
 		this.driftIntensity = Math.abs( this.linearSpeed - this.acceleration ) +
 			( this.bodyNode ? Math.abs( this.bodyNode.rotation.z ) * 2 : 0 ) +
-			( this.handbrake ? 0.7 : 0 );
+			( this.handbrake ? 0.7 : 0 ) +
+			// Direct cornering severity: steering input × current speed.
+			// The body-lean term above is a damped/lerped visual value
+			// that lags behind the actual input and, in practice, rarely
+			// climbed high enough on its own during ordinary hard
+			// cornering (as opposed to a full handbrake turn) to cross
+			// Audio.js's skid threshold. This responds immediately.
+			Math.abs( this.inputX ) * Math.abs( this.linearSpeed ) * 0.6;
 
 	}
 
