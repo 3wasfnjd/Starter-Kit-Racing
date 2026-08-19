@@ -19,7 +19,7 @@ export const MAX_SPEED = 1.5;
 // (was effectively ~0.33). Raise toward 1.0 for a stronger reverse,
 // lower it for a weaker one; keep it below 1.0 so it never matches
 // forward power.
-const REVERSE_SPEED_SCALE = 0.9;
+const REVERSE_SPEED_SCALE = 0.6;
 
 function lerpAngle( a, b, t ) {
 
