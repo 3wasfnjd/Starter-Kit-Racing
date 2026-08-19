@@ -7,12 +7,12 @@ import * as THREE from 'three';
 // linearSpeed / MAX_SPEED), matching how a real flag goes from a lazy
 // droop at a standstill to a stiff snap at speed.
 
-const WIDTH = 1.3; // real flag proportions (~2:3), sized against the car body
-const HEIGHT = 0.85;
-const SEG_X = 14;
-const SEG_Y = 8;
-const POLE_HEIGHT = 1.0;
-const POLE_RADIUS = 0.018;
+const WIDTH = 2.0; // real flag proportions (~2:3), sized against the car body
+const HEIGHT = 1.3;
+const SEG_X = 16;
+const SEG_Y = 10;
+const POLE_HEIGHT = 1.5;
+const POLE_RADIUS = 0.022;
 
 // How the pole is aimed off the vehicle's rear-left corner. Yaw carries
 // it outward/backward (90° = straight back); pitch leans it back and up
