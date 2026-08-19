@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { rigidBody, box, sphere, MotionType, MotionQuality } from 'crashcat';
-import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE } from './Track.js';
+import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE, computeWidenSet } from './Track.js';
 
 const _debugMat = new THREE.MeshBasicMaterial( { color: 0x00ff00, wireframe: true } );
 
@@ -52,7 +52,8 @@ export function buildWallColliders( world, debugGroup, customCells, arTransform 
 	const CELL_HALF = CELL_RAW / 2;
 
 	const WALL_HALF_THICK = 0.25;
-	const WALL_X = 4.75 * 2; // doubled to match the widened straight/finish road pieces
+	const WALL_X_NARROW = 4.75; // normal single-width road (also matches corner pieces)
+	const WALL_X_WIDE = WALL_X_NARROW * 2; // widened two-lane straight/finish pieces
 	const WALL_HALF_H = 1.5;
 
 	const wallY = ( 0.5 + WALL_HALF_H ) * S - 0.5;
@@ -109,6 +110,11 @@ export function buildWallColliders( world, debugGroup, customCells, arTransform 
 	}
 
 	const cells = customCells || TRACK_CELLS;
+	// Same neighbor-based decision as Track.js's placePiece(), so the
+	// collision walls always match what's actually drawn on screen: a
+	// straight/finish piece only gets pushed out to the wide two-lane
+	// wall spacing when it's not directly next to a corner.
+	const widenSet = computeWidenSet( cells );
 
 	for ( const [ gx, gz, key, orient ] of cells ) {
 
@@ -120,6 +126,8 @@ export function buildWallColliders( world, debugGroup, customCells, arTransform 
 		const deg = ORIENT_DEG[ orient ] ?? 0;
 		const rad = deg * Math.PI / 180;
 		const cr = Math.cos( rad ), sr = Math.sin( rad );
+		const widen = widenSet.has( gx + ',' + gz );
+		const WALL_X = widen ? WALL_X_WIDE : WALL_X_NARROW;
 
 		if ( key === 'track-straight' || key === 'track-finish' ) {
 
@@ -159,7 +167,7 @@ export function buildWallColliders( world, debugGroup, customCells, arTransform 
 			// of splitting the road into two lanes. Taller than the
 			// visual curb (0.35 vs ~0.08 raw half-height) so the car
 			// can't just hop over it.
-			if ( key === 'track-straight' ) {
+			if ( key === 'track-straight' && widen ) {
 
 				const medianRawHalfHeight = 0.35;
 				const medianY = ( 0.5 + medianRawHalfHeight ) * S - 0.5;
