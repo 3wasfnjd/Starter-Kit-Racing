@@ -148,6 +148,35 @@ export function buildTrack( scene, models, customCells ) {
 
 		}
 
+		// Widened straight/finish pieces (TRACK_WIDTH_SCALE, see placePiece)
+		// visually spill half a cell into the neighbor cell on each side —
+		// the side perpendicular to the direction of travel. Without this,
+		// trees/decorations from that neighbor cell poke straight through
+		// the now-wider road mesh. Mark those neighbor cells as occupied so
+		// no decoration instance is placed there at all (left as bare
+		// ground instead), matching the actual widened footprint.
+		for ( const [ gx, gz, key, orient ] of cells ) {
+
+			if ( key !== 'track-straight' && key !== 'track-finish' ) continue;
+
+			const deg = ORIENT_DEG[ orient ] ?? 0;
+			// deg 0/180: widened along world X. deg 90/270: widened along world Z.
+			const widenedAlongX = ( deg % 180 ) === 0;
+
+			if ( widenedAlongX ) {
+
+				occupied.add( ( gx - 1 ) + ',' + gz );
+				occupied.add( ( gx + 1 ) + ',' + gz );
+
+			} else {
+
+				occupied.add( gx + ',' + ( gz - 1 ) );
+				occupied.add( gx + ',' + ( gz + 1 ) );
+
+			}
+
+		}
+
 		const emptyPositions = [];
 		const forestPositions = [];
 		const tentPositions = [];
