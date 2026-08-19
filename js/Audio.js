@@ -104,6 +104,7 @@ export class GameAudio {
 		this.launchSound = null;
 		this.hornSound = null;
 		this.hornOn = false;
+		this.crowdSound = null;
 		this.impactBuffers = [];
 		this.impactPlayers = [];
 		this.impactIndex = 0;
@@ -171,6 +172,14 @@ export class GameAudio {
 		this.launchSound = this.makePositional( [ this.neutralLowpass() ] );
 		this.launchSound.gain.connect( this.reverbSend );
 
+		// Crowd cheer: real recorded sample (audio/crowd.mp3), fades in
+		// during a hard drift. Non-positional (plain THREE.Audio, not
+		// PositionalAudio) — a stadium crowd surrounds you, it isn't a
+		// sound coming from the car.
+		this.crowdSound = new THREE.Audio( this.listener );
+		this.crowdSound.setLoop( true );
+		this.crowdSound.setVolume( 0 );
+
 		// Horn: real recorded sample (audio/horn.mp3) — same loader
 		// pattern as skid/reverse/launch above.
 		this.hornSound = this.makePositional( [ this.neutralLowpass() ] );
@@ -229,6 +238,12 @@ export class GameAudio {
 				this.hornSound.gain.gain.setTargetAtTime( 0.5, this.listener.context.currentTime, 0.01 );
 
 			}
+
+		} );
+
+		loader.load( 'audio/crowd.mp3', ( buffer ) => {
+
+			this.crowdSound.setBuffer( buffer );
 
 		} );
 
@@ -350,6 +365,7 @@ export class GameAudio {
 
 		if ( this.skidSound.buffer && ! this.skidSound.isPlaying ) this.skidSound.play();
 		if ( this.reverseSound.buffer && ! this.reverseSound.isPlaying ) this.reverseSound.play();
+		if ( this.crowdSound.buffer && ! this.crowdSound.isPlaying ) this.crowdSound.play();
 
 	}
 
@@ -473,6 +489,21 @@ export class GameAudio {
 			const reversePitch = THREE.MathUtils.clamp( 0.8 + absSpeed, 0.8, 1.6 );
 			const curReversePitch = this.reverseSound.getPlaybackRate();
 			this.reverseSound.setPlaybackRate( THREE.MathUtils.lerp( curReversePitch, reversePitch, 0.1 ) );
+
+		}
+
+		if ( this.crowdSound.buffer ) {
+
+			// Only a genuinely hard drift gets the crowd going — a higher
+			// bar than the skid sound's own threshold (0.5), so it reads
+			// as a reaction to a real show-off moment, not background
+			// noise during ordinary driving. Fades in/out slowly (a real
+			// crowd doesn't snap on/off).
+			const hardDrift = driftIntensity > 1.1;
+			const crowdVol = hardDrift ? remap(
+				THREE.MathUtils.clamp( driftIntensity, 1.1, 2.0 ), 1.1, 2.0, 0.15, 0.4
+			) : 0;
+			this.crowdSound.gain.gain.setTargetAtTime( crowdVol, now, hardDrift ? 0.6 : 1.5 );
 
 		}
 

@@ -626,6 +626,45 @@ function buildGrandstandWall( scene, axis, length, fixedCoord, baseDistance, dir
 
 }
 
+// Stadium floodlight pole: a tall mast + lamp head, with a real SpotLight
+// aiming down at the track — matching the bright white floodlights over
+// a real night "تفحيط" show.
+function buildFloodlightPole( scene, x, z, aimTarget ) {
+
+	const poleHeight = 9;
+	const pole = new THREE.Mesh(
+		new THREE.CylinderGeometry( 0.12, 0.16, poleHeight, 8 ),
+		new THREE.MeshStandardMaterial( { color: 0x3a3a3e, roughness: 0.7, metalness: 0.4 } )
+	);
+	pole.position.set( x, poleHeight / 2, z );
+	pole.castShadow = true;
+	scene.add( pole );
+
+	// Small lamp head cluster at the top, tilted toward the track.
+	const headGroup = new THREE.Group();
+	headGroup.position.set( x, poleHeight - 0.1, z );
+	headGroup.lookAt( aimTarget.x, 0, aimTarget.z );
+	scene.add( headGroup );
+
+	const headMat = new THREE.MeshStandardMaterial( { color: 0x111114, roughness: 0.5, metalness: 0.6 } );
+	for ( let i = -1; i <= 1; i ++ ) {
+
+		const lamp = new THREE.Mesh( new THREE.BoxGeometry( 0.5, 0.35, 0.15 ), headMat );
+		lamp.position.set( i * 0.6, 0, 0.3 );
+		lamp.rotation.x = -0.5;
+		headGroup.add( lamp );
+
+	}
+
+	const light = new THREE.SpotLight( 0xf5f7ff, 25, 45, THREE.MathUtils.degToRad( 38 ), 0.4, 1.2 );
+	light.position.set( x, poleHeight - 0.1, z );
+	light.target.position.set( aimTarget.x, 0, aimTarget.z );
+	light.castShadow = false; // 4 shadow-casting spotlights would be very expensive; dirLight still casts the car's shadow
+	scene.add( light );
+	scene.add( light.target );
+
+}
+
 // ─── Custom windshield/tailgate text decal ─────────────────
 
 function createTextTexture( text ) {
@@ -1169,6 +1208,15 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		// Open sandbox: no track, no walls — just a big flat ground.
 		const groundSize = 200;
 
+		// Night stadium look (matching a real "تفحيط" show — dark sky,
+		// the floodlight poles below doing the actual lighting instead of
+		// flat daylight). Scoped to free-roam only; the classic track
+		// mode keeps its normal daylight scene.
+		scene.background = new THREE.Color( 0x05060a );
+		scene.fog.color.set( 0x05060a );
+		dirLight.intensity = 0.4; // faint moonlight fill, floodlights carry the scene
+		hemiLight.intensity = 0.35;
+
 		const shadowExtent = 40;
 		dirLight.shadow.camera.left = - shadowExtent;
 		dirLight.shadow.camera.right = shadowExtent;
@@ -1231,6 +1279,19 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 			buildGrandstandWall( scene, 'x', roadHalf * 2, sign * roadHalf, wallThickness, sign );
 			buildGrandstandWall( scene, 'z', roadHalf * 2, sign * roadHalf, wallThickness, sign );
+
+		}
+
+		// Floodlight poles at the four corners, all aimed back at center —
+		// the actual light source for the night-stadium look set above.
+		const poleInset = roadHalf * 0.82;
+		for ( const cx of [ -1, 1 ] ) {
+
+			for ( const cz of [ -1, 1 ] ) {
+
+				buildFloodlightPole( scene, cx * poleInset, cz * poleInset, { x: 0, z: 0 } );
+
+			}
 
 		}
 
