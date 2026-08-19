@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createImpactBuffer } from './ImpactSound.js';
+import { createSkidBuffer } from './SkidSound.js';
 // RPM range is owned by the engine synth; import it so the 0..1 gear model
 // here and the worklet's normalization can't drift apart.
 import { RPM_IDLE, RPM_MAX } from './EngineWorklet.js';
@@ -161,17 +162,14 @@ export class GameAudio {
 		for ( let i = 0; i < 3; i ++ ) this.impactBuffers.push( createImpactBuffer( ctx, i + 4, 1.0 ) );
 		for ( let i = 0; i < 3; i ++ ) this.impactPlayers.push( this.createSampleSource( this.impactReverbSend ) );
 
-		const loader = new THREE.AudioLoader();
+		// Skid buffer is synthesized directly (see SkidSound.js), no file
+		// to load — ready immediately, no async wait before it can play.
+		const skidBuffer = createSkidBuffer( ctx, 7 );
+		this.skidSound.setBuffer( skidBuffer );
+		this.skidSound.setLoop( true );
+		this.skidSound.setVolume( 0 );
 
-		loader.load( 'audio/skid.ogg', ( buffer ) => {
-
-			this.skidSound.setBuffer( buffer );
-			this.skidSound.setLoop( true );
-			this.skidSound.setVolume( 0 );
-
-			if ( this.unlocked ) this.startSounds();
-
-		} );
+		if ( this.unlocked ) this.startSounds();
 
 		const unlock = () => {
 
