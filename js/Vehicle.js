@@ -14,6 +14,13 @@ const SPEED_SCALE = 12.5;
 const LINEAR_DAMP = 0.1;
 export const MAX_SPEED = 1.5;
 
+// Reverse tops out at this fraction of MAX_SPEED — real cars reverse
+// slower than they drive forward, but not as crawlingly slow as before
+// (was effectively ~0.33). Raise toward 1.0 for a stronger reverse,
+// lower it for a weaker one; keep it below 1.0 so it never matches
+// forward power.
+const REVERSE_SPEED_SCALE = 0.6;
+
 function lerpAngle( a, b, t ) {
 
 	let diff = b - a;
@@ -135,7 +142,7 @@ export class Vehicle {
 
 			} else if ( targetSpeed < 0 ) {
 
-				this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed / 2, dt * 2 );
+				this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed * MAX_SPEED * REVERSE_SPEED_SCALE, dt * 2 );
 
 			} else {
 
