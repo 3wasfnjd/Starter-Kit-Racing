@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createImpactBuffer } from './ImpactSound.js';
+import { createHornBuffer } from './HornSound.js';
 // RPM range is owned by the engine synth; import it so the 0..1 gear model
 // here and the worklet's normalization can't drift apart.
 import { RPM_IDLE, RPM_MAX } from './EngineWorklet.js';
@@ -102,6 +103,8 @@ export class GameAudio {
 		this.skidTone = null;
 		this.reverseSound = null;
 		this.launchSound = null;
+		this.hornSound = null;
+		this.hornOn = false;
 		this.impactBuffers = [];
 		this.impactPlayers = [];
 		this.impactIndex = 0;
@@ -168,6 +171,16 @@ export class GameAudio {
 		// PositionalAudio, same reverb send as the skid/reverse loops.
 		this.launchSound = this.makePositional( [ this.neutralLowpass() ] );
 		this.launchSound.gain.connect( this.reverbSend );
+
+		// Horn: synthesized directly (see HornSound.js) — a fixed dual-tone
+		// electromagnetic horn is easy to synthesize convincingly, unlike
+		// the organic friction noise of tire skid, so no sample file
+		// needed here. Loops while held (see setHorn()).
+		this.hornSound = this.makePositional( [ this.neutralLowpass() ] );
+		this.hornSound.gain.connect( this.reverbSend );
+		this.hornSound.setBuffer( createHornBuffer( ctx ) );
+		this.hornSound.setLoop( true );
+		this.hornSound.setVolume( 0 );
 
 		// Collision one-shots: two hardness sets of three seeded variations
 		// each (soft knocks dully, hard crunches). Three shared players swap
@@ -463,6 +476,32 @@ export class GameAudio {
 
 		if ( this.launchSound.isPlaying ) this.launchSound.stop();
 		this.launchSound.play();
+
+	}
+
+	// Horn: press-and-hold, like a real horn. Starts the (already-loaded,
+	// synthesized) loop on press and fades it in/out quickly to avoid a
+	// click at the start/stop edges.
+	setHorn( on ) {
+
+		if ( ! this.hornSound || ! this.hornSound.buffer ) return;
+		if ( on === this.hornOn ) return;
+		this.hornOn = on;
+
+		if ( ! this.unlocked ) return; // nothing audible would happen anyway
+
+		const now = this.listener.context.currentTime;
+
+		if ( on ) {
+
+			if ( ! this.hornSound.isPlaying ) this.hornSound.play();
+			this.hornSound.gain.gain.setTargetAtTime( 0.5, now, 0.01 );
+
+		} else {
+
+			this.hornSound.gain.gain.setTargetAtTime( 0, now, 0.03 );
+
+		}
 
 	}
 

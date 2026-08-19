@@ -1258,6 +1258,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			if ( lKey && ! prevKeys.l ) toggleHeadlights( vehicleLights );
 			if ( hKey && ! prevKeys.h ) toggleHazards( vehicleLights );
 			setHighBeam( vehicleLights, nKey );
+			audio.setHorn( !! controls.keys[ 'Space' ] );
 			prevKeys = { r: rKey, t: tKey, l: lKey, h: hKey };
 
 			dirLight.position.set(
@@ -1425,6 +1426,7 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 					if ( arManager.getHeadlightToggle() ) toggleHeadlights( gameState.vehicleLights );
 					if ( arManager.getHazardToggle() ) toggleHazards( gameState.vehicleLights );
 					setHighBeam( gameState.vehicleLights, arManager.getHighBeamHold() );
+					gameState.audio.setHorn( arManager.getHornHold() );
 
 					if ( gameState.vehicleLights ) {
 
