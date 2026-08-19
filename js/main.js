@@ -647,9 +647,10 @@ function addCustomTextDecals( vehicleGroup, text ) {
 // Saudi Arabia drives left-hand-drive (driver's seat on the left), so
 // "driver's side" = the vehicle's left = negative local x, matching the
 // side=-1 convention already used for the taillights/reverse lights
-// below. Mounted at the rear-left corner, roughly roof height, using the
-// same body-panel coordinates measured for the decals above (rear z
-// around -1.3 to -1.4, left edge around x=-0.6).
+// below. Mounted low, at rear-bumper/spare-tire height (not roof height)
+// and near the left edge — matching a real full-size flag planted at the
+// back of the vehicle, leaning up and outward, rather than a small
+// roof-mounted pennant.
 function addVehicleFlag( vehicleGroup, imageUrl ) {
 
 	const vehicleModel = vehicleGroup.children[ 0 ];
@@ -662,7 +663,7 @@ function addVehicleFlag( vehicleGroup, imageUrl ) {
 	if ( ! bodyNode ) return null;
 
 	const flag = createFlag( imageUrl );
-	flag.group.position.set( -0.58, 0.3, -1.32 );
+	flag.group.position.set( -0.5, 0.08, -1.3 );
 	bodyNode.add( flag.group );
 
 	return flag;
