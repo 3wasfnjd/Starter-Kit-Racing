@@ -1,0 +1,126 @@
+import * as THREE from 'three';
+
+// Rear-corner flag: a thin pole + a subdivided cloth plane, pinned to the
+// pole along its left edge and animated per-frame with a traveling wave
+// so it looks like real fabric catching the wind — not a rigid decal.
+// Flutter amplitude/speed scale with the vehicle's speed (0..1, from
+// linearSpeed / MAX_SPEED), matching how a real flag goes from a lazy
+// droop at a standstill to a stiff snap at speed.
+
+const WIDTH = 0.34;
+const HEIGHT = 0.2;
+const SEG_X = 12;
+const SEG_Y = 6;
+const POLE_HEIGHT = 0.34;
+
+// How the pole is aimed off the vehicle's rear-left corner: 90° would
+// stream the flag straight backward; a bit past that also carries it
+// outward, away from the body, which reads better visually. Tune freely.
+const FLAG_YAW = THREE.MathUtils.degToRad( 100 );
+
+function createPlaceholderTexture() {
+
+	// Plain placeholder banner (solid field + thin trim) shown until a
+	// real image is supplied — obviously a placeholder, not trying to
+	// look like a real flag on its own.
+	const w = 256, h = 160;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = w;
+	canvas.height = h;
+	const ctx = canvas.getContext( '2d' );
+	ctx.fillStyle = '#158443';
+	ctx.fillRect( 0, 0, w, h );
+	ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+	ctx.lineWidth = 8;
+	ctx.strokeRect( 4, 4, w - 8, h - 8 );
+
+	return new THREE.CanvasTexture( canvas );
+
+}
+
+// imageUrl: optional path to a custom flag image (e.g. 'images/flag.png').
+// Falls back to the placeholder banner above if omitted or if it fails
+// to load. Returns { group, updateFlutter( dt, windStrength01 ) } — add
+// `group` under the vehicle's bodyNode, call updateFlutter() every frame.
+export function createFlag( imageUrl ) {
+
+	const group = new THREE.Group();
+	group.rotation.y = FLAG_YAW;
+
+	const pole = new THREE.Mesh(
+		new THREE.CylinderGeometry( 0.008, 0.008, POLE_HEIGHT, 6 ),
+		new THREE.MeshStandardMaterial( { color: 0x2a2a2a, roughness: 0.6, metalness: 0.3 } )
+	);
+	pole.position.y = POLE_HEIGHT / 2;
+	group.add( pole );
+
+	// Cloth geometry: left edge translated to local x=0 so that edge is
+	// the one pinned to the pole — the wave below grows with distance
+	// from that pinned edge, like real fabric anchored at one side.
+	const geometry = new THREE.PlaneGeometry( WIDTH, HEIGHT, SEG_X, SEG_Y );
+	geometry.translate( WIDTH / 2, 0, 0 );
+
+	const material = new THREE.MeshStandardMaterial( {
+		side: THREE.DoubleSide, roughness: 0.9, metalness: 0,
+		map: createPlaceholderTexture(),
+	} );
+
+	if ( imageUrl ) {
+
+		new THREE.TextureLoader().load( imageUrl, ( tex ) => {
+
+			tex.colorSpace = THREE.SRGBColorSpace;
+			material.map = tex;
+			material.needsUpdate = true;
+
+		}, undefined, () => {
+
+			console.warn( 'Flag image failed to load, keeping placeholder:', imageUrl );
+
+		} );
+
+	}
+
+	const cloth = new THREE.Mesh( geometry, material );
+	cloth.position.y = POLE_HEIGHT - HEIGHT / 2 - 0.01;
+	group.add( cloth );
+
+	const basePositions = geometry.attributes.position.array.slice();
+	let t = 0;
+
+	function updateFlutter( dt, windStrength01 ) {
+
+		t += dt;
+
+		const w = THREE.MathUtils.clamp( windStrength01, 0, 1 );
+		const amp = 0.015 + w * 0.045;
+		const freq = 14;
+		const speed = 9 + w * 6;
+
+		const pos = geometry.attributes.position;
+		const arr = pos.array;
+
+		for ( let i = 0; i < arr.length; i += 3 ) {
+
+			const bx = basePositions[ i ];
+			const by = basePositions[ i + 1 ];
+			const distFromPole = bx / WIDTH; // 0 at the pinned edge, 1 at the free edge
+
+			const wave = Math.sin( bx * freq - t * speed ) * amp * distFromPole;
+			const wave2 = Math.sin( bx * freq * 1.7 - t * speed * 1.3 + by * 3 ) * amp * 0.4 * distFromPole;
+
+			arr[ i + 2 ] = wave + wave2;
+			// Gentle gravity sag when there's little wind, straightening
+			// out as speed (and therefore wind) picks up.
+			arr[ i + 1 ] = by - ( 1 - w ) * 0.012 * distFromPole * distFromPole;
+
+		}
+
+		pos.needsUpdate = true;
+		geometry.computeVertexNormals();
+
+	}
+
+	return { group, updateFlutter };
+
+}

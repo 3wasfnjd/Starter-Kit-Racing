@@ -11,6 +11,7 @@ import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { DriftMarks } from './DriftMarks.js';
 import { GameAudio } from './Audio.js';
+import { createFlag } from './Flag.js';
 import { LapTimer } from './LapTimer.js';
 import { ColorMapGLTFLoader } from './Loader.js';
 import { ARManager } from './ARManager.js';
@@ -642,6 +643,32 @@ function addCustomTextDecals( vehicleGroup, text ) {
 
 }
 
+// ─── Rear flag: pole-mounted, driver's-side corner ───────────
+// Saudi Arabia drives left-hand-drive (driver's seat on the left), so
+// "driver's side" = the vehicle's left = negative local x, matching the
+// side=-1 convention already used for the taillights/reverse lights
+// below. Mounted at the rear-left corner, roughly roof height, using the
+// same body-panel coordinates measured for the decals above (rear z
+// around -1.3 to -1.4, left edge around x=-0.6).
+function addVehicleFlag( vehicleGroup, imageUrl ) {
+
+	const vehicleModel = vehicleGroup.children[ 0 ];
+	let bodyNode = null;
+	vehicleModel.traverse( ( child ) => {
+
+		if ( child.name.toLowerCase() === 'body' ) bodyNode = child;
+
+	} );
+	if ( ! bodyNode ) return null;
+
+	const flag = createFlag( imageUrl );
+	flag.group.position.set( -0.58, 0.3, -1.32 );
+	bodyNode.add( flag.group );
+
+	return flag;
+
+}
+
 // ─── Real headlight / taillight lighting ───────────────────
 // Coordinates measured directly from the model's actual headlight/
 // taillight faces: left/right headlights at x:∓0.4, y:0.3, z:1.4;
@@ -1031,7 +1058,7 @@ function createPhysicsWorld() {
 
 function updateVehicleAndFx( dt, input, ctx ) {
 
-	const { world, vehicle, particles, driftMarks, audio, lapTimer, contactListener } = ctx;
+	const { world, vehicle, particles, driftMarks, audio, lapTimer, contactListener, vehicleFlag } = ctx;
 
 	updateWorld( world, contactListener, dt );
 	vehicle.update( dt, input );
@@ -1040,6 +1067,7 @@ function updateVehicleAndFx( dt, input, ctx ) {
 	driftMarks.update( dt, vehicle );
 	audio.update( dt, vehicle.linearSpeed / MAX_SPEED, input.z, vehicle.driftIntensity, vehicle.linearSpeed < -0.01 );
 	if ( vehicle.justLaunched ) audio.playLaunch();
+	if ( vehicleFlag ) vehicleFlag.updateFlutter( dt, Math.abs( vehicle.linearSpeed / MAX_SPEED ) );
 
 	if ( lapTimer ) {
 
@@ -1197,6 +1225,9 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	scene.add( vehicleGroup );
 	addCustomTextDecals( vehicleGroup, customText );
 	const vehicleLights = addVehicleLights( vehicleGroup );
+	// Pass a path here (e.g. 'images/flag.png') to use a custom flag
+	// image instead of the placeholder banner — see Flag.js.
+	const vehicleFlag = addVehicleFlag( vehicleGroup );
 
 	dirLight.target = vehicleGroup;
 
@@ -1232,7 +1263,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		}
 	};
 
-	const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer, contactListener };
+	const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer, contactListener, vehicleFlag };
 
 	// Radio controls for NORMAL mode (no VR controllers here, so keyboard
 	// instead): R = next track, T = play/pause. L = headlights, H =
@@ -1309,6 +1340,7 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 		scene.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
 		const vehicleLights = addVehicleLights( vehicleGroup );
+		const vehicleFlag = addVehicleFlag( vehicleGroup );
 
 		dirLight.target = vehicleGroup;
 
@@ -1359,7 +1391,7 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 		// No lapTimer — free-roam has no track/laps.
 		gameState = {
 			vehicle, vehicleGroup, vehicleModel, vehicleModelMinY, vehicleScale: 1,
-			particles, driftMarks, audio, radio, vehicleLights, contactListener
+			particles, driftMarks, audio, radio, vehicleLights, vehicleFlag, contactListener
 		};
 
 	};
