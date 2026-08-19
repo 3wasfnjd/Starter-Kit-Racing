@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { createImpactBuffer } from './ImpactSound.js';
-import { createSkidBuffer } from './SkidSound.js';
 // RPM range is owned by the engine synth; import it so the 0..1 gear model
 // here and the worklet's normalization can't drift apart.
 import { RPM_IDLE, RPM_MAX } from './EngineWorklet.js';
@@ -101,6 +100,8 @@ export class GameAudio {
 		this.engineLoadParam = null;
 		this.skidSound = null;
 		this.skidTone = null;
+		this.reverseSound = null;
+		this.launchSound = null;
 		this.impactBuffers = [];
 		this.impactPlayers = [];
 		this.impactIndex = 0;
@@ -155,6 +156,19 @@ export class GameAudio {
 		this.skidSound = skid.sound;
 		this.skidTone = skid.tone;
 
+		// Reverse loop: a separate, distinct tire sample — plays for as
+		// long as the car is actually reversing, independent of the
+		// cornering-drift skid sound above.
+		const reverse = this.createSampleSource( this.reverbSend );
+		this.reverseSound = reverse.sound;
+		this.reverseTone = reverse.tone;
+
+		// Launch chirp: a one-shot player, fired once per hard standing
+		// start (see Vehicle.js's justLaunched). A simple non-looping
+		// PositionalAudio, same reverb send as the skid/reverse loops.
+		this.launchSound = this.makePositional( [ this.neutralLowpass() ] );
+		this.launchSound.gain.connect( this.reverbSend );
+
 		// Collision one-shots: two hardness sets of three seeded variations
 		// each (soft knocks dully, hard crunches). Three shared players swap
 		// in a random buffer per hit and add rate/tone variation on top.
@@ -162,14 +176,37 @@ export class GameAudio {
 		for ( let i = 0; i < 3; i ++ ) this.impactBuffers.push( createImpactBuffer( ctx, i + 4, 1.0 ) );
 		for ( let i = 0; i < 3; i ++ ) this.impactPlayers.push( this.createSampleSource( this.impactReverbSend ) );
 
-		// Skid buffer is synthesized directly (see SkidSound.js), no file
-		// to load — ready immediately, no async wait before it can play.
-		const skidBuffer = createSkidBuffer( ctx, 7 );
-		this.skidSound.setBuffer( skidBuffer );
-		this.skidSound.setLoop( true );
-		this.skidSound.setVolume( 0 );
+		// Real recorded sample files — no synthesis, no conversion needed
+		// (MP3 decodes fine in-browser).
+		const loader = new THREE.AudioLoader();
 
-		if ( this.unlocked ) this.startSounds();
+		loader.load( 'audio/skid.mp3', ( buffer ) => {
+
+			this.skidSound.setBuffer( buffer );
+			this.skidSound.setLoop( true );
+			this.skidSound.setVolume( 0 );
+
+			if ( this.unlocked ) this.startSounds();
+
+		} );
+
+		loader.load( 'audio/reverse.mp3', ( buffer ) => {
+
+			this.reverseSound.setBuffer( buffer );
+			this.reverseSound.setLoop( true );
+			this.reverseSound.setVolume( 0 );
+
+			if ( this.unlocked ) this.startSounds();
+
+		} );
+
+		loader.load( 'audio/launch.mp3', ( buffer ) => {
+
+			this.launchSound.setBuffer( buffer );
+			this.launchSound.setLoop( false );
+			this.launchSound.setVolume( 0.6 );
+
+		} );
 
 		const unlock = () => {
 
@@ -288,6 +325,7 @@ export class GameAudio {
 	startSounds() {
 
 		if ( this.skidSound.buffer && ! this.skidSound.isPlaying ) this.skidSound.play();
+		if ( this.reverseSound.buffer && ! this.reverseSound.isPlaying ) this.reverseSound.play();
 
 	}
 
@@ -303,7 +341,7 @@ export class GameAudio {
 
 	}
 
-	update( dt, speed, throttle, driftIntensity ) {
+	update( dt, speed, throttle, driftIntensity, isReversing = false ) {
 
 		const absSpeed = THREE.MathUtils.clamp( Math.abs( speed ), 0, 1 );
 		// Only forward throttle counts as engine load. Brake/reverse (throttle < 0)
@@ -399,6 +437,32 @@ export class GameAudio {
 			this.skidTone.frequency.setTargetAtTime( 2500 + intensity01 * 7500, now, 0.1 );
 
 		}
+
+		if ( this.reverseSound.buffer ) {
+
+			// Independent of the skid/drift sound above — simply on
+			// whenever the car is actually reversing, volume tracking
+			// how fast it's backing up.
+			const reverseVol = isReversing ? remap( absSpeed, 0, 0.6, 0.12, 0.3 ) : 0;
+			this.reverseSound.gain.gain.setTargetAtTime( reverseVol, now, 0.08 );
+
+			const reversePitch = THREE.MathUtils.clamp( 0.8 + absSpeed, 0.8, 1.6 );
+			const curReversePitch = this.reverseSound.getPlaybackRate();
+			this.reverseSound.setPlaybackRate( THREE.MathUtils.lerp( curReversePitch, reversePitch, 0.1 ) );
+
+		}
+
+	}
+
+	// One-shot drag-style tire chirp — fired once per hard standing start
+	// (see Vehicle.js's justLaunched edge-trigger). Restarts cleanly even
+	// if a previous chirp hasn't finished (e.g. rapid stop-and-launches).
+	playLaunch() {
+
+		if ( ! this.unlocked || ! this.launchSound || ! this.launchSound.buffer ) return;
+
+		if ( this.launchSound.isPlaying ) this.launchSound.stop();
+		this.launchSound.play();
 
 	}
 

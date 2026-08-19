@@ -1038,7 +1038,8 @@ function updateVehicleAndFx( dt, input, ctx ) {
 
 	particles.update( dt, vehicle );
 	driftMarks.update( dt, vehicle );
-	audio.update( dt, vehicle.linearSpeed / MAX_SPEED, input.z, vehicle.driftIntensity );
+	audio.update( dt, vehicle.linearSpeed / MAX_SPEED, input.z, vehicle.driftIntensity, vehicle.linearSpeed < -0.01 );
+	if ( vehicle.justLaunched ) audio.playLaunch();
 
 	if ( lapTimer ) {
 

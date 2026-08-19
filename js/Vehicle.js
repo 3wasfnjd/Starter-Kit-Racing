@@ -59,6 +59,8 @@ export class Vehicle {
 		this.inputZ = 0;
 
 		this.driftIntensity = 0;
+		this.justLaunched = false;
+		this._launchArmed = true;
 
 	}
 
@@ -135,6 +137,24 @@ export class Vehicle {
 			this.container.rotateY( this.angularSpeed * dt );
 
 			const targetSpeed = this.inputZ;
+
+			// Launch detection: edge-triggered flag (true for exactly one
+			// frame) when the player floors it from a near-standstill —
+			// main.js uses this to fire a one-shot drag-style tire chirp.
+			// Re-armed once the car is moving well or off the throttle, so
+			// it can fire again next time you stop and floor it.
+			if ( this.linearSpeed < 0.15 && targetSpeed > 0.6 && this._launchArmed ) {
+
+				this.justLaunched = true;
+				this._launchArmed = false;
+
+			} else {
+
+				this.justLaunched = false;
+
+			}
+
+			if ( Math.abs( this.linearSpeed ) > 0.5 || targetSpeed < 0.3 ) this._launchArmed = true;
 
 			if ( targetSpeed < 0 && this.linearSpeed > 0.01 ) {
 
