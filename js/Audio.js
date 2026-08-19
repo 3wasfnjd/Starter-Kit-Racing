@@ -442,7 +442,7 @@ export class GameAudio {
 
 				skidVol = remap(
 					THREE.MathUtils.clamp( driftIntensity, 0.5, 2.0 ),
-					0.5, 2.0, 0.08, 0.35
+					0.5, 2.0, 0.25, 0.75
 				);
 
 			}
