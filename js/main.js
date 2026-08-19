@@ -187,6 +187,22 @@ function createModeMenu( { arAvailable } ) {
 			}
 			#hajwalah-menu .hw-swatch img { width: 90%; height: 90%; object-fit: contain; }
 			#hajwalah-menu .hw-swatch.selected { border-color: #5B8CFF; box-shadow: 0 0 14px rgba(91,140,255,0.55); }
+			#hajwalah-menu .hw-flag-row { display: flex; align-items: center; gap: 12px; justify-content: center; }
+			#hajwalah-menu .hw-flag-pick {
+				display: flex; align-items: center; justify-content: center; gap: 8px;
+				padding: 10px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14);
+				background: rgba(255,255,255,0.06); color: #cfc9e0; font-size: 13px; cursor: pointer;
+			}
+			#hajwalah-menu .hw-flag-pick:active { background: rgba(255,255,255,0.12); }
+			#hajwalah-menu .hw-flag-preview {
+				width: 44px; height: 44px; border-radius: 8px; object-fit: cover;
+				border: 1px solid rgba(255,255,255,0.18); display: none;
+			}
+			#hajwalah-menu .hw-flag-preview.shown { display: block; }
+			#hajwalah-menu .hw-flag-clear {
+				display: none; color: #ff8a8a; font-size: 12px; background: none; border: none; cursor: pointer;
+			}
+			#hajwalah-menu .hw-flag-clear.shown { display: inline-block; }
 			#hajwalah-menu .hw-checkbox-row { display: flex; align-items: center; gap: 10px; color: #cfc9e0; font-size: 13.5px; justify-content: center; cursor: pointer; }
 			#hajwalah-menu .hw-checkbox-row input { width: 20px; height: 20px; accent-color: #8B5FBF; }
 			#hajwalah-menu .hw-mode-row { display: flex; gap: 12px; }
@@ -249,6 +265,17 @@ function createModeMenu( { arAvailable } ) {
 						<div class="hw-field-label">لون السيارة</div>
 						<div class="hw-swatches"></div>
 					</div>
+					<div>
+						<div class="hw-field-label">صورة العلم الخلفي — اختياري</div>
+						<div class="hw-flag-row">
+							<label class="hw-flag-pick">
+								📷 اختر صورة
+								<input type="file" accept="image/*" class="hw-flag-input" hidden />
+							</label>
+							<img class="hw-flag-preview" />
+							<button type="button" class="hw-flag-clear">إزالة</button>
+						</div>
+					</div>
 					<label class="hw-checkbox-row">
 						<input type="checkbox" class="hw-freeroam-checkbox" />
 						الوضع العادي: تحكم حر بدون مضمار
@@ -305,6 +332,42 @@ function createModeMenu( { arAvailable } ) {
 		} );
 		refreshSwatchSelection();
 
+		// Flag image: read locally as a data URL via FileReader — no
+		// server/upload involved, works fully offline, and the resulting
+		// data: URL is exactly what THREE.TextureLoader/createFlag()
+		// already accepts as an imageUrl.
+		let flagImageDataUrl = null;
+		const flagInput = menu.querySelector( '.hw-flag-input' );
+		const flagPreview = menu.querySelector( '.hw-flag-preview' );
+		const flagClear = menu.querySelector( '.hw-flag-clear' );
+
+		flagInput.addEventListener( 'change', () => {
+
+			const file = flagInput.files && flagInput.files[ 0 ];
+			if ( ! file ) return;
+
+			const reader = new FileReader();
+			reader.onload = () => {
+
+				flagImageDataUrl = reader.result;
+				flagPreview.src = flagImageDataUrl;
+				flagPreview.classList.add( 'shown' );
+				flagClear.classList.add( 'shown' );
+
+			};
+			reader.readAsDataURL( file );
+
+		} );
+
+		flagClear.addEventListener( 'click', () => {
+
+			flagImageDataUrl = null;
+			flagInput.value = '';
+			flagPreview.classList.remove( 'shown' );
+			flagClear.classList.remove( 'shown' );
+
+		} );
+
 		const textInput = menu.querySelector( '.hw-text-input' );
 		const freeRoamCheckbox = menu.querySelector( '.hw-freeroam-checkbox' );
 		const normalBtn = menu.querySelector( '.hw-normal-btn' );
@@ -314,7 +377,7 @@ function createModeMenu( { arAvailable } ) {
 
 			requestFullscreenSafe();
 			menu.remove();
-			resolve( { choice: 'normal', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked, vehicleKey: selectedVehicle } );
+			resolve( { choice: 'normal', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked, vehicleKey: selectedVehicle, flagImage: flagImageDataUrl } );
 
 		} );
 
@@ -339,7 +402,7 @@ function createModeMenu( { arAvailable } ) {
 			menu.remove();
 			resolve( {
 				choice: 'ar', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked,
-				vehicleKey: selectedVehicle, sessionPromise,
+				vehicleKey: selectedVehicle, flagImage: flagImageDataUrl, sessionPromise,
 			} );
 
 		} );
@@ -1081,7 +1144,7 @@ function updateVehicleAndFx( dt, input, ctx ) {
 
 // ─── NORMAL MODE (unchanged behavior from the original game) ──
 
-function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey } ) {
+function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } ) {
 
 	const world = createPhysicsWorld();
 	let sphereBody, vehicleSpawn, lapTimer = null;
@@ -1226,9 +1289,10 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	scene.add( vehicleGroup );
 	addCustomTextDecals( vehicleGroup, customText );
 	const vehicleLights = addVehicleLights( vehicleGroup );
-	// Pass a path here (e.g. 'images/flag.png') to use a custom flag
-	// image instead of the placeholder banner — see Flag.js.
-	const vehicleFlag = addVehicleFlag( vehicleGroup );
+	// flagImage comes from the main menu's image picker (a data: URL, see
+	// createModeMenu) — falls back to the placeholder banner in Flag.js
+	// if the player didn't pick one.
+	const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 
 	dirLight.target = vehicleGroup;
 
@@ -1313,7 +1377,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 // ─── AR MODE (Meta Quest 3 passthrough) ────────────────────
 
-async function startARMode( { mapParam, customText, vehicleKey, sessionPromise } ) {
+async function startARMode( { mapParam, customText, vehicleKey, flagImage, sessionPromise } ) {
 
 	const arManager = new ARManager( { renderer, scene, models } );
 	const world = createPhysicsWorld();
@@ -1341,7 +1405,7 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 		scene.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
 		const vehicleLights = addVehicleLights( vehicleGroup );
-		const vehicleFlag = addVehicleFlag( vehicleGroup );
+		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 
 		dirLight.target = vehicleGroup;
 
@@ -1587,13 +1651,13 @@ async function init() {
 	// eslint-disable-next-line no-constant-condition
 	while ( true ) {
 
-		const { choice, customText, freeRoam, vehicleKey, sessionPromise } = await createModeMenu( { arAvailable } );
+		const { choice, customText, freeRoam, vehicleKey, flagImage, sessionPromise } = await createModeMenu( { arAvailable } );
 
 		if ( choice === 'ar' ) {
 
 			try {
 
-				activeMode = await startARMode( { mapParam, customText, vehicleKey, sessionPromise } );
+				activeMode = await startARMode( { mapParam, customText, vehicleKey, flagImage, sessionPromise } );
 				break;
 
 			} catch ( e ) {
@@ -1615,7 +1679,7 @@ async function init() {
 
 		} else {
 
-			activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey } );
+			activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } );
 			break;
 
 		}
