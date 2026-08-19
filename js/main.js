@@ -623,7 +623,7 @@ function createSandTexture() {
 // obviously patterned at this scale, so this is drawn once at full size.
 function createSkidMarksTexture( worldSize ) {
 
-	const size = 1024;
+	const size = 512;
 	const canvas = document.createElement( 'canvas' );
 	canvas.width = canvas.height = size;
 	const ctx = canvas.getContext( '2d' );
@@ -737,6 +737,24 @@ function createCrowdTexture() {
 // fixedCoord is their Z); axis 'z' = wall runs along Z (east/west walls,
 // fixedCoord is their X). direction (+1/-1) is which way it extends
 // away from the track.
+// Shared across every grandstand tier on every side — was generating a
+// brand new crowd CanvasTexture per tier (6 tiers × 4 sides = 24 unique
+// textures, each its own GPU upload) for something that's visually
+// interchangeable. One texture + one material, reused everywhere.
+let _sharedCrowdMaterial = null;
+function _getCrowdMaterial() {
+
+	if ( ! _sharedCrowdMaterial ) {
+
+		const texture = createCrowdTexture();
+		texture.repeat.set( 4, 1.5 ); // fixed — good enough for all tier sizes, avoids per-instance textures
+		_sharedCrowdMaterial = new THREE.MeshStandardMaterial( { map: texture, roughness: 1, metalness: 0 } );
+
+	}
+	return _sharedCrowdMaterial;
+
+}
+
 function buildGrandstandWall( scene, axis, length, fixedCoord, baseDistance, direction ) {
 
 	// Many small rows (realistic stadium riser height, ~0.45m per step)
@@ -753,11 +771,7 @@ function buildGrandstandWall( scene, axis, length, fixedCoord, baseDistance, dir
 		const sizeX = axis === 'x' ? length : t.d;
 		const sizeZ = axis === 'x' ? t.d : length;
 
-		const texture = createCrowdTexture();
-		texture.repeat.set( axis === 'x' ? length / 4 : 1,
-			axis === 'x' ? 1 : length / 4 );
-
-		const material = new THREE.MeshStandardMaterial( { map: texture, roughness: 1, metalness: 0 } );
+		const material = _getCrowdMaterial();
 		const mesh = new THREE.Mesh( new THREE.BoxGeometry( sizeX, t.h, sizeZ ), material );
 		mesh.position.set(
 			axis === 'x' ? 0 : fixedCoord + direction * centerDist,
@@ -816,25 +830,40 @@ function buildFloodlightPole( scene, x, z, aimTarget ) {
 
 // Concrete jersey barrier segment: gray base + a painted orange/white
 // hazard stripe near the top, the standard look for track-edge barriers.
+// Shared across all barrier segments — was creating a brand new
+// BoxGeometry + MeshStandardMaterial per segment (~50 segments around a
+// typical free-roam perimeter), meaning ~100 unique draw calls for
+// something that's visually identical every time. Segments only differ
+// by length, so geometry is built per unique length but at most a
+// handful of distinct lengths ever occur (most segments are the same
+// size), and materials are always shared.
+const _barrierBodyMat = new THREE.MeshStandardMaterial( { color: 0x9a9a92, roughness: 0.95, metalness: 0 } );
+const _barrierStripeMat = new THREE.MeshStandardMaterial( { color: 0xE0621B, roughness: 0.8 } );
+const _barrierGeoCache = new Map();
+
+function _getBarrierGeo( sizeX, h, sizeZ ) {
+
+	const key = `${ sizeX.toFixed( 2 ) }|${ h }|${ sizeZ.toFixed( 2 ) }`;
+	if ( ! _barrierGeoCache.has( key ) ) _barrierGeoCache.set( key, new THREE.BoxGeometry( sizeX, h, sizeZ ) );
+	return _barrierGeoCache.get( key );
+
+}
+
 function buildBarrierSegment( scene, world, x, z, length, axis ) {
 
 	const h = 0.6, w = 0.35;
 	const sizeX = axis === 'x' ? length : w;
 	const sizeZ = axis === 'x' ? w : length;
 
-	const body = new THREE.Mesh(
-		new THREE.BoxGeometry( sizeX, h, sizeZ ),
-		new THREE.MeshStandardMaterial( { color: 0x9a9a92, roughness: 0.95, metalness: 0 } )
-	);
+	const body = new THREE.Mesh( _getBarrierGeo( sizeX, h, sizeZ ), _barrierBodyMat );
 	body.position.set( x, h / 2, z );
 	body.castShadow = true;
 	body.receiveShadow = true;
 	scene.add( body );
 
-	const stripe = new THREE.Mesh(
-		new THREE.BoxGeometry( axis === 'x' ? sizeX : sizeX * 1.02, 0.12, axis === 'x' ? sizeZ * 1.02 : sizeZ ),
-		new THREE.MeshStandardMaterial( { color: 0xE0621B, roughness: 0.8 } )
-	);
+	const stripeSizeX = axis === 'x' ? sizeX : sizeX * 1.02;
+	const stripeSizeZ = axis === 'x' ? sizeZ * 1.02 : sizeZ;
+	const stripe = new THREE.Mesh( _getBarrierGeo( stripeSizeX, 0.12, stripeSizeZ ), _barrierStripeMat );
 	stripe.position.set( x, h * 0.72, z );
 	scene.add( stripe );
 
