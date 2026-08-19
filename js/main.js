@@ -752,6 +752,34 @@ function addVehicleLights( vehicleGroup ) {
 
 	}
 
+	// Reverse (backup) lights: white glow at the rear, next to the
+	// taillights, only lit while the car is actually reversing (driven
+	// from linearSpeed < 0 in updateVehicleLights — no manual toggle,
+	// same as a real car). Small lens glow like the headlight bumps.
+	const reverseLights = [];
+	for ( const side of [ -1, 1 ] ) {
+
+		const baseDistance = 1.4;
+		const baseIntensity = 4;
+		const light = new THREE.PointLight( 0xf5f9ff, baseIntensity, baseDistance, 2 );
+		const basePosition = new THREE.Vector3( side * 0.25, 0.43, -1.34 );
+		light.position.copy( basePosition );
+		light.visible = false;
+		bodyNode.add( light );
+
+		const lens = new THREE.Mesh(
+			new THREE.CircleGeometry( 0.05, 16 ),
+			new THREE.MeshBasicMaterial( { color: 0xffffff, toneMapped: false } )
+		);
+		lens.position.copy( basePosition );
+		lens.rotation.y = Math.PI; // face backward, out through the taillight bump
+		lens.visible = false;
+		bodyNode.add( lens );
+
+		reverseLights.push( { light, lens, basePosition, baseDistance, baseIntensity } );
+
+	}
+
 	// Hazard/emergency lights: orange, blinking, at all 4 corners. Off
 	// by default — toggled by the player, blink handled per-frame.
 	const hazards = [];
@@ -771,7 +799,7 @@ function addVehicleLights( vehicleGroup ) {
 
 	}
 
-	return { headlights, taillights, hazards, headlightLenses };
+	return { headlights, taillights, hazards, headlightLenses, reverseLights };
 
 }
 
@@ -849,7 +877,7 @@ function setHighBeam( vehicleLights, on ) {
 // range proportional to the vehicle's current scale (AR resize control) —
 // a light's `.distance` is in local units and does NOT automatically
 // scale with its parent's transform the way position/rotation do.
-function updateVehicleLights( vehicleLights, dt, scale ) {
+function updateVehicleLights( vehicleLights, dt, scale, isReversing = false ) {
 
 	if ( ! vehicleLights ) return;
 
@@ -860,6 +888,17 @@ function updateVehicleLights( vehicleLights, dt, scale ) {
 	// anything, looking like it "faded off" as it shrank. Range now
 	// stays constant no matter the car size (position/visual size still
 	// track the car normally, via the transform hierarchy).
+
+	if ( vehicleLights.reverseLights ) {
+
+		vehicleLights.reverseLights.forEach( ( r ) => {
+
+			r.light.visible = isReversing;
+			if ( r.lens ) r.lens.visible = isReversing;
+
+		} );
+
+	}
 
 	if ( vehicleLights.hazardsOn ) {
 
@@ -1204,7 +1243,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			const input = controls.update();
 
 			updateVehicleAndFx( dt, input, ctx );
-			updateVehicleLights( vehicleLights, dt, 1 );
+			updateVehicleLights( vehicleLights, dt, 1, vehicle.linearSpeed < -0.01 );
 
 			const rKey = !! controls.keys[ 'KeyR' ];
 			const tKey = !! controls.keys[ 'KeyT' ];
@@ -1348,7 +1387,7 @@ async function startARMode( { mapParam, customText, vehicleKey, sessionPromise }
 					};
 
 					updateVehicleAndFx( dt, input, { world, ...gameState } );
-					updateVehicleLights( gameState.vehicleLights, dt, gameState.vehicleScale );
+					updateVehicleLights( gameState.vehicleLights, dt, gameState.vehicleScale, gameState.vehicle.linearSpeed < -0.01 );
 
 					const scaleInput = arManager.getScaleAdjustInput();
 					if ( scaleInput !== 0 ) {
