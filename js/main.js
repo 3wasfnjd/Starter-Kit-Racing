@@ -728,7 +728,7 @@ function addVehicleFlag( vehicleGroup, imageUrl ) {
 	const flag = createFlag( imageUrl );
 	// Pole planted right at the rear bumper — pulled left (clear of the
 	// bumper's width) and just past its depth, not floating away from it.
-	flag.group.position.set( -0.64, 0.14, -1.42 );
+	flag.group.position.set( -0.6, 0.14, -1.36 );
 	bodyNode.add( flag.group );
 
 	return flag;
@@ -976,13 +976,26 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false ) {
 
 	if ( ! vehicleLights ) return;
 
-	// Deliberately NOT scaling light .distance with vehicle size — the
-	// headlight's job is to illuminate the real room, which stays the
-	// same size regardless of how small the car gets. Shrinking the
-	// range along with the car meant a small car's light barely reached
-	// anything, looking like it "faded off" as it shrank. Range now
-	// stays constant no matter the car size (position/visual size still
-	// track the car normally, via the transform hierarchy).
+	// Headlight distance/intensity scale WITH the vehicle size now — a
+	// tiny (scale ~0.03) toy-sized car casting a fixed ~14-unit beam
+	// looked absurdly oversized/disconnected from the car; a huge
+	// (scale ~3) car needs more than the default's reach. Distance scales
+	// linearly with `scale` (so it's exactly baseDistance at scale=1,
+	// matching the original tuning) and intensity scales with scale²,
+	// following inverse-square falloff so the illuminated patch looks
+	// like it belongs to a light of that size rather than getting
+	// dimmer/brighter than it should as the beam's own reach changes.
+	if ( vehicleLights.headlights ) {
+
+		const s = Math.max( scale, 0.001 );
+		vehicleLights.headlights.forEach( ( h ) => {
+
+			h.light.distance = h.baseDistance * s;
+			h.light.intensity = h.baseIntensity * s * s;
+
+		} );
+
+	}
 
 	if ( vehicleLights.reverseLights ) {
 
@@ -1494,6 +1507,7 @@ async function startARMode( { mapParam, customText, vehicleKey, flagImage, sessi
 						x: Math.abs( arInput.x ) > Math.abs( kbInput.x ) ? arInput.x : kbInput.x,
 						z: Math.abs( arInput.z ) > Math.abs( kbInput.z ) ? arInput.z : kbInput.z,
 						touchActive: kbInput.touchActive,
+						handbrake: kbInput.handbrake || arManager.getHandbrakeHold(),
 					};
 
 					updateVehicleAndFx( dt, input, { world, ...gameState } );

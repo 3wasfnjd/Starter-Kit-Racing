@@ -671,6 +671,16 @@ export class ARManager {
 
 	}
 
+	// Left thumbstick click (xr-standard index 3) — unused elsewhere,
+	// repurposed for the handbrake. Held not toggled, like a real
+	// handbrake lever.
+	getHandbrakeHold() {
+
+		const left = this.gamepads.left;
+		return left && left.buttons[ 3 ] ? left.buttons[ 3 ].pressed : false;
+
+	}
+
 	_onSessionEnd() {
 
 		this.session = null;

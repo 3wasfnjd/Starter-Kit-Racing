@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { createImpactBuffer } from './ImpactSound.js';
-import { createHornBuffer } from './HornSound.js';
 // RPM range is owned by the engine synth; import it so the 0..1 gear model
 // here and the worklet's normalization can't drift apart.
 import { RPM_IDLE, RPM_MAX } from './EngineWorklet.js';
@@ -172,13 +171,10 @@ export class GameAudio {
 		this.launchSound = this.makePositional( [ this.neutralLowpass() ] );
 		this.launchSound.gain.connect( this.reverbSend );
 
-		// Horn: synthesized directly (see HornSound.js) — a fixed dual-tone
-		// electromagnetic horn is easy to synthesize convincingly, unlike
-		// the organic friction noise of tire skid, so no sample file
-		// needed here. Loops while held (see setHorn()).
+		// Horn: real recorded sample (audio/horn.mp3) — same loader
+		// pattern as skid/reverse/launch above.
 		this.hornSound = this.makePositional( [ this.neutralLowpass() ] );
 		this.hornSound.gain.connect( this.reverbSend );
-		this.hornSound.setBuffer( createHornBuffer( ctx ) );
 		this.hornSound.setLoop( true );
 		this.hornSound.setVolume( 0 );
 
@@ -218,6 +214,21 @@ export class GameAudio {
 			this.launchSound.setBuffer( buffer );
 			this.launchSound.setLoop( false );
 			this.launchSound.setVolume( 0.6 );
+
+		} );
+
+		loader.load( 'audio/horn.mp3', ( buffer ) => {
+
+			this.hornSound.setBuffer( buffer );
+			// If the player is already holding the horn button while this
+			// finishes loading, start it immediately instead of waiting
+			// for the next press.
+			if ( this.hornOn && this.unlocked && ! this.hornSound.isPlaying ) {
+
+				this.hornSound.play();
+				this.hornSound.gain.gain.setTargetAtTime( 0.5, this.listener.context.currentTime, 0.01 );
+
+			}
 
 		} );
 

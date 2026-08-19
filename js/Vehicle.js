@@ -109,6 +109,7 @@ export class Vehicle {
 
 		this.inputX = controlsInput.x;
 		this.inputZ = controlsInput.z;
+		this.handbrake = !! controlsInput.handbrake;
 
 		if ( controlsInput.touchActive && ( this.inputX !== 0 || this.inputZ !== 0 ) ) {
 
@@ -131,7 +132,13 @@ export class Vehicle {
 
 			const steeringGrip = THREE.MathUtils.clamp( Math.abs( this.linearSpeed ), 0.2, 1.0 );
 
-			const targetAngular = - this.inputX * steeringGrip * 4 * direction;
+			// Handbrake: the rear tires lose grip, so steering authority
+			// no longer depends on speed (full grip regardless) and turns
+			// noticeably sharper — the classic arcade handbrake-turn.
+			const effectiveGrip = this.handbrake ? 1.0 : steeringGrip;
+			const turnMultiplier = this.handbrake ? 6.5 : 4;
+
+			const targetAngular = - this.inputX * effectiveGrip * turnMultiplier * direction;
 			this.angularSpeed = THREE.MathUtils.lerp( this.angularSpeed, targetAngular, dt * 4 );
 
 			this.container.rotateY( this.angularSpeed * dt );
@@ -182,6 +189,10 @@ export class Vehicle {
 		}
 
 		this.linearSpeed *= Math.max( 0, 1 - LINEAR_DAMP * dt );
+
+		// Handbrake scrubs off extra speed — real rear tires dragging
+		// sideways lose grip AND energy, not just direction.
+		if ( this.handbrake ) this.linearSpeed *= Math.max( 0, 1 - 1.2 * dt );
 
 		if ( this.rigidBody ) {
 
@@ -253,7 +264,8 @@ export class Vehicle {
 		this.updateWheels( dt );
 
 		this.driftIntensity = Math.abs( this.linearSpeed - this.acceleration ) +
-			( this.bodyNode ? Math.abs( this.bodyNode.rotation.z ) * 2 : 0 );
+			( this.bodyNode ? Math.abs( this.bodyNode.rotation.z ) * 2 : 0 ) +
+			( this.handbrake ? 0.7 : 0 );
 
 	}
 

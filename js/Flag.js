@@ -102,9 +102,17 @@ export function createFlag( imageUrl ) {
 		t += dt;
 
 		const w = THREE.MathUtils.clamp( windStrength01, 0, 1 );
-		const amp = ( 0.05 + w * 0.16 ) * HEIGHT;
+
+		// At rest (w=0) the flag hangs down and collapses in toward the
+		// pole under its own weight, like real fabric with no wind to
+		// hold it out. At speed (w=1) it's blown fully out to its flat,
+		// horizontal shape. `collapse` blends between those two states —
+		// this is the dominant shape, not a small offset on top of a
+		// rigid rectangle.
+		const collapse = 1 - w;
+		const amp = ( 0.015 + w * 0.16 ) * HEIGHT; // flutter itself stays subtle at rest, pronounced at speed
 		const freq = 5.5 / HEIGHT;
-		const speed = 9 + w * 6;
+		const speed = 6 + w * 9;
 
 		const pos = geometry.attributes.position;
 		const arr = pos.array;
@@ -115,14 +123,23 @@ export function createFlag( imageUrl ) {
 			const by = basePositions[ i + 1 ];
 			const distFromPole = bx / WIDTH; // 0 at the pinned edge, 1 at the free edge
 
-			const wave = Math.sin( bx * freq - t * speed ) * amp * distFromPole;
-			const wave2 = Math.sin( bx * freq * 1.7 - t * speed * 1.3 + by * 3 ) * amp * 0.4 * distFromPole;
+			// Gravity droop: the free edge sags down and pulls in toward
+			// the pole as wind drops off (exponent >1 so it's a soft
+			// curve near the pole, steeper toward the free edge — real
+			// fabric doesn't droop linearly).
+			const droopY = collapse * HEIGHT * 0.6 * Math.pow( distFromPole, 1.4 );
+			const pullX = collapse * bx * 0.55;
 
+			const wave = Math.sin( bx * freq - t * speed ) * amp * distFromPole;
+			// Same phase basis as `wave` (no height-dependent offset) so
+			// top and bottom stay in sync — a by-dependent phase here
+			// made the whole flag look permanently skewed/tilted in any
+			// single frame instead of fluttering evenly.
+			const wave2 = Math.sin( bx * freq * 1.7 - t * speed * 1.3 ) * amp * 0.35 * distFromPole;
+
+			arr[ i ] = bx - pullX;
+			arr[ i + 1 ] = by - droopY;
 			arr[ i + 2 ] = wave + wave2;
-			// Gentle gravity sag when there's little wind, straightening
-			// out as speed (and therefore wind) picks up. A flag this
-			// size visibly droops at a standstill, unlike a small one.
-			arr[ i + 1 ] = by - ( 1 - w ) * 0.05 * HEIGHT * distFromPole * distFromPole;
 
 		}
 
