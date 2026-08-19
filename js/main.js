@@ -554,128 +554,7 @@ function createAsphaltTexture() {
 
 }
 
-function createSandTexture() {
-
-	const size = 256;
-	const canvas = document.createElement( 'canvas' );
-	canvas.width = canvas.height = size;
-	const ctx = canvas.getContext( '2d' );
-	ctx.fillStyle = '#c9a877';
-	ctx.fillRect( 0, 0, size, size );
-
-	for ( let i = 0; i < 2200; i ++ ) {
-
-		const x = Math.random() * size, y = Math.random() * size;
-		const v = Math.random();
-		const shade = v < 0.5 ? `rgba(150,120,80,${ 0.08 + Math.random() * 0.12 })` : `rgba(230,205,160,${ 0.08 + Math.random() * 0.15 })`;
-		ctx.fillStyle = shade;
-		ctx.fillRect( x, y, 1.6, 1.6 );
-
-	}
-
-	// Faint wind-ripple streaks
-	ctx.strokeStyle = 'rgba(120,95,60,0.08)';
-	ctx.lineWidth = 2;
-	for ( let i = 0; i < 18; i ++ ) {
-
-		const y = Math.random() * size;
-		ctx.beginPath();
-		ctx.moveTo( 0, y );
-		ctx.bezierCurveTo( size * 0.3, y + ( Math.random() - 0.5 ) * 20, size * 0.7, y + ( Math.random() - 0.5 ) * 20, size, y );
-		ctx.stroke();
-
-	}
-
-	const texture = new THREE.CanvasTexture( canvas );
-	texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-	return texture;
-
-}
-
-// Large, non-repeating overlay of burnout circles and drift streaks laid
-// once across the whole paved arena — a tiled texture would look
-// obviously patterned at this scale, so this is drawn once at full size.
-function createSkidMarksTexture( worldSize ) {
-
-	const size = 1024;
-	const canvas = document.createElement( 'canvas' );
-	canvas.width = canvas.height = size;
-	const ctx = canvas.getContext( '2d' );
-
-	const toPx = ( w ) => ( w / worldSize + 0.5 ) * size;
-
-	ctx.strokeStyle = 'rgba(10,10,12,0.35)';
-	ctx.lineCap = 'round';
-
-	// Burnout circles: paired concentric-ish rings with a slightly wobbly
-	// radius, like a real donut/burnout mark.
-	const circleCount = 7;
-	for ( let c = 0; c < circleCount; c ++ ) {
-
-		const cx = toPx( ( Math.random() - 0.5 ) * worldSize * 0.75 );
-		const cy = toPx( ( Math.random() - 0.5 ) * worldSize * 0.75 );
-		const r = size * ( 0.02 + Math.random() * 0.035 );
-
-		for ( const offset of [ -3, 3 ] ) {
-
-			ctx.lineWidth = 2.5 + Math.random() * 1.5;
-			ctx.beginPath();
-			const segs = 48;
-			for ( let i = 0; i <= segs; i ++ ) {
-
-				const a = ( i / segs ) * Math.PI * 2;
-				const wob = Math.sin( a * 5 + c ) * r * 0.05;
-				const px = cx + Math.cos( a ) * ( r + offset + wob );
-				const py = cy + Math.sin( a ) * ( r + offset + wob );
-				if ( i === 0 ) ctx.moveTo( px, py ); else ctx.lineTo( px, py );
-
-			}
-
-			ctx.stroke();
-
-		}
-
-	}
-
-	// Long curved drift trails: pairs of near-parallel tracks following a
-	// sweeping bezier path.
-	const trailCount = 10;
-	for ( let t = 0; t < trailCount; t ++ ) {
-
-		const x0 = ( Math.random() - 0.5 ) * worldSize * 0.9;
-		const y0 = ( Math.random() - 0.5 ) * worldSize * 0.9;
-		const ang = Math.random() * Math.PI * 2;
-		const len = worldSize * ( 0.15 + Math.random() * 0.25 );
-		const bend = ( Math.random() - 0.5 ) * len * 0.6;
-
-		const x1 = x0 + Math.cos( ang ) * len;
-		const y1 = y0 + Math.sin( ang ) * len;
-		const mx = ( x0 + x1 ) / 2 - Math.sin( ang ) * bend;
-		const my = ( y0 + y1 ) / 2 + Math.cos( ang ) * bend;
-
-		for ( const offset of [ -4, 4 ] ) {
-
-			ctx.lineWidth = 3 + Math.random();
-			ctx.globalAlpha = 0.5 + Math.random() * 0.3;
-			ctx.beginPath();
-			ctx.moveTo( toPx( x0 + Math.cos( ang + Math.PI / 2 ) * offset ), toPx( y0 + Math.sin( ang + Math.PI / 2 ) * offset ) );
-			ctx.quadraticCurveTo(
-				toPx( mx + Math.cos( ang + Math.PI / 2 ) * offset ), toPx( my + Math.sin( ang + Math.PI / 2 ) * offset ),
-				toPx( x1 + Math.cos( ang + Math.PI / 2 ) * offset ), toPx( y1 + Math.sin( ang + Math.PI / 2 ) * offset )
-			);
-			ctx.stroke();
-
-		}
-
-	}
-	ctx.globalAlpha = 1;
-
-	const texture = new THREE.CanvasTexture( canvas );
-	return texture;
-
-}
-
-
+function createCrowdTexture() {
 
 	const w = 256, h = 64;
 	const canvas = document.createElement( 'canvas' );
@@ -783,133 +662,6 @@ function buildFloodlightPole( scene, x, z, aimTarget ) {
 	light.castShadow = false; // 4 shadow-casting spotlights would be very expensive; dirLight still casts the car's shadow
 	scene.add( light );
 	scene.add( light.target );
-
-}
-
-// ─── Drift arena dressing: barriers, tire stacks, gate, signs ─
-
-// Concrete jersey barrier segment: gray base + a painted orange/white
-// hazard stripe near the top, the standard look for track-edge barriers.
-function buildBarrierSegment( scene, world, x, z, length, axis ) {
-
-	const h = 0.6, w = 0.35;
-	const sizeX = axis === 'x' ? length : w;
-	const sizeZ = axis === 'x' ? w : length;
-
-	const body = new THREE.Mesh(
-		new THREE.BoxGeometry( sizeX, h, sizeZ ),
-		new THREE.MeshStandardMaterial( { color: 0x9a9a92, roughness: 0.95, metalness: 0 } )
-	);
-	body.position.set( x, h / 2, z );
-	body.castShadow = true;
-	body.receiveShadow = true;
-	scene.add( body );
-
-	const stripe = new THREE.Mesh(
-		new THREE.BoxGeometry( axis === 'x' ? sizeX : sizeX * 1.02, 0.12, axis === 'x' ? sizeZ * 1.02 : sizeZ ),
-		new THREE.MeshStandardMaterial( { color: 0xE0621B, roughness: 0.8 } )
-	);
-	stripe.position.set( x, h * 0.72, z );
-	scene.add( stripe );
-
-	if ( world ) {
-
-		rigidBody.create( world, {
-			shape: box.create( { halfExtents: [ sizeX / 2, h / 2, sizeZ / 2 ] } ),
-			motionType: MotionType.STATIC,
-			objectLayer: world._OL_STATIC,
-			position: [ x, h / 2 - 0.125, z ],
-			friction: 0.3,
-			restitution: 0.25,
-		} );
-
-	}
-
-}
-
-// A stack of tires (torus "tires", genuinely stacked) — decorative corner
-// dressing, common at any real drift arena's edge.
-function buildTireStack( scene, x, z, count ) {
-
-	const tireMat = new THREE.MeshStandardMaterial( { color: 0x1c1c1e, roughness: 0.9, metalness: 0 } );
-	let y = 0.12;
-
-	for ( let i = 0; i < count; i ++ ) {
-
-		const tire = new THREE.Mesh( new THREE.TorusGeometry( 0.35, 0.13, 10, 20 ), tireMat );
-		tire.rotation.x = Math.PI / 2;
-		tire.position.set( x + ( Math.random() - 0.5 ) * 0.04, y, z + ( Math.random() - 0.5 ) * 0.04 );
-		tire.castShadow = true;
-		tire.receiveShadow = true;
-		scene.add( tire );
-		y += 0.23;
-
-	}
-
-}
-
-// Entrance gate: two pillars + a header beam, straddling one edge of the
-// arena — purely a visual landmark (the barrier line behind it is still
-// the actual boundary).
-function buildEntranceGate( scene, x, z, axis ) {
-
-	const pillarH = 4.2, pillarSize = 0.35, gap = 3.6;
-	const mat = new THREE.MeshStandardMaterial( { color: 0x2c2c30, roughness: 0.6, metalness: 0.5 } );
-
-	for ( const side of [ -1, 1 ] ) {
-
-		const px = axis === 'x' ? x + side * gap / 2 : x;
-		const pz = axis === 'x' ? z : z + side * gap / 2;
-		const pillar = new THREE.Mesh( new THREE.BoxGeometry( pillarSize, pillarH, pillarSize ), mat );
-		pillar.position.set( px, pillarH / 2, pz );
-		pillar.castShadow = true;
-		scene.add( pillar );
-
-	}
-
-	const beam = new THREE.Mesh(
-		new THREE.BoxGeometry( axis === 'x' ? gap + pillarSize : pillarSize, 0.4, axis === 'x' ? pillarSize : gap + pillarSize ),
-		mat
-	);
-	beam.position.set( x, pillarH + 0.2, z );
-	beam.castShadow = true;
-	scene.add( beam );
-
-}
-
-// Warning sign: yellow triangle on a post — no text/glyphs, just the
-// hazard-triangle shape.
-function buildWarningSign( scene, x, z, rotationY ) {
-
-	const post = new THREE.Mesh(
-		new THREE.CylinderGeometry( 0.03, 0.03, 1.1, 6 ),
-		new THREE.MeshStandardMaterial( { color: 0x333333, roughness: 0.7 } )
-	);
-	post.position.set( x, 0.55, z );
-	scene.add( post );
-
-	const shape = new THREE.Shape();
-	shape.moveTo( 0, 0.32 );
-	shape.lineTo( -0.28, -0.18 );
-	shape.lineTo( 0.28, -0.18 );
-	shape.closePath();
-
-	const face = new THREE.Mesh(
-		new THREE.ShapeGeometry( shape ),
-		new THREE.MeshStandardMaterial( { color: 0xF2C230, roughness: 0.6, side: THREE.DoubleSide } )
-	);
-	const border = new THREE.Mesh(
-		new THREE.RingGeometry( 0.26, 0.30, 3 ),
-		new THREE.MeshStandardMaterial( { color: 0x1a1a1a, roughness: 0.6, side: THREE.DoubleSide } )
-	);
-	border.rotation.z = Math.PI; // point the ring-triangle the same way as the face
-
-	const signGroup = new THREE.Group();
-	signGroup.add( face );
-	signGroup.add( border );
-	signGroup.position.set( x, 1.15, z );
-	signGroup.rotation.y = rotationY;
-	scene.add( signGroup );
 
 }
 
@@ -1454,7 +1206,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	if ( freeRoam ) {
 
 		// Open sandbox: no track, no walls — just a big flat ground.
-		const groundSize = 110;
+		const groundSize = 200;
 
 		// Night stadium look (matching a real "تفحيط" show — dark sky,
 		// the floodlight poles below doing the actual lighting instead of
@@ -1465,17 +1217,17 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		dirLight.intensity = 0.4; // faint moonlight fill, floodlights carry the scene
 		hemiLight.intensity = 0.35;
 
-		const roadHalf = groundSize / 2;
-
-		const shadowExtent = roadHalf;
+		const shadowExtent = 40;
 		dirLight.shadow.camera.left = - shadowExtent;
 		dirLight.shadow.camera.right = shadowExtent;
 		dirLight.shadow.camera.top = shadowExtent;
 		dirLight.shadow.camera.bottom = - shadowExtent;
 		dirLight.shadow.camera.updateProjectionMatrix();
 
-		scene.fog.near = groundSize * 0.5;
-		scene.fog.far = groundSize * 1.1;
+		scene.fog.near = 60;
+		scene.fog.far = 140;
+
+		const roadHalf = groundSize / 2;
 
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents: [ roadHalf, 0.01, roadHalf ] } ),
@@ -1543,67 +1295,6 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			}
 
 		}
-
-		// Dry desert surround, peeking out beyond the paved arena's edge —
-		// sits just below the asphalt so it only shows past its footprint.
-		const sandTexture = createSandTexture();
-		const sandSize = groundSize * 2;
-		sandTexture.repeat.set( sandSize / 10, sandSize / 10 );
-		const sandMesh = new THREE.Mesh(
-			new THREE.PlaneGeometry( sandSize, sandSize ),
-			new THREE.MeshStandardMaterial( { map: sandTexture, roughness: 1, metalness: 0 } )
-		);
-		sandMesh.rotation.x = - Math.PI / 2;
-		sandMesh.position.set( 0, - 0.121, 0 );
-		sandMesh.receiveShadow = true;
-		scene.add( sandMesh );
-
-		// Burnout circles + drift trails, baked once across the whole
-		// paved surface — a proper tiled texture would look obviously
-		// repeated at this scale.
-		const skidMarksTexture = createSkidMarksTexture( groundSize );
-		const skidOverlay = new THREE.Mesh(
-			new THREE.PlaneGeometry( groundSize, groundSize ),
-			new THREE.MeshStandardMaterial( {
-				map: skidMarksTexture, transparent: true, roughness: 1,
-				metalness: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1,
-			} )
-		);
-		skidOverlay.rotation.x = - Math.PI / 2;
-		skidOverlay.position.set( 0, - 0.1195, 0 );
-		scene.add( skidOverlay );
-
-		// Concrete barriers dressing the same line as the invisible
-		// collision walls above (no extra physics needed — the collider's
-		// already there). One gap left open on the +Z side for the
-		// entrance gate.
-		const barrierSeg = 8;
-		for ( const sign of [ 1, -1 ] ) {
-
-			for ( let p = - roadHalf; p < roadHalf; p += barrierSeg ) {
-
-				const segLen = Math.min( barrierSeg, roadHalf - p ) - 0.3; // small gaps between segments, like real jersey barrier sections
-				if ( segLen <= 0 ) continue;
-				const center = p + segLen / 2;
-
-				// Leave the entrance gate gap on the north wall (+Z, sign=1, axis 'x')
-				if ( sign === 1 && Math.abs( center ) < 3 ) continue;
-
-				buildBarrierSegment( scene, null, center, sign * roadHalf, segLen, 'x' );
-				buildBarrierSegment( scene, null, sign * roadHalf, center, segLen, 'z' );
-
-			}
-
-		}
-
-		buildEntranceGate( scene, 0, roadHalf, 'x' );
-
-		// Tire stacks in two corners, warning signs flanking the gate.
-		buildTireStack( scene, roadHalf - 3, roadHalf - 3, 5 );
-		buildTireStack( scene, - ( roadHalf - 3 ), - ( roadHalf - 3 ), 4 );
-		buildTireStack( scene, roadHalf - 3, - ( roadHalf - 3 ), 6 );
-		buildWarningSign( scene, -4.5, roadHalf - 1, Math.PI );
-		buildWarningSign( scene, 4.5, roadHalf - 1, Math.PI );
 
 		vehicleSpawn = { position: [ 0, 0.5, 0 ], angle: 0 };
 		sphereBody = createSphereBody( world, vehicleSpawn.position );
