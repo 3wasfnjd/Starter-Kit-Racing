@@ -7,16 +7,19 @@ import * as THREE from 'three';
 // linearSpeed / MAX_SPEED), matching how a real flag goes from a lazy
 // droop at a standstill to a stiff snap at speed.
 
-const WIDTH = 0.34;
-const HEIGHT = 0.2;
-const SEG_X = 12;
-const SEG_Y = 6;
-const POLE_HEIGHT = 0.34;
+const WIDTH = 1.3; // real flag proportions (~2:3), sized against the car body
+const HEIGHT = 0.85;
+const SEG_X = 14;
+const SEG_Y = 8;
+const POLE_HEIGHT = 1.0;
+const POLE_RADIUS = 0.018;
 
-// How the pole is aimed off the vehicle's rear-left corner: 90° would
-// stream the flag straight backward; a bit past that also carries it
-// outward, away from the body, which reads better visually. Tune freely.
+// How the pole is aimed off the vehicle's rear-left corner. Yaw carries
+// it outward/backward (90° = straight back); pitch leans it back and up
+// like a real pole planted against the rear bumper/spare-tire area,
+// angling up and out rather than standing bolt upright.
 const FLAG_YAW = THREE.MathUtils.degToRad( 100 );
+const FLAG_PITCH = THREE.MathUtils.degToRad( -28 );
 
 function createPlaceholderTexture() {
 
@@ -45,10 +48,12 @@ function createPlaceholderTexture() {
 export function createFlag( imageUrl ) {
 
 	const group = new THREE.Group();
+	group.rotation.order = 'YXZ'; // yaw first (face outward/back), then pitch (lean the pole)
 	group.rotation.y = FLAG_YAW;
+	group.rotation.x = FLAG_PITCH;
 
 	const pole = new THREE.Mesh(
-		new THREE.CylinderGeometry( 0.008, 0.008, POLE_HEIGHT, 6 ),
+		new THREE.CylinderGeometry( POLE_RADIUS, POLE_RADIUS, POLE_HEIGHT, 6 ),
 		new THREE.MeshStandardMaterial( { color: 0x2a2a2a, roughness: 0.6, metalness: 0.3 } )
 	);
 	pole.position.y = POLE_HEIGHT / 2;
@@ -93,8 +98,8 @@ export function createFlag( imageUrl ) {
 		t += dt;
 
 		const w = THREE.MathUtils.clamp( windStrength01, 0, 1 );
-		const amp = 0.015 + w * 0.045;
-		const freq = 14;
+		const amp = ( 0.05 + w * 0.16 ) * HEIGHT;
+		const freq = 5.5 / HEIGHT;
 		const speed = 9 + w * 6;
 
 		const pos = geometry.attributes.position;
@@ -111,8 +116,9 @@ export function createFlag( imageUrl ) {
 
 			arr[ i + 2 ] = wave + wave2;
 			// Gentle gravity sag when there's little wind, straightening
-			// out as speed (and therefore wind) picks up.
-			arr[ i + 1 ] = by - ( 1 - w ) * 0.012 * distFromPole * distFromPole;
+			// out as speed (and therefore wind) picks up. A flag this
+			// size visibly droops at a standstill, unlike a small one.
+			arr[ i + 1 ] = by - ( 1 - w ) * 0.05 * HEIGHT * distFromPole * distFromPole;
 
 		}
 
