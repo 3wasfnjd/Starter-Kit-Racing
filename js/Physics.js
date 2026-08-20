@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { rigidBody, box, sphere, MotionType, MotionQuality } from 'crashcat';
-import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE } from './Track.js';
+import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE, LANE_WIDTH, MEDIAN_WIDTH, LANE_B_OFFSET } from './Track.js';
 
 const _debugMat = new THREE.MeshBasicMaterial( { color: 0x00ff00, wireframe: true } );
 
@@ -52,7 +52,7 @@ export function buildWallColliders( world, debugGroup, customCells, arTransform 
 	const CELL_HALF = CELL_RAW / 2;
 
 	const WALL_HALF_THICK = 0.25;
-	const WALL_X = 4.75;
+	const WALL_X = 4.75; // reverted — original road piece is untouched now
 	const WALL_HALF_H = 1.5;
 
 	const wallY = ( 0.5 + WALL_HALF_H ) * S - 0.5;
@@ -121,8 +121,9 @@ export function buildWallColliders( world, debugGroup, customCells, arTransform 
 		const rad = deg * Math.PI / 180;
 		const cr = Math.cos( rad ), sr = Math.sin( rad );
 
-		if ( key === 'track-straight' || key === 'track-finish' ) {
+		if ( key === 'track-finish' ) {
 
+			// Unchanged — finish line never got a second lane.
 			for ( const side of [ - 1, 1 ] ) {
 
 				const lx = side * WALL_X;
@@ -150,6 +151,77 @@ export function buildWallColliders( world, debugGroup, customCells, arTransform 
 				} );
 
 				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+			}
+
+		} else if ( key === 'track-straight' ) {
+
+			// Two-lane layout matching Track.js's placePiece: original
+			// lane keeps its near (-WALL_X) wall exactly as before; the
+			// far wall moves out past the new second lane instead of
+			// sitting at the old +WALL_X. The median sits between them.
+			const farWallX = LANE_B_OFFSET + LANE_WIDTH / 2;
+
+			for ( const lx of [ - WALL_X, farWallX ] ) {
+
+				const wx = cx + ( lx * cr ) * S;
+				const wz = cz + ( - lx * sr ) * S;
+				let halfExtents = [ hThick, hHeight, hLen ];
+				let position = [ wx, wallY, wz ];
+				let quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
+
+				if ( arTransform ) {
+
+					halfExtents = halfExtents.map( ( h ) => h * arScale );
+					( { position, quaternion } = applyArTransform( position, quaternion, arTransform ) );
+
+				}
+
+				rigidBody.create( world, {
+					shape: box.create( { halfExtents } ),
+					motionType: MotionType.STATIC,
+					objectLayer: world._OL_STATIC,
+					position,
+					quaternion,
+					friction: 0.0,
+					restitution: 0.1,
+				} );
+
+				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+			}
+
+			// Median collider, matching Track.js's buildStreetMedian
+			// position exactly (offset from center, not centered on the
+			// piece). Taller than the visual curb (0.35 vs ~0.08 raw
+			// half-height) so the car can't just hop over it.
+			const medianRawHalfHeight = 0.35;
+			const medianY = ( 0.5 + medianRawHalfHeight ) * S - 0.5;
+			const medianLocalX = LANE_B_OFFSET - LANE_WIDTH / 2 - MEDIAN_WIDTH / 2;
+			const mwx = cx + ( medianLocalX * cr ) * S;
+			const mwz = cz + ( - medianLocalX * sr ) * S;
+			let medianHalfExtents = [ ( MEDIAN_WIDTH / 2 ) * S, medianRawHalfHeight * S, ( CELL_RAW * 0.94 / 2 ) * S ];
+			let position = [ mwx, medianY, mwz ];
+			let quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
+
+			if ( arTransform ) {
+
+				medianHalfExtents = medianHalfExtents.map( ( h ) => h * arScale );
+				( { position, quaternion } = applyArTransform( position, quaternion, arTransform ) );
+
+			}
+
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents: medianHalfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				quaternion,
+				friction: 0.3,
+				restitution: 0.1,
+			} );
+
+			if ( debugGroup ) addDebugBox( debugGroup, medianHalfExtents, position, quaternion );
 
 			}
 

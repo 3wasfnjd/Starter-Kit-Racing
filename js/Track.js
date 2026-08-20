@@ -324,9 +324,18 @@ export function buildTrack( scene, models, customCells ) {
 // intentionally don't get a second lane: their curved geometry and wall
 // math would need dedicated handling, left for once an actual layout
 // with turns is in hand.
-export const LANE_WIDTH = 9.5;   // matches the original road's own width (2 * old WALL_X)
+// Measured directly from track-straight.glb's mesh bounds (x: -5 to 5)
+// — the earlier version guessed 4.75 (the physics WALL_X, which sits
+// slightly inside the visual edge on purpose) and used that as the
+// pavement width too, so the median/trees ended up overlapping the last
+// ~0.25m of the actual visual road surface. SHOULDER_GAP adds a bit of
+// clear buffer past the true edge so nothing touches it.
+const ROAD_HALF_WIDTH = 5.0;
+const SHOULDER_GAP = 0.3;
+
+export const LANE_WIDTH = ROAD_HALF_WIDTH * 2;
 export const MEDIAN_WIDTH = 1.4;
-export const LANE_B_OFFSET = LANE_WIDTH / 2 + MEDIAN_WIDTH + LANE_WIDTH / 2; // center-to-center
+export const LANE_B_OFFSET = ROAD_HALF_WIDTH + SHOULDER_GAP + MEDIAN_WIDTH + LANE_WIDTH / 2; // center-to-center
 
 // Median: a raised curb strip with trees, sitting between the original
 // lane and the new second lane. Reuses 'decoration-forest' (pine-style
@@ -335,7 +344,7 @@ export const LANE_B_OFFSET = LANE_WIDTH / 2 + MEDIAN_WIDTH + LANE_WIDTH / 2; // 
 function buildStreetMedian( models ) {
 
 	const group = new THREE.Group();
-	group.position.x = LANE_WIDTH / 2 + MEDIAN_WIDTH / 2;
+	group.position.x = ROAD_HALF_WIDTH + SHOULDER_GAP + MEDIAN_WIDTH / 2;
 
 	const curb = new THREE.Mesh(
 		new THREE.BoxGeometry( MEDIAN_WIDTH, 0.16, CELL_RAW * 0.94 ),
