@@ -277,6 +277,35 @@ export function buildTrack( scene, models, customCells ) {
 
 	} );
 
+	// Decorative parked trucks at their original scenic spots — separate
+	// from the racing AI created by main.js (which uses the same models
+	// but spawns fresh clones at the starting grid instead).
+	if ( ! customCells ) {
+
+		for ( const [ key, x, y, z, rotDeg ] of NPC_TRUCKS ) {
+
+			const src = models[ key ];
+			if ( ! src ) continue;
+
+			const npc = src.clone();
+			npc.position.set( x, y, z );
+			npc.rotation.y = THREE.MathUtils.degToRad( rotDeg + 180 );
+			npc.traverse( ( c ) => {
+
+				if ( c.isMesh ) {
+
+					c.castShadow = true;
+					c.receiveShadow = true;
+
+				}
+
+			} );
+			scene.add( npc );
+
+		}
+
+	}
+
 	const npcConfigs = customCells ? [] : NPC_TRUCKS.map( ( [ key, x, y, z, rotDeg ] ) => ( { key, x, y, z, rotDeg } ) );
 
 	// Returned so callers that need it (e.g. AR placement/cleanup) can
