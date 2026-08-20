@@ -277,39 +277,12 @@ export function buildTrack( scene, models, customCells ) {
 
 	} );
 
-	const npcVehicles = [];
-
-	if ( ! customCells ) {
-
-		for ( const [ key, x, y, z, rotDeg ] of NPC_TRUCKS ) {
-
-			const src = models[ key ];
-			if ( ! src ) continue;
-
-			const npc = src.clone();
-			npc.position.set( x, y, z );
-			npc.rotation.y = THREE.MathUtils.degToRad( rotDeg + 180 );
-			npc.traverse( ( c ) => {
-
-				if ( c.isMesh ) {
-
-					c.castShadow = true;
-					c.receiveShadow = true;
-
-				}
-
-			} );
-			scene.add( npc );
-			npcVehicles.push( npc );
-
-		}
-
-	}
+	const npcConfigs = customCells ? [] : NPC_TRUCKS.map( ( [ key, x, y, z, rotDeg ] ) => ( { key, x, y, z, rotDeg } ) );
 
 	// Returned so callers that need it (e.g. AR placement/cleanup) can
 	// reference the group without changing what buildTrack() does for
 	// existing callers, who simply ignore this return value.
-	return { trackGroup, trackPieceGroup, decoGroup, npcVehicles };
+	return { trackGroup, trackPieceGroup, decoGroup, npcConfigs };
 
 }
 

@@ -968,54 +968,50 @@ function buildWarningSign( scene, x, z, rotationY ) {
 
 }
 
-// ─── AI opponents (kinematic waypoint following + real collision) ──
-// Movement itself is a simple waypoint-chase (not full AI-driven vehicle
-// physics — that's a much bigger undertaking), but each AI has a real
-// KINEMATIC rigid body: it pushes the player's car on contact and can't
-// be driven through, using crashcat's moveKinematic (computes proper
-// collision-aware velocities rather than teleporting).
+// ─── AI opponents (real Vehicle physics, same as the player) ──
+// Each AI gets its own Vehicle + sphere rigid body — the exact same
+// class and physics the player drives with (sphere collider, suspension
+// lean, wheel spin, drift). Steering/throttle are computed each frame
+// from the direction to the next waypoint and fed in using the same
+// "touch" input shape the game already uses for world-space-direction
+// joystick control, so movement quality matches the player's car
+// instead of a simplified snap-to-point system.
 
 // Matches LapTimer.js's own TOTAL_LAPS constant — kept separate since
 // AI opponents are tracked here in main.js, not inside LapTimer itself.
 const TOTAL_RACE_LAPS = 3;
 
-const AI_BOX_HALF_EXTENTS = [ 0.6, 0.4, 1.2 ];
-
-function createAIDrivers( npcVehicles, path, world ) {
+function createAIDrivers( npcConfigs, gridSlots, models, scene, world, path ) {
 
 	if ( ! path || path.length < 2 ) return [];
 
-	return npcVehicles.map( ( npc, i ) => {
+	return npcConfigs.map( ( cfg, i ) => {
+
+		const slot = gridSlots[ i + 1 ]; // slot 0 is the player
+		const sphereBody = createSphereBody( world, slot.position );
+
+		const vehicle = new Vehicle();
+		vehicle.rigidBody = sphereBody;
+		vehicle.physicsWorld = world;
+		vehicle.spherePos.set( slot.position[ 0 ], slot.position[ 1 ], slot.position[ 2 ] );
+		vehicle.prevModelPos.set( slot.position[ 0 ], 0, slot.position[ 2 ] );
+		vehicle.container.rotation.y = slot.angle;
+
+		const model = models[ cfg.key ] || models[ 'vehicle-truck-yellow' ];
+		const group = vehicle.init( model );
+		scene.add( group );
 
 		let bestIdx = 0, bestDist = Infinity;
 		for ( let j = 0; j < path.length; j ++ ) {
 
-			const dx = path[ j ].x - npc.position.x, dz = path[ j ].z - npc.position.z;
+			const dx = path[ j ].x - slot.position[ 0 ], dz = path[ j ].z - slot.position[ 2 ];
 			const d = dx * dx + dz * dz;
 			if ( d < bestDist ) { bestDist = d; bestIdx = j; }
 
 		}
 
-		let bodyId = null;
-		if ( world ) {
-
-			const body = rigidBody.create( world, {
-				shape: box.create( { halfExtents: AI_BOX_HALF_EXTENTS } ),
-				motionType: MotionType.KINEMATIC,
-				objectLayer: world._OL_MOVING,
-				position: [ npc.position.x, npc.position.y + AI_BOX_HALF_EXTENTS[ 1 ], npc.position.z ],
-				friction: 0.3,
-			} );
-			bodyId = body.id;
-
-		}
-
 		return {
-			npc, idx: bestIdx, bodyId,
-			// slightly different speeds so they spread out over a lap
-			// instead of staying bunched together like a train
-			speed: 6.5 + i * 0.6 + Math.random() * 0.8,
-			heading: npc.rotation.y,
+			vehicle, idx: bestIdx,
 			lapsCompleted: 0,
 			finished: false,
 			finishTime: null,
@@ -1025,72 +1021,46 @@ function createAIDrivers( npcVehicles, path, world ) {
 
 }
 
-// Call BEFORE updateWorld()/updateVehicleAndFx() each frame — computes
-// each AI's target and hands it to moveKinematic, which sets the body's
-// velocity to reach it (collision-aware) rather than teleporting.
-function setAITargets( drivers, path, dt, world, racing, totalTime ) {
+function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 
 	if ( ! path || path.length < 2 ) return;
 
 	for ( const d of drivers ) {
 
-		if ( ! racing || d.finished ) continue;
+		const input = { x: 0, z: 0, touchActive: false };
 
-		const target = path[ ( d.idx + 1 ) % path.length ];
-		const dx = target.x - d.npc.position.x, dz = target.z - d.npc.position.z;
-		const dist = Math.hypot( dx, dz );
+		if ( racing && ! d.finished ) {
 
-		if ( dist < 0.6 ) {
+			const target = path[ ( d.idx + 1 ) % path.length ];
+			const dx = target.x - d.vehicle.spherePos.x, dz = target.z - d.vehicle.spherePos.z;
+			const dist = Math.hypot( dx, dz );
 
-			d.idx = ( d.idx + 1 ) % path.length;
-			if ( d.idx === 0 ) {
+			if ( dist < 1.5 ) {
 
-				d.lapsCompleted += 1;
-				if ( d.lapsCompleted >= TOTAL_RACE_LAPS ) { d.finished = true; d.finishTime = totalTime; }
+				d.idx = ( d.idx + 1 ) % path.length;
+				if ( d.idx === 0 ) {
+
+					d.lapsCompleted += 1;
+					if ( d.lapsCompleted >= TOTAL_RACE_LAPS ) { d.finished = true; d.finishTime = totalTime; }
+
+				}
+
+			}
+
+			if ( dist > 0.001 ) {
+
+				// Same input shape as a human's touch joystick: x/z encode
+				// a world-space direction, Vehicle.js handles steering the
+				// car toward it and auto-gas from there.
+				input.x = dx / dist;
+				input.z = dz / dist;
+				input.touchActive = true;
 
 			}
 
 		}
 
-		const targetHeading = Math.atan2( dx, dz );
-		let delta = targetHeading - d.heading;
-		delta = ( ( delta + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
-		d.heading += delta * Math.min( 1, dt * 4 );
-
-		if ( world && d.bodyId !== null ) {
-
-			const body = rigidBody.get( world, d.bodyId );
-			if ( body ) {
-
-				const moveDist = Math.min( dist, d.speed * dt );
-				const tx = d.npc.position.x + ( dist > 0.001 ? ( dx / dist ) * moveDist : 0 );
-				const tz = d.npc.position.z + ( dist > 0.001 ? ( dz / dist ) * moveDist : 0 );
-				const ty = d.npc.position.y + AI_BOX_HALF_EXTENTS[ 1 ];
-				const q = [ 0, Math.sin( d.heading / 2 ), 0, Math.cos( d.heading / 2 ) ];
-				rigidBody.moveKinematic( body, [ tx, ty, tz ], q, dt );
-
-			}
-
-		}
-
-	}
-
-}
-
-// Call AFTER updateWorld() — copies each AI's actual (collision-resolved)
-// physics position back onto its visual mesh.
-function syncAIVisuals( drivers, world ) {
-
-	if ( ! world ) return;
-
-	for ( const d of drivers ) {
-
-		if ( d.bodyId === null ) continue;
-		const body = rigidBody.get( world, d.bodyId );
-		if ( ! body ) continue;
-
-		d.npc.position.set( body.position[ 0 ], body.position[ 1 ] - AI_BOX_HALF_EXTENTS[ 1 ], body.position[ 2 ] );
-		d.npc.rotation.y = d.heading; // visual heading stays our smoothed value, not the raw physics quaternion
+		d.vehicle.update( dt, input );
 
 	}
 
@@ -1982,28 +1952,19 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		scene.fog.near = groundSize * 0.4;
 		scene.fog.far = groundSize * 0.8;
 
-		const { npcVehicles } = buildTrack( scene, models, customCells );
+		const { npcConfigs } = buildTrack( scene, models, customCells );
 		trackPath = computeTrackPath( customCells );
 
 		// Starting grid: player at the front, AI staggered behind —
-		// instead of the player spawning exactly on the line and the AI
-		// still sitting at their old decorative parked positions.
+		// instead of the player spawning exactly on the line.
 		let gridSpawn = spawn;
-		if ( spawn && npcVehicles.length > 0 ) {
+		if ( spawn && npcConfigs.length > 0 ) {
 
-			const gridSlots = computeGridPositions( spawn, 1 + npcVehicles.length );
+			const gridSlots = computeGridPositions( spawn, 1 + npcConfigs.length );
 			gridSpawn = gridSlots[ 0 ];
-			npcVehicles.forEach( ( npc, i ) => {
-
-				const slot = gridSlots[ i + 1 ];
-				npc.position.set( slot.position[ 0 ], slot.position[ 1 ], slot.position[ 2 ] );
-				npc.rotation.y = slot.angle;
-
-			} );
+			aiDrivers = createAIDrivers( npcConfigs, gridSlots, models, scene, world, trackPath );
 
 		}
-
-		aiDrivers = createAIDrivers( npcVehicles, trackPath, world );
 
 		// Probes
 		const probeHeight = 6;
@@ -2154,9 +2115,8 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			const rawInput = controls.update();
 			const input = racing ? rawInput : { x: 0, z: 0, touchActive: false };
 
-			setAITargets( aiDrivers, trackPath, dt, world, racing, raceState.totalTime );
 			updateVehicleAndFx( dt, input, ctx );
-			syncAIVisuals( aiDrivers, world );
+			updateAIDrivers( aiDrivers, trackPath, dt, racing, raceState.totalTime );
 			updateVehicleLights( vehicleLights, dt, 1, vehicle.linearSpeed < -0.01 );
 
 			if ( raceState.phase === 'finished' && ! resultsShown ) {
