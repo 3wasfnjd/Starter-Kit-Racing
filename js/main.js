@@ -1331,6 +1331,44 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false ) {
 
 }
 
+// ─── Race countdown ─────────────────────────────────────────
+
+function createCountdownUI() {
+
+	const style = document.createElement( 'style' );
+	style.textContent = `
+		#hw-countdown {
+			position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+			pointer-events: none;
+		}
+		#hw-countdown .cd-num {
+			font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 120px; font-weight: 800; color: #fff;
+			text-shadow: 0 0 30px rgba(91,140,255,0.8), 0 4px 12px rgba(0,0,0,0.6);
+		}
+	`;
+	document.head.appendChild( style );
+
+	const el = document.createElement( 'div' );
+	el.id = 'hw-countdown';
+	el.innerHTML = '<div class="cd-num"></div>';
+	document.body.appendChild( el );
+
+	return {
+		numEl: el.querySelector( '.cd-num' ),
+		set( text ) {
+
+			this.numEl.textContent = text;
+			this.numEl.animate(
+				[ { transform: 'scale(1.4)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 } ],
+				{ duration: 280, easing: 'ease-out' }
+			);
+
+		},
+		remove() { el.remove(); },
+	};
+
+}
+
 // ─── Touch radio controls (phones/tablets — no keyboard, no VR hands) ──
 // Controls.js already covers a full-screen invisible steering zone for
 // touch, so these buttons need a higher z-index to receive taps first.
@@ -1780,11 +1818,44 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	// hazards. Edge-detected so holding a key doesn't rapid-fire.
 	let prevKeys = { r: false, t: false, l: false, h: false };
 
+	// Race start countdown — only for an actual track with a finish line
+	// (not free-roam). Controls stay locked until it reaches zero.
+	const isRace = !! ( lapTimer && lapTimer.enabled );
+	const raceState = { phase: isRace ? 'countdown' : 'racing', countdown: 3, countdownTimer: 0 };
+	let countdownUI = isRace ? createCountdownUI() : null;
+	if ( countdownUI ) countdownUI.set( String( raceState.countdown ) );
+
 	return {
 
 		frameUpdate( dt ) {
 
-			const input = controls.update();
+			if ( raceState.phase === 'countdown' ) {
+
+				raceState.countdownTimer += dt;
+				if ( raceState.countdownTimer >= 1 ) {
+
+					raceState.countdownTimer -= 1;
+					raceState.countdown -= 1;
+
+					if ( raceState.countdown > 0 ) {
+
+						countdownUI.set( String( raceState.countdown ) );
+
+					} else {
+
+						countdownUI.set( 'GO!' );
+						raceState.phase = 'racing';
+						setTimeout( () => { if ( countdownUI ) { countdownUI.remove(); countdownUI = null; } }, 500 );
+
+					}
+
+				}
+
+			}
+
+			const racing = raceState.phase !== 'countdown';
+			const rawInput = controls.update();
+			const input = racing ? rawInput : { x: 0, z: 0, touchActive: false };
 
 			updateVehicleAndFx( dt, input, ctx );
 			updateVehicleLights( vehicleLights, dt, 1, vehicle.linearSpeed < -0.01 );
