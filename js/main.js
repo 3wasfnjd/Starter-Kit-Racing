@@ -968,13 +968,20 @@ function buildWarningSign( scene, x, z, rotationY ) {
 
 }
 
-// ─── AI opponents (kinematic waypoint following) ───────────
-// Not physics-driven — these just move along the track's waypoint loop
-// at a steady pace with smoothed turning. Good enough to feel like
-// competing traffic without needing full AI-driven vehicle physics,
-// which would be a much larger undertaking.
+// ─── AI opponents (kinematic waypoint following + real collision) ──
+// Movement itself is a simple waypoint-chase (not full AI-driven vehicle
+// physics — that's a much bigger undertaking), but each AI has a real
+// KINEMATIC rigid body: it pushes the player's car on contact and can't
+// be driven through, using crashcat's moveKinematic (computes proper
+// collision-aware velocities rather than teleporting).
 
-function createAIDrivers( npcVehicles, path ) {
+// Matches LapTimer.js's own TOTAL_LAPS constant — kept separate since
+// AI opponents are tracked here in main.js, not inside LapTimer itself.
+const TOTAL_RACE_LAPS = 3;
+
+const AI_BOX_HALF_EXTENTS = [ 0.6, 0.4, 1.2 ];
+
+function createAIDrivers( npcVehicles, path, world ) {
 
 	if ( ! path || path.length < 2 ) return [];
 
@@ -989,23 +996,45 @@ function createAIDrivers( npcVehicles, path ) {
 
 		}
 
+		let bodyId = null;
+		if ( world ) {
+
+			const body = rigidBody.create( world, {
+				shape: box.create( { halfExtents: AI_BOX_HALF_EXTENTS } ),
+				motionType: MotionType.KINEMATIC,
+				objectLayer: world._OL_MOVING,
+				position: [ npc.position.x, npc.position.y + AI_BOX_HALF_EXTENTS[ 1 ], npc.position.z ],
+				friction: 0.3,
+			} );
+			bodyId = body.id;
+
+		}
+
 		return {
-			npc, idx: bestIdx,
+			npc, idx: bestIdx, bodyId,
 			// slightly different speeds so they spread out over a lap
 			// instead of staying bunched together like a train
 			speed: 6.5 + i * 0.6 + Math.random() * 0.8,
 			heading: npc.rotation.y,
+			lapsCompleted: 0,
+			finished: false,
+			finishTime: null,
 		};
 
 	} );
 
 }
 
-function updateAIDrivers( drivers, path, dt ) {
+// Call BEFORE updateWorld()/updateVehicleAndFx() each frame — computes
+// each AI's target and hands it to moveKinematic, which sets the body's
+// velocity to reach it (collision-aware) rather than teleporting.
+function setAITargets( drivers, path, dt, world, racing, totalTime ) {
 
 	if ( ! path || path.length < 2 ) return;
 
 	for ( const d of drivers ) {
+
+		if ( ! racing || d.finished ) continue;
 
 		const target = path[ ( d.idx + 1 ) % path.length ];
 		const dx = target.x - d.npc.position.x, dz = target.z - d.npc.position.z;
@@ -1014,23 +1043,216 @@ function updateAIDrivers( drivers, path, dt ) {
 		if ( dist < 0.6 ) {
 
 			d.idx = ( d.idx + 1 ) % path.length;
-			continue;
+			if ( d.idx === 0 ) {
+
+				d.lapsCompleted += 1;
+				if ( d.lapsCompleted >= TOTAL_RACE_LAPS ) { d.finished = true; d.finishTime = totalTime; }
+
+			}
 
 		}
 
-		const moveDist = Math.min( dist, d.speed * dt );
-		d.npc.position.x += ( dx / dist ) * moveDist;
-		d.npc.position.z += ( dz / dist ) * moveDist;
-
-		// Smoothed turning toward the target heading (shortest angular
-		// path) instead of snapping, so corners look like actual driving.
 		const targetHeading = Math.atan2( dx, dz );
 		let delta = targetHeading - d.heading;
 		delta = ( ( delta + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
 		d.heading += delta * Math.min( 1, dt * 4 );
-		d.npc.rotation.y = d.heading;
+
+		if ( world && d.bodyId !== null ) {
+
+			const body = rigidBody.get( world, d.bodyId );
+			if ( body ) {
+
+				const moveDist = Math.min( dist, d.speed * dt );
+				const tx = d.npc.position.x + ( dist > 0.001 ? ( dx / dist ) * moveDist : 0 );
+				const tz = d.npc.position.z + ( dist > 0.001 ? ( dz / dist ) * moveDist : 0 );
+				const ty = d.npc.position.y + AI_BOX_HALF_EXTENTS[ 1 ];
+				const q = [ 0, Math.sin( d.heading / 2 ), 0, Math.cos( d.heading / 2 ) ];
+				rigidBody.moveKinematic( body, [ tx, ty, tz ], q, dt );
+
+			}
+
+		}
 
 	}
+
+}
+
+// Call AFTER updateWorld() — copies each AI's actual (collision-resolved)
+// physics position back onto its visual mesh.
+function syncAIVisuals( drivers, world ) {
+
+	if ( ! world ) return;
+
+	for ( const d of drivers ) {
+
+		if ( d.bodyId === null ) continue;
+		const body = rigidBody.get( world, d.bodyId );
+		if ( ! body ) continue;
+
+		d.npc.position.set( body.position[ 0 ], body.position[ 1 ] - AI_BOX_HALF_EXTENTS[ 1 ], body.position[ 2 ] );
+		d.npc.rotation.y = d.heading; // visual heading stays our smoothed value, not the raw physics quaternion
+
+	}
+
+}
+
+// Ranks player + AI by laps completed (then in-lap progress as a
+// tiebreak) — used once the player finishes to produce final standings.
+// Player's own metric is fixed at TOTAL_RACE_LAPS since this only runs
+// once they've completed the race.
+function computeStandings( drivers, path, playerFinishTime ) {
+
+	const entries = [ {
+		label: 'أنت', isPlayer: true,
+		metric: TOTAL_RACE_LAPS,
+		finishTime: playerFinishTime,
+	} ];
+
+	drivers.forEach( ( d, i ) => {
+
+		const progress = path && path.length > 1 ? d.idx / path.length : 0;
+		entries.push( {
+			label: 'الحاسوب ' + ( i + 1 ), isPlayer: false,
+			metric: d.lapsCompleted + progress,
+			finishTime: d.finishTime,
+		} );
+
+	} );
+
+	entries.sort( ( a, b ) => {
+
+		if ( a.finishTime !== null && b.finishTime !== null ) return a.finishTime - b.finishTime;
+		if ( a.finishTime !== null ) return -1;
+		if ( b.finishTime !== null ) return 1;
+		return b.metric - a.metric;
+
+	} );
+
+	return entries;
+
+}
+
+// Computes a 2-wide staggered starting grid behind the finish line —
+// slot 0 is the player (front-left), slots 1-3 are AI opponents.
+function computeGridPositions( vehicleSpawn, count ) {
+
+	const { position, angle } = vehicleSpawn;
+	const forward = { x: Math.sin( angle ), z: Math.cos( angle ) };
+	const right = { x: forward.z, z: - forward.x };
+	const rowSpacing = 3.2, colOffset = 1.3;
+
+	const slots = [];
+	for ( let i = 0; i < count; i ++ ) {
+
+		const row = Math.floor( i / 2 );
+		const col = ( i % 2 === 0 ) ? -1 : 1;
+		const backDist = 2 + row * rowSpacing;
+
+		const x = position[ 0 ] - forward.x * backDist + right.x * col * colOffset;
+		const z = position[ 2 ] - forward.z * backDist + right.z * col * colOffset;
+
+		slots.push( { position: [ x, position[ 1 ], z ], angle } );
+
+	}
+
+	return slots;
+
+}
+
+// ─── Race countdown + results overlays ─────────────────────
+
+function createCountdownUI() {
+
+	const style = document.createElement( 'style' );
+	style.textContent = `
+		#hw-countdown {
+			position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+			pointer-events: none;
+		}
+		#hw-countdown .cd-num {
+			font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 120px; font-weight: 800; color: #fff;
+			text-shadow: 0 0 30px rgba(91,140,255,0.8), 0 4px 12px rgba(0,0,0,0.6);
+		}
+	`;
+	document.head.appendChild( style );
+
+	const el = document.createElement( 'div' );
+	el.id = 'hw-countdown';
+	el.innerHTML = '<div class="cd-num"></div>';
+	document.body.appendChild( el );
+
+	return {
+		numEl: el.querySelector( '.cd-num' ),
+		set( text ) {
+
+			this.numEl.textContent = text;
+			this.numEl.animate(
+				[ { transform: 'scale(1.4)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 } ],
+				{ duration: 280, easing: 'ease-out' }
+			);
+
+		},
+		remove() { el.remove(); },
+	};
+
+}
+
+function showRaceResultsOverlay( standings, { onRestart, onMenu } ) {
+
+	const style = document.createElement( 'style' );
+	style.textContent = `
+		#hw-race-results {
+			position: fixed; inset: 0; z-index: 55; display: flex; align-items: center; justify-content: center;
+			background: rgba(5,5,10,0.78); font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+		}
+		#hw-race-results .rr-card {
+			max-width: 400px; width: 90%; padding: 28px 24px; border-radius: 20px; text-align: center;
+			background: radial-gradient(circle at 50% 0%, #201436 0%, #0d0d16 70%);
+			border: 1px solid rgba(139,95,191,0.4); box-shadow: 0 0 50px rgba(91,60,140,0.25);
+		}
+		#hw-race-results .rr-title {
+			font-size: 26px; font-weight: 800; margin-bottom: 18px;
+			background: linear-gradient(90deg, #8B5FBF 0%, #5B8CFF 50%, #4FD8E8 100%);
+			-webkit-background-clip: text; background-clip: text; color: transparent;
+		}
+		#hw-race-results .rr-row {
+			display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-top: 1px solid rgba(255,255,255,0.08);
+		}
+		#hw-race-results .rr-row:first-of-type { border-top: none; }
+		#hw-race-results .rr-pos { width: 26px; font-weight: 800; color: #9d8fd4; }
+		#hw-race-results .rr-label { flex: 1; text-align: right; color: #fff; font-size: 14.5px; }
+		#hw-race-results .rr-row.rr-me .rr-label { color: #5B8CFF; font-weight: 700; }
+		#hw-race-results .rr-btns { display: flex; gap: 10px; margin-top: 20px; }
+		#hw-race-results button {
+			flex: 1; padding: 13px; border: none; border-radius: 999px; font-size: 14.5px; font-weight: 600; cursor: pointer;
+		}
+		#hw-race-results .rr-restart { background: linear-gradient(90deg, #8B5FBF, #5B8CFF); color: #fff; }
+		#hw-race-results .rr-menu { background: rgba(255,255,255,0.08); color: #cfc9e0; }
+	`;
+	document.head.appendChild( style );
+
+	const overlay = document.createElement( 'div' );
+	overlay.id = 'hw-race-results';
+	overlay.dir = 'rtl';
+	overlay.innerHTML = `
+		<div class="rr-card">
+			<div class="rr-title">🏁 نتيجة السباق</div>
+			${ standings.map( ( s, i ) => `
+				<div class="rr-row ${ s.isPlayer ? 'rr-me' : '' }">
+					<div class="rr-pos">${ i + 1 }</div>
+					<div class="rr-label">${ s.label }</div>
+				</div>
+			` ).join( '' ) }
+			<div class="rr-btns">
+				<button class="rr-restart">إعادة السباق</button>
+				<button class="rr-menu">الصفحة الرئيسية</button>
+			</div>
+		</div>
+	`;
+	document.body.appendChild( overlay );
+
+	overlay.querySelector( '.rr-restart' ).addEventListener( 'click', () => { overlay.remove(); onRestart(); } );
+	overlay.querySelector( '.rr-menu' ).addEventListener( 'click', () => { overlay.remove(); onMenu(); } );
 
 }
 
@@ -1762,7 +1984,26 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 		const { npcVehicles } = buildTrack( scene, models, customCells );
 		trackPath = computeTrackPath( customCells );
-		aiDrivers = createAIDrivers( npcVehicles, trackPath );
+
+		// Starting grid: player at the front, AI staggered behind —
+		// instead of the player spawning exactly on the line and the AI
+		// still sitting at their old decorative parked positions.
+		let gridSpawn = spawn;
+		if ( spawn && npcVehicles.length > 0 ) {
+
+			const gridSlots = computeGridPositions( spawn, 1 + npcVehicles.length );
+			gridSpawn = gridSlots[ 0 ];
+			npcVehicles.forEach( ( npc, i ) => {
+
+				const slot = gridSlots[ i + 1 ];
+				npc.position.set( slot.position[ 0 ], slot.position[ 1 ], slot.position[ 2 ] );
+				npc.rotation.y = slot.angle;
+
+			} );
+
+		}
+
+		aiDrivers = createAIDrivers( npcVehicles, trackPath, world );
 
 		// Probes
 		const probeHeight = 6;
@@ -1788,8 +2029,8 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			restitution: 0.0,
 		} );
 
-		vehicleSpawn = spawn;
-		sphereBody = createSphereBody( world, spawn ? spawn.position : null );
+		vehicleSpawn = gridSpawn;
+		sphereBody = createSphereBody( world, gridSpawn ? gridSpawn.position : null );
 		lapTimer = new LapTimer( customCells, mapParam );
 
 	}
@@ -1857,15 +2098,77 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	// hazards. Edge-detected so holding a key doesn't rapid-fire.
 	let prevKeys = { r: false, t: false, l: false, h: false };
 
+	// Race flow: only for an actual track with a finish line (not
+	// free-roam) — grid start + countdown, then unlock controls.
+	const isRace = !! ( lapTimer && lapTimer.enabled );
+	const raceState = { phase: isRace ? 'countdown' : 'racing', countdown: 3, countdownTimer: 0, totalTime: 0 };
+	let countdownUI = null;
+	let resultsShown = false;
+
+	if ( isRace ) {
+
+		countdownUI = createCountdownUI();
+		countdownUI.set( String( raceState.countdown ) );
+
+		lapTimer.onFinish = () => {
+
+			raceState.phase = 'finished';
+
+		};
+
+	}
+
 	return {
 
 		frameUpdate( dt ) {
 
-			const input = controls.update();
+			if ( raceState.phase === 'countdown' ) {
 
+				raceState.countdownTimer += dt;
+				if ( raceState.countdownTimer >= 1 ) {
+
+					raceState.countdownTimer -= 1;
+					raceState.countdown -= 1;
+
+					if ( raceState.countdown > 0 ) {
+
+						countdownUI.set( String( raceState.countdown ) );
+
+					} else {
+
+						countdownUI.set( 'GO!' );
+						raceState.phase = 'racing';
+						setTimeout( () => { if ( countdownUI ) { countdownUI.remove(); countdownUI = null; } }, 500 );
+
+					}
+
+				}
+
+			} else if ( raceState.phase === 'racing' ) {
+
+				raceState.totalTime += dt;
+
+			}
+
+			const racing = raceState.phase === 'racing';
+			const rawInput = controls.update();
+			const input = racing ? rawInput : { x: 0, z: 0, touchActive: false };
+
+			setAITargets( aiDrivers, trackPath, dt, world, racing, raceState.totalTime );
 			updateVehicleAndFx( dt, input, ctx );
+			syncAIVisuals( aiDrivers, world );
 			updateVehicleLights( vehicleLights, dt, 1, vehicle.linearSpeed < -0.01 );
-			updateAIDrivers( aiDrivers, trackPath, dt );
+
+			if ( raceState.phase === 'finished' && ! resultsShown ) {
+
+				resultsShown = true;
+				const standings = computeStandings( aiDrivers, trackPath, raceState.totalTime );
+				showRaceResultsOverlay( standings, {
+					onRestart: () => location.reload(),
+					onMenu: () => { location.href = location.pathname; },
+				} );
+
+			}
 
 			const rKey = !! controls.keys[ 'KeyR' ];
 			const tKey = !! controls.keys[ 'KeyT' ];

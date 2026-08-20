@@ -213,8 +213,15 @@ export class LapTimer {
 			this.lapEl.textContent = TOTAL_LAPS + '/' + TOTAL_LAPS;
 			this.lastEl.textContent = formatTime( this.lastLap );
 			this.bestEl.textContent = formatTime( this.bestLap );
+			if ( this.onFinish ) {
+
+			this.onFinish();
+
+		} else {
+
 			this.showFinishOverlay();
-			if ( this.onFinish ) this.onFinish();
+
+		}
 			return;
 
 		}
