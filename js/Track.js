@@ -380,8 +380,9 @@ export function decodeCells( str ) {
 
 }
 
-export function computeSpawnPosition( cells ) {
+export function computeSpawnPosition( customCells ) {
 
+	const cells = customCells || TRACK_CELLS;
 	let cell = cells[ 0 ];
 
 	for ( const c of cells ) {

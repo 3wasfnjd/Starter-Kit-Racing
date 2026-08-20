@@ -2396,7 +2396,12 @@ async function init() {
 
 	const mapParam = new URLSearchParams( window.location.search ).get( 'map' );
 	let customCells = null;
-	let spawn = null;
+	// Was only computed inside the `if (mapParam)` block below, leaving
+	// it null for the default track (no ?map=) — which silently skipped
+	// the grid-start/AI-opponent system, since that code all guards on
+	// `spawn` being present. computeSpawnPosition() now defaults to the
+	// built-in TRACK_CELLS on its own, so this works for both cases.
+	let spawn = computeSpawnPosition( null );
 
 	if ( mapParam ) {
 
