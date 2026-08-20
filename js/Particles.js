@@ -99,21 +99,13 @@ export class SmokeTrails {
 		const shouldEmit = vehicle.driftIntensity > 0.7;
 		let aliveCount = 0;
 
-		// How hard the drift is digging in, above the emission threshold —
-		// used to scale emission rate/opacity/size so a real hard drift
-		// looks noticeably heavier than one just barely qualifying.
-		const heat = shouldEmit ? THREE.MathUtils.clamp( ( vehicle.driftIntensity - 0.7 ) / 1.3, 0, 1 ) : 0;
-		this.heat = heat;
-
 		if ( shouldEmit ) {
 
 			const roadY = vehicle.container.position.y + 0.05;
 			const bl = vehicle.wheelBL ? vehicle.wheelBL.getWorldPosition( _blPos ) : null;
 			const br = vehicle.wheelBR ? vehicle.wheelBR.getWorldPosition( _brPos ) : null;
 
-			const perEmit = PARTICLES_PER_EMIT + Math.round( heat * 5 ); // up to 8/frame per wheel at max heat
-
-			for ( let i = 0; i < perEmit; i ++ ) {
+			for ( let i = 0; i < PARTICLES_PER_EMIT; i ++ ) {
 
 				if ( bl ) this.emitAt( bl.x, roadY, bl.z );
 				if ( br ) this.emitAt( br.x, roadY, br.z );
@@ -148,11 +140,7 @@ export class SmokeTrails {
 			this.positions[ posIdx + 1 ] += p.velocity.y * dt;
 			this.positions[ posIdx + 2 ] += p.velocity.z * dt;
 
-			// Base opacity/size per particle also carries a bit of the
-			// heat level it was born with (see emitAt), so a burst emitted
-			// during a hard drift stays visibly thicker through its whole
-			// life, not just at the moment of emission.
-			this.opacities[ i ] = ( 1 - t ) * p.baseOpacity;
+			this.opacities[ i ] = ( 1 - t ) * 0.25;
 			this.sizes[ i ] = p.initialSize * ( 0.5 + t * 2.5 );
 
 			aliveCount ++;
@@ -176,17 +164,13 @@ export class SmokeTrails {
 
 		const p = this.particles[ i ];
 		const s = this.scale;
-		const heat = this.heat || 0;
 
 		const posIdx = i * 3;
 		this.positions[ posIdx ] = x + ( Math.random() - 0.5 ) * EMIT_JITTER * s;
 		this.positions[ posIdx + 1 ] = y + Math.random() * EMIT_JITTER * s;
 		this.positions[ posIdx + 2 ] = z + ( Math.random() - 0.5 ) * EMIT_JITTER * s;
 
-		// Heavier drifts get visibly bigger, more opaque smoke — real
-		// burnout smoke billows much thicker than a light tire chirp.
-		p.initialSize = BASE_SIZE * s * ( 0.5 + Math.random() * 0.5 ) * ( 1 + heat * 0.9 );
-		p.baseOpacity = 0.25 + heat * 0.2;
+		p.initialSize = BASE_SIZE * s * ( 0.5 + Math.random() * 0.5 );
 
 		p.velocity.set(
 			( Math.random() - 0.5 ) * 0.2 * s,

@@ -100,11 +100,6 @@ export class GameAudio {
 		this.engineLoadParam = null;
 		this.skidSound = null;
 		this.skidTone = null;
-		this.reverseSound = null;
-		this.launchSound = null;
-		this.hornSound = null;
-		this.hornOn = false;
-		this.crowdSound = null;
 		this.impactBuffers = [];
 		this.impactPlayers = [];
 		this.impactIndex = 0;
@@ -159,34 +154,6 @@ export class GameAudio {
 		this.skidSound = skid.sound;
 		this.skidTone = skid.tone;
 
-		// Reverse loop: a separate, distinct tire sample — plays for as
-		// long as the car is actually reversing, independent of the
-		// cornering-drift skid sound above.
-		const reverse = this.createSampleSource( this.reverbSend );
-		this.reverseSound = reverse.sound;
-		this.reverseTone = reverse.tone;
-
-		// Launch chirp: a one-shot player, fired once per hard standing
-		// start (see Vehicle.js's justLaunched). A simple non-looping
-		// PositionalAudio, same reverb send as the skid/reverse loops.
-		this.launchSound = this.makePositional( [ this.neutralLowpass() ] );
-		this.launchSound.gain.connect( this.reverbSend );
-
-		// Crowd cheer: real recorded sample (audio/crowd.mp3), fades in
-		// during a hard drift. Non-positional (plain THREE.Audio, not
-		// PositionalAudio) — a stadium crowd surrounds you, it isn't a
-		// sound coming from the car.
-		this.crowdSound = new THREE.Audio( this.listener );
-		this.crowdSound.setLoop( true );
-		this.crowdSound.setVolume( 0 );
-
-		// Horn: real recorded sample (audio/horn.mp3) — same loader
-		// pattern as skid/reverse/launch above.
-		this.hornSound = this.makePositional( [ this.neutralLowpass() ] );
-		this.hornSound.gain.connect( this.reverbSend );
-		this.hornSound.setLoop( true );
-		this.hornSound.setVolume( 0 );
-
 		// Collision one-shots: two hardness sets of three seeded variations
 		// each (soft knocks dully, hard crunches). Three shared players swap
 		// in a random buffer per hit and add rate/tone variation on top.
@@ -194,56 +161,15 @@ export class GameAudio {
 		for ( let i = 0; i < 3; i ++ ) this.impactBuffers.push( createImpactBuffer( ctx, i + 4, 1.0 ) );
 		for ( let i = 0; i < 3; i ++ ) this.impactPlayers.push( this.createSampleSource( this.impactReverbSend ) );
 
-		// Real recorded sample files — no synthesis, no conversion needed
-		// (MP3 decodes fine in-browser).
 		const loader = new THREE.AudioLoader();
 
-		loader.load( 'audio/skid.mp3', ( buffer ) => {
+		loader.load( 'audio/skid.ogg', ( buffer ) => {
 
 			this.skidSound.setBuffer( buffer );
 			this.skidSound.setLoop( true );
 			this.skidSound.setVolume( 0 );
 
 			if ( this.unlocked ) this.startSounds();
-
-		} );
-
-		loader.load( 'audio/reverse.mp3', ( buffer ) => {
-
-			this.reverseSound.setBuffer( buffer );
-			this.reverseSound.setLoop( true );
-			this.reverseSound.setVolume( 0 );
-
-			if ( this.unlocked ) this.startSounds();
-
-		} );
-
-		loader.load( 'audio/launch.mp3', ( buffer ) => {
-
-			this.launchSound.setBuffer( buffer );
-			this.launchSound.setLoop( false );
-			this.launchSound.setVolume( 0.6 );
-
-		} );
-
-		loader.load( 'audio/horn.mp3', ( buffer ) => {
-
-			this.hornSound.setBuffer( buffer );
-			// If the player is already holding the horn button while this
-			// finishes loading, start it immediately instead of waiting
-			// for the next press.
-			if ( this.hornOn && this.unlocked && ! this.hornSound.isPlaying ) {
-
-				this.hornSound.play();
-				this.hornSound.gain.gain.setTargetAtTime( 0.5, this.listener.context.currentTime, 0.01 );
-
-			}
-
-		} );
-
-		loader.load( 'audio/crowd.mp3', ( buffer ) => {
-
-			this.crowdSound.setBuffer( buffer );
 
 		} );
 
@@ -261,8 +187,6 @@ export class GameAudio {
 			window.removeEventListener( 'touchstart', unlock );
 
 		};
-
-		this._unlock = unlock;
 
 		window.addEventListener( 'keydown', unlock );
 		window.addEventListener( 'click', unlock );
@@ -364,24 +288,10 @@ export class GameAudio {
 	startSounds() {
 
 		if ( this.skidSound.buffer && ! this.skidSound.isPlaying ) this.skidSound.play();
-		if ( this.reverseSound.buffer && ! this.reverseSound.isPlaying ) this.reverseSound.play();
-		if ( this.crowdSound.buffer && ! this.crowdSound.isPlaying ) this.crowdSound.play();
 
 	}
 
-	// Public escape hatch for contexts where the normal click/touchstart/
-	// keydown listeners above will never fire — namely an active WebXR AR
-	// session, where all input comes through XR controller triggers, not
-	// DOM events. Safe to call directly once we know a real user gesture
-	// already happened (e.g. the "Start AR" button press that got us into
-	// the session in the first place).
-	forceUnlock() {
-
-		if ( this._unlock ) this._unlock();
-
-	}
-
-	update( dt, speed, throttle, driftIntensity, isReversing = false ) {
+	update( dt, speed, throttle, driftIntensity ) {
 
 		const absSpeed = THREE.MathUtils.clamp( Math.abs( speed ), 0, 1 );
 		// Only forward throttle counts as engine load. Brake/reverse (throttle < 0)
@@ -458,7 +368,7 @@ export class GameAudio {
 
 				skidVol = remap(
 					THREE.MathUtils.clamp( driftIntensity, 0.5, 2.0 ),
-					0.5, 2.0, 0.25, 0.75
+					0.5, 2.0, 0.08, 0.35
 				);
 
 			}
@@ -475,73 +385,6 @@ export class GameAudio {
 				remap( driftIntensity, 0.5, 1.6, 0, 1 ), 0, 1
 			);
 			this.skidTone.frequency.setTargetAtTime( 2500 + intensity01 * 7500, now, 0.1 );
-
-		}
-
-		if ( this.reverseSound.buffer ) {
-
-			// Independent of the skid/drift sound above — simply on
-			// whenever the car is actually reversing, volume tracking
-			// how fast it's backing up.
-			const reverseVol = isReversing ? remap( absSpeed, 0, 0.6, 0.12, 0.3 ) : 0;
-			this.reverseSound.gain.gain.setTargetAtTime( reverseVol, now, 0.08 );
-
-			const reversePitch = THREE.MathUtils.clamp( 0.8 + absSpeed, 0.8, 1.6 );
-			const curReversePitch = this.reverseSound.getPlaybackRate();
-			this.reverseSound.setPlaybackRate( THREE.MathUtils.lerp( curReversePitch, reversePitch, 0.1 ) );
-
-		}
-
-		if ( this.crowdSound.buffer ) {
-
-			// Only a genuinely hard drift gets the crowd going — a higher
-			// bar than the skid sound's own threshold (0.5), so it reads
-			// as a reaction to a real show-off moment, not background
-			// noise during ordinary driving. Fades in/out slowly (a real
-			// crowd doesn't snap on/off).
-			const hardDrift = driftIntensity > 1.1;
-			const crowdVol = hardDrift ? remap(
-				THREE.MathUtils.clamp( driftIntensity, 1.1, 2.0 ), 1.1, 2.0, 0.15, 0.4
-			) : 0;
-			this.crowdSound.gain.gain.setTargetAtTime( crowdVol, now, hardDrift ? 0.6 : 1.5 );
-
-		}
-
-	}
-
-	// One-shot drag-style tire chirp — fired once per hard standing start
-	// (see Vehicle.js's justLaunched edge-trigger). Restarts cleanly even
-	// if a previous chirp hasn't finished (e.g. rapid stop-and-launches).
-	playLaunch() {
-
-		if ( ! this.unlocked || ! this.launchSound || ! this.launchSound.buffer ) return;
-
-		if ( this.launchSound.isPlaying ) this.launchSound.stop();
-		this.launchSound.play();
-
-	}
-
-	// Horn: press-and-hold, like a real horn. Starts the (already-loaded,
-	// synthesized) loop on press and fades it in/out quickly to avoid a
-	// click at the start/stop edges.
-	setHorn( on ) {
-
-		if ( ! this.hornSound || ! this.hornSound.buffer ) return;
-		if ( on === this.hornOn ) return;
-		this.hornOn = on;
-
-		if ( ! this.unlocked ) return; // nothing audible would happen anyway
-
-		const now = this.listener.context.currentTime;
-
-		if ( on ) {
-
-			if ( ! this.hornSound.isPlaying ) this.hornSound.play();
-			this.hornSound.gain.gain.setTargetAtTime( 0.5, now, 0.01 );
-
-		} else {
-
-			this.hornSound.gain.gain.setTargetAtTime( 0, now, 0.03 );
 
 		}
 
