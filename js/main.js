@@ -2350,19 +2350,68 @@ async function startARMode( { mapParam, customText, vehicleKey, flagImage, sessi
 
 let activeMode = null;
 const timer = new THREE.Timer();
+let crashed = false;
 
 function animate( timestamp, frame ) {
+
+	if ( crashed ) return;
 
 	timer.update( timestamp );
 	const dt = Math.min( timer.getDelta(), 1 / 30 );
 
-	if ( activeMode ) activeMode.frameUpdate( dt, timestamp, frame );
+	try {
+
+		if ( activeMode ) activeMode.frameUpdate( dt, timestamp, frame );
+
+	} catch ( e ) {
+
+		// A silent crash here just froze the screen with nothing shown
+		// (setAnimationLoop stops calling back after an uncaught
+		// exception, and there's no console visible on most phones).
+		// Show the actual error instead of a blank/black screen.
+		crashed = true;
+		console.error( '[animate] crashed:', e );
+		showGenericErrorOverlay( e );
+
+	}
 
 }
 
 renderer.setAnimationLoop( animate );
 
-function showErrorOverlay( message, stack, onRetry ) {
+function showGenericErrorOverlay( error ) {
+
+	const box = document.createElement( 'div' );
+	box.dir = 'rtl';
+	box.style.cssText = `
+		position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column;
+		align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center;
+		background: rgba(20,22,26,0.95); font-family: 'Segoe UI', Tahoma, Arial, sans-serif; overflow-y: auto;
+	`;
+
+	const title = document.createElement( 'div' );
+	title.textContent = 'صار خطأ وتوقفت اللعبة';
+	title.style.cssText = 'color:#fff; font-size:20px; font-weight:700;';
+
+	const msg = document.createElement( 'div' );
+	msg.textContent = String( error && error.message ? error.message : error );
+	msg.style.cssText = 'color:#ffb4b4; font-size:14px; max-width:90%;';
+
+	const stack = document.createElement( 'pre' );
+	stack.textContent = error && error.stack ? error.stack : '';
+	stack.style.cssText = `
+		color:#9a94b0; font-size:11px; text-align:left; direction:ltr; max-width:90%; max-height:40vh;
+		overflow:auto; background:rgba(255,255,255,0.05); padding:10px; border-radius:8px; white-space:pre-wrap;
+	`;
+
+	box.appendChild( title );
+	box.appendChild( msg );
+	box.appendChild( stack );
+	document.body.appendChild( box );
+
+}
+
+function showErrorOverlay( message, stack, onRetry, title = 'تعذّر تشغيل الوضع' ) {
 
 	const box = document.createElement( 'div' );
 	box.dir = 'rtl';
@@ -2372,9 +2421,9 @@ function showErrorOverlay( message, stack, onRetry ) {
 		background: rgba(20,22,26,0.92); font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
 	`;
 
-	const title = document.createElement( 'div' );
-	title.textContent = 'تعذّر تشغيل وضع الواقع المعزز';
-	title.style.cssText = 'color:#fff; font-size:18px; font-weight:600;';
+	const titleEl = document.createElement( 'div' );
+	titleEl.textContent = title;
+	titleEl.style.cssText = 'color:#fff; font-size:18px; font-weight:600;';
 
 	const detail = document.createElement( 'div' );
 	detail.textContent = message;
@@ -2399,13 +2448,13 @@ function showErrorOverlay( message, stack, onRetry ) {
 
 	} );
 
-	box.appendChild( title );
+	box.appendChild( titleEl );
 	box.appendChild( detail );
 	box.appendChild( stackBox );
 	box.appendChild( retryBtn );
 	document.body.appendChild( box );
 
-	console.error( 'AR MODE failed:', message, stack );
+	console.error( title + ':', message, stack );
 
 }
 
@@ -2456,7 +2505,8 @@ async function init() {
 					showErrorOverlay(
 						( e && e.message ) ? e.message : String( e ),
 						e && e.stack ? e.stack : '',
-						resolve
+						resolve,
+						'تعذّر تشغيل وضع الواقع المعزز'
 					);
 
 				} );
@@ -2466,8 +2516,27 @@ async function init() {
 
 		} else {
 
-			activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } );
-			break;
+			try {
+
+				activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } );
+				break;
+
+			} catch ( e ) {
+
+				activeMode = null;
+
+				await new Promise( ( resolve ) => {
+
+					showErrorOverlay(
+						( e && e.message ) ? e.message : String( e ),
+						e && e.stack ? e.stack : '',
+						resolve
+					);
+
+				} );
+				continue; // back to the mode menu instead of a silent black screen
+
+			}
 
 		}
 
