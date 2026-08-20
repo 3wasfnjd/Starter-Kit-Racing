@@ -50,6 +50,53 @@
 			link.textContent = 'تعديل هذا المضمار';
 		}
 	</script>
+	<script>
+		// Catches failures anywhere in the module graph (main.js or any
+		// file it imports) — a top-level error in an imported module
+		// stops that whole module from ever running, including any
+		// try/catch or error-display code written inside main.js itself,
+		// since that code never gets the chance to execute. This plain,
+		// non-module script runs independently and can't be blocked the
+		// same way, so it's the only reliable place to catch and show
+		// these otherwise completely silent failures.
+		function showBootError( message, stack ) {
+
+			if ( document.getElementById( 'boot-error-overlay' ) ) return; // only show the first one
+
+			const box = document.createElement( 'div' );
+			box.id = 'boot-error-overlay';
+			box.dir = 'rtl';
+			box.style.cssText = `
+				position: fixed; inset: 0; z-index: 999; display: flex; flex-direction: column;
+				align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center;
+				background: rgba(10,10,14,0.97); font-family: 'Segoe UI', Tahoma, Arial, sans-serif; overflow-y: auto;
+			`;
+			box.innerHTML = `
+				<div style="color:#fff; font-size:20px; font-weight:700;">تعذّر تشغيل اللعبة</div>
+				<div style="color:#ffb4b4; font-size:14px; max-width:90%; direction:ltr; text-align:left;"></div>
+				<pre style="color:#9a94b0; font-size:11px; direction:ltr; text-align:left; max-width:90%; max-height:40vh; overflow:auto; background:rgba(255,255,255,0.05); padding:10px; border-radius:8px; white-space:pre-wrap;"></pre>
+			`;
+			box.children[ 1 ].textContent = message;
+			box.children[ 2 ].textContent = stack || '';
+			document.body.appendChild( box );
+
+		}
+
+		window.addEventListener( 'error', ( e ) => {
+
+			showBootError( e.message || String( e.error ), e.error && e.error.stack );
+
+		} );
+		window.addEventListener( 'unhandledrejection', ( e ) => {
+
+			const reason = e.reason;
+			showBootError(
+				reason && reason.message ? reason.message : String( reason ),
+				reason && reason.stack ? reason.stack : ''
+			);
+
+		} );
+	</script>
 	<script type="module" src="js/main.js"></script>
 </body>
 </html>
