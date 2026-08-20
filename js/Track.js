@@ -277,9 +277,6 @@ export function buildTrack( scene, models, customCells ) {
 
 	} );
 
-	// Decorative parked trucks at their original scenic spots — separate
-	// from the racing AI created by main.js (which uses the same models
-	// but spawns fresh clones at the starting grid instead).
 	if ( ! customCells ) {
 
 		for ( const [ key, x, y, z, rotDeg ] of NPC_TRUCKS ) {
@@ -306,80 +303,10 @@ export function buildTrack( scene, models, customCells ) {
 
 	}
 
-	const npcConfigs = customCells ? [] : NPC_TRUCKS.map( ( [ key, x, y, z, rotDeg ] ) => ( { key, x, y, z, rotDeg } ) );
-
 	// Returned so callers that need it (e.g. AR placement/cleanup) can
 	// reference the group without changing what buildTrack() does for
 	// existing callers, who simply ignore this return value.
-	return { trackGroup, trackPieceGroup, decoGroup, npcConfigs };
-
-}
-
-// Second-lane layout for straight/finish road pieces — adds a genuinely
-// separate lane (flat asphalt slab) offset to one side of the original,
-// unmodified road piece, with a median between them. Earlier this
-// non-uniformly rescaled the original piece mesh to "widen" it, which
-// badly distorted its built-in curb/barrier geometry into a warped white
-// mass — this version never touches the original mesh at all. Corners
-// intentionally don't get a second lane: their curved geometry and wall
-// math would need dedicated handling, left for once an actual layout
-// with turns is in hand.
-// Measured directly from track-straight.glb's mesh bounds (x: -5 to 5)
-// — the earlier version guessed 4.75 (the physics WALL_X, which sits
-// slightly inside the visual edge on purpose) and used that as the
-// pavement width too, so the median/trees ended up overlapping the last
-// ~0.25m of the actual visual road surface. SHOULDER_GAP adds a bit of
-// clear buffer past the true edge so nothing touches it.
-const ROAD_HALF_WIDTH = 5.0;
-const SHOULDER_GAP = 0.3;
-
-export const LANE_WIDTH = ROAD_HALF_WIDTH * 2;
-export const MEDIAN_WIDTH = 1.4;
-export const LANE_B_OFFSET = ROAD_HALF_WIDTH + SHOULDER_GAP + MEDIAN_WIDTH + LANE_WIDTH / 2; // center-to-center
-
-// Median: a raised curb strip with trees, sitting between the original
-// lane and the new second lane. Reuses 'decoration-forest' (pine-style
-// trees — there's no dedicated palm asset in this kit) since building a
-// new palm model is a separate task.
-function buildStreetMedian( models ) {
-
-	const group = new THREE.Group();
-	group.position.x = ROAD_HALF_WIDTH + SHOULDER_GAP + MEDIAN_WIDTH / 2;
-
-	const curb = new THREE.Mesh(
-		new THREE.BoxGeometry( MEDIAN_WIDTH, 0.16, CELL_RAW * 0.94 ),
-		new THREE.MeshStandardMaterial( { color: 0xd8d4c8, roughness: 0.9 } )
-	);
-	curb.position.y = 0.08;
-	group.add( curb );
-
-	const treeSrc = models[ 'decoration-forest' ];
-	if ( treeSrc ) {
-
-		for ( const z of [ -CELL_RAW * 0.3, 0, CELL_RAW * 0.3 ] ) {
-
-			const tree = treeSrc.clone();
-			tree.position.set( 0, 0.16, z );
-			group.add( tree );
-
-		}
-
-	}
-
-	return group;
-
-}
-
-// The new second lane itself — a plain flat asphalt slab (not a copy of
-// the original piece, so there's no risk of distorting its geometry).
-function buildSecondLane() {
-
-	const slab = new THREE.Mesh(
-		new THREE.BoxGeometry( LANE_WIDTH, 0.1, CELL_RAW ),
-		new THREE.MeshStandardMaterial( { color: 0x2b2b30, roughness: 1 } )
-	);
-	slab.position.set( LANE_B_OFFSET, -0.05, 0 );
-	return slab;
+	return { trackGroup, trackPieceGroup, decoGroup };
 
 }
 
@@ -388,23 +315,13 @@ export function placePiece( models, key, gx, gz, orient ) {
 	const src = models[ key ];
 	if ( ! src ) return null;
 
-	const outer = new THREE.Group();
-	outer.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5, ( gz + 0.5 ) * CELL_RAW );
+	const piece = src.clone();
+	piece.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5, ( gz + 0.5 ) * CELL_RAW );
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
-	outer.rotation.y = THREE.MathUtils.degToRad( deg );
+	piece.rotation.y = THREE.MathUtils.degToRad( deg );
 
-	const mesh = src.clone(); // never scaled — avoids distorting its curb/barrier geometry
-	outer.add( mesh );
-
-	if ( key === 'track-straight' ) {
-
-		outer.add( buildStreetMedian( models ) );
-		outer.add( buildSecondLane() );
-
-	}
-
-	return outer;
+	return piece;
 
 }
 
@@ -460,9 +377,8 @@ export function decodeCells( str ) {
 
 }
 
-export function computeSpawnPosition( customCells ) {
+export function computeSpawnPosition( cells ) {
 
-	const cells = customCells || TRACK_CELLS;
 	let cell = cells[ 0 ];
 
 	for ( const c of cells ) {
@@ -490,70 +406,6 @@ export function computeSpawnPosition( customCells ) {
 
 }
 
-// Traces the track's cell loop into an ordered sequence of world-space
-// waypoints for AI navigation — starting at the finish line, moving in
-// the same direction a player would drive. Assumes a single closed loop
-// (true for both the default track and any reasonable custom layout):
-// each cell has exactly two grid-adjacent neighbors among the track
-// cells, so the loop can be traced by always stepping to the
-// not-just-visited neighbor.
-export function computeTrackPath( customCells ) {
-
-	const cells = customCells || TRACK_CELLS;
-	if ( cells.length < 2 ) return [];
-
-	const key = ( gx, gz ) => gx + ',' + gz;
-	const byKey = new Map();
-	for ( const c of cells ) byKey.set( key( c[ 0 ], c[ 1 ] ), c );
-
-	function neighborsOf( c ) {
-
-		const [ gx, gz ] = c;
-		const candidates = [ [ gx + 1, gz ], [ gx - 1, gz ], [ gx, gz + 1 ], [ gx, gz - 1 ] ];
-		return candidates.map( ( [ nx, nz ] ) => byKey.get( key( nx, nz ) ) ).filter( Boolean );
-
-	}
-
-	let finishCell = cells.find( ( c ) => c[ 2 ] === 'track-finish' ) || cells[ 0 ];
-	const finishNeighbors = neighborsOf( finishCell );
-	if ( finishNeighbors.length < 1 ) return [];
-
-	const spawn = computeSpawnPosition( cells );
-	const forward = { x: Math.sin( spawn.angle ), z: Math.cos( spawn.angle ) };
-
-	// Of the finish cell's (up to two) neighbors, pick whichever is more
-	// in the direction a player crossing the line would be heading.
-	let next = finishNeighbors[ 0 ];
-	let bestDot = - Infinity;
-	for ( const n of finishNeighbors ) {
-
-		const dx = n[ 0 ] - finishCell[ 0 ], dz = n[ 1 ] - finishCell[ 1 ];
-		const dot = dx * forward.x + dz * forward.z;
-		if ( dot > bestDot ) { bestDot = dot; next = n; }
-
-	}
-
-	const ordered = [ finishCell ];
-	let prev = finishCell;
-	let cur = next;
-	const guardMax = cells.length + 2;
-
-	while ( cur && cur !== finishCell && ordered.length < guardMax ) {
-
-		ordered.push( cur );
-		const options = neighborsOf( cur ).filter( ( n ) => n !== prev );
-		prev = cur;
-		cur = options[ 0 ] || null;
-
-	}
-
-	return ordered.map( ( c ) => ( {
-		x: ( c[ 0 ] + 0.5 ) * CELL_RAW * GRID_SCALE,
-		z: ( c[ 1 ] + 0.5 ) * CELL_RAW * GRID_SCALE,
-	} ) );
-
-}
-
 export function computeTrackBounds( cells ) {
 
 	if ( ! cells || cells.length === 0 ) return { centerX: 0, centerZ: 0, halfWidth: 30, halfDepth: 30 };
@@ -571,15 +423,10 @@ export function computeTrackBounds( cells ) {
 	}
 
 	const S = CELL_RAW * GRID_SCALE;
-	// Extra padding so the floor/shadow bounds comfortably cover the new
-	// second-lane extension on straight pieces (which can stick out in
-	// any of the 4 directions depending on piece orientation), not just
-	// the original single-lane footprint.
-	const EXTRA_PAD = ( LANE_B_OFFSET + LANE_WIDTH / 2 ) * GRID_SCALE;
 	const centerX = ( minX + maxX + 1 ) / 2 * S;
 	const centerZ = ( minZ + maxZ + 1 ) / 2 * S;
-	const halfWidth = ( maxX - minX + 1 ) / 2 * S + S + EXTRA_PAD;
-	const halfDepth = ( maxZ - minZ + 1 ) / 2 * S + S + EXTRA_PAD;
+	const halfWidth = ( maxX - minX + 1 ) / 2 * S + S;
+	const halfDepth = ( maxZ - minZ + 1 ) / 2 * S + S;
 
 	return { centerX, centerZ, halfWidth, halfDepth };
 

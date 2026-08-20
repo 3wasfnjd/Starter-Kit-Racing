@@ -661,6 +661,26 @@ export class ARManager {
 
 	}
 
+	// Left grip (xr-standard index 1) — completely unused elsewhere during
+	// driving, repurposed for the horn. Held not toggled, like a real
+	// horn button. Returns the raw pressed state every frame.
+	getHornHold() {
+
+		const left = this.gamepads.left;
+		return left && left.buttons[ 1 ] ? left.buttons[ 1 ].pressed : false;
+
+	}
+
+	// Left thumbstick click (xr-standard index 3) — unused elsewhere,
+	// repurposed for the handbrake. Held not toggled, like a real
+	// handbrake lever.
+	getHandbrakeHold() {
+
+		const left = this.gamepads.left;
+		return left && left.buttons[ 3 ] ? left.buttons[ 3 ].pressed : false;
+
+	}
+
 	_onSessionEnd() {
 
 		this.session = null;

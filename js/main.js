@@ -6,7 +6,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle, MAX_SPEED } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath } from './Track.js';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds } from './Track.js';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { DriftMarks } from './DriftMarks.js';
@@ -623,7 +623,7 @@ function createSandTexture() {
 // obviously patterned at this scale, so this is drawn once at full size.
 function createSkidMarksTexture( worldSize ) {
 
-	const size = 512;
+	const size = 1024;
 	const canvas = document.createElement( 'canvas' );
 	canvas.width = canvas.height = size;
 	const ctx = canvas.getContext( '2d' );
@@ -737,24 +737,6 @@ function createCrowdTexture() {
 // fixedCoord is their Z); axis 'z' = wall runs along Z (east/west walls,
 // fixedCoord is their X). direction (+1/-1) is which way it extends
 // away from the track.
-// Shared across every grandstand tier on every side — was generating a
-// brand new crowd CanvasTexture per tier (6 tiers × 4 sides = 24 unique
-// textures, each its own GPU upload) for something that's visually
-// interchangeable. One texture + one material, reused everywhere.
-let _sharedCrowdMaterial = null;
-function _getCrowdMaterial() {
-
-	if ( ! _sharedCrowdMaterial ) {
-
-		const texture = createCrowdTexture();
-		texture.repeat.set( 4, 1.5 ); // fixed — good enough for all tier sizes, avoids per-instance textures
-		_sharedCrowdMaterial = new THREE.MeshStandardMaterial( { map: texture, roughness: 1, metalness: 0 } );
-
-	}
-	return _sharedCrowdMaterial;
-
-}
-
 function buildGrandstandWall( scene, axis, length, fixedCoord, baseDistance, direction ) {
 
 	// Many small rows (realistic stadium riser height, ~0.45m per step)
@@ -771,7 +753,11 @@ function buildGrandstandWall( scene, axis, length, fixedCoord, baseDistance, dir
 		const sizeX = axis === 'x' ? length : t.d;
 		const sizeZ = axis === 'x' ? t.d : length;
 
-		const material = _getCrowdMaterial();
+		const texture = createCrowdTexture();
+		texture.repeat.set( axis === 'x' ? length / 4 : 1,
+			axis === 'x' ? 1 : length / 4 );
+
+		const material = new THREE.MeshStandardMaterial( { map: texture, roughness: 1, metalness: 0 } );
 		const mesh = new THREE.Mesh( new THREE.BoxGeometry( sizeX, t.h, sizeZ ), material );
 		mesh.position.set(
 			axis === 'x' ? 0 : fixedCoord + direction * centerDist,
@@ -830,40 +816,25 @@ function buildFloodlightPole( scene, x, z, aimTarget ) {
 
 // Concrete jersey barrier segment: gray base + a painted orange/white
 // hazard stripe near the top, the standard look for track-edge barriers.
-// Shared across all barrier segments — was creating a brand new
-// BoxGeometry + MeshStandardMaterial per segment (~50 segments around a
-// typical free-roam perimeter), meaning ~100 unique draw calls for
-// something that's visually identical every time. Segments only differ
-// by length, so geometry is built per unique length but at most a
-// handful of distinct lengths ever occur (most segments are the same
-// size), and materials are always shared.
-const _barrierBodyMat = new THREE.MeshStandardMaterial( { color: 0x9a9a92, roughness: 0.95, metalness: 0 } );
-const _barrierStripeMat = new THREE.MeshStandardMaterial( { color: 0xE0621B, roughness: 0.8 } );
-const _barrierGeoCache = new Map();
-
-function _getBarrierGeo( sizeX, h, sizeZ ) {
-
-	const key = `${ sizeX.toFixed( 2 ) }|${ h }|${ sizeZ.toFixed( 2 ) }`;
-	if ( ! _barrierGeoCache.has( key ) ) _barrierGeoCache.set( key, new THREE.BoxGeometry( sizeX, h, sizeZ ) );
-	return _barrierGeoCache.get( key );
-
-}
-
 function buildBarrierSegment( scene, world, x, z, length, axis ) {
 
 	const h = 0.6, w = 0.35;
 	const sizeX = axis === 'x' ? length : w;
 	const sizeZ = axis === 'x' ? w : length;
 
-	const body = new THREE.Mesh( _getBarrierGeo( sizeX, h, sizeZ ), _barrierBodyMat );
+	const body = new THREE.Mesh(
+		new THREE.BoxGeometry( sizeX, h, sizeZ ),
+		new THREE.MeshStandardMaterial( { color: 0x9a9a92, roughness: 0.95, metalness: 0 } )
+	);
 	body.position.set( x, h / 2, z );
 	body.castShadow = true;
 	body.receiveShadow = true;
 	scene.add( body );
 
-	const stripeSizeX = axis === 'x' ? sizeX : sizeX * 1.02;
-	const stripeSizeZ = axis === 'x' ? sizeZ * 1.02 : sizeZ;
-	const stripe = new THREE.Mesh( _getBarrierGeo( stripeSizeX, 0.12, stripeSizeZ ), _barrierStripeMat );
+	const stripe = new THREE.Mesh(
+		new THREE.BoxGeometry( axis === 'x' ? sizeX : sizeX * 1.02, 0.12, axis === 'x' ? sizeZ * 1.02 : sizeZ ),
+		new THREE.MeshStandardMaterial( { color: 0xE0621B, roughness: 0.8 } )
+	);
 	stripe.position.set( x, h * 0.72, z );
 	scene.add( stripe );
 
@@ -965,264 +936,6 @@ function buildWarningSign( scene, x, z, rotationY ) {
 	signGroup.position.set( x, 1.15, z );
 	signGroup.rotation.y = rotationY;
 	scene.add( signGroup );
-
-}
-
-// ─── AI opponents (real Vehicle physics, same as the player) ──
-// Each AI gets its own Vehicle + sphere rigid body — the exact same
-// class and physics the player drives with (sphere collider, suspension
-// lean, wheel spin, drift). Steering/throttle are computed each frame
-// from the direction to the next waypoint and fed in using the same
-// "touch" input shape the game already uses for world-space-direction
-// joystick control, so movement quality matches the player's car
-// instead of a simplified snap-to-point system.
-
-// Matches LapTimer.js's own TOTAL_LAPS constant — kept separate since
-// AI opponents are tracked here in main.js, not inside LapTimer itself.
-const TOTAL_RACE_LAPS = 3;
-
-function createAIDrivers( npcConfigs, gridSlots, models, scene, world, path ) {
-
-	if ( ! path || path.length < 2 ) return [];
-
-	return npcConfigs.map( ( cfg, i ) => {
-
-		const slot = gridSlots[ i + 1 ]; // slot 0 is the player
-		const sphereBody = createSphereBody( world, slot.position );
-
-		const vehicle = new Vehicle();
-		vehicle.rigidBody = sphereBody;
-		vehicle.physicsWorld = world;
-		vehicle.spherePos.set( slot.position[ 0 ], slot.position[ 1 ], slot.position[ 2 ] );
-		vehicle.prevModelPos.set( slot.position[ 0 ], 0, slot.position[ 2 ] );
-		vehicle.container.rotation.y = slot.angle;
-
-		const model = models[ cfg.key ] || models[ 'vehicle-truck-yellow' ];
-		const group = vehicle.init( model );
-		scene.add( group );
-
-		let bestIdx = 0, bestDist = Infinity;
-		for ( let j = 0; j < path.length; j ++ ) {
-
-			const dx = path[ j ].x - slot.position[ 0 ], dz = path[ j ].z - slot.position[ 2 ];
-			const d = dx * dx + dz * dz;
-			if ( d < bestDist ) { bestDist = d; bestIdx = j; }
-
-		}
-
-		return {
-			vehicle, idx: bestIdx,
-			lapsCompleted: 0,
-			finished: false,
-			finishTime: null,
-		};
-
-	} );
-
-}
-
-function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
-
-	if ( ! path || path.length < 2 ) return;
-
-	for ( const d of drivers ) {
-
-		const input = { x: 0, z: 0, touchActive: false };
-
-		if ( racing && ! d.finished ) {
-
-			const target = path[ ( d.idx + 1 ) % path.length ];
-			const dx = target.x - d.vehicle.spherePos.x, dz = target.z - d.vehicle.spherePos.z;
-			const dist = Math.hypot( dx, dz );
-
-			if ( dist < 1.5 ) {
-
-				d.idx = ( d.idx + 1 ) % path.length;
-				if ( d.idx === 0 ) {
-
-					d.lapsCompleted += 1;
-					if ( d.lapsCompleted >= TOTAL_RACE_LAPS ) { d.finished = true; d.finishTime = totalTime; }
-
-				}
-
-			}
-
-			if ( dist > 0.001 ) {
-
-				// Same input shape as a human's touch joystick: x/z encode
-				// a world-space direction, Vehicle.js handles steering the
-				// car toward it and auto-gas from there.
-				input.x = dx / dist;
-				input.z = dz / dist;
-				input.touchActive = true;
-
-			}
-
-		}
-
-		d.vehicle.update( dt, input );
-
-	}
-
-}
-
-// Ranks player + AI by laps completed (then in-lap progress as a
-// tiebreak) — used once the player finishes to produce final standings.
-// Player's own metric is fixed at TOTAL_RACE_LAPS since this only runs
-// once they've completed the race.
-function computeStandings( drivers, path, playerFinishTime ) {
-
-	const entries = [ {
-		label: 'أنت', isPlayer: true,
-		metric: TOTAL_RACE_LAPS,
-		finishTime: playerFinishTime,
-	} ];
-
-	drivers.forEach( ( d, i ) => {
-
-		const progress = path && path.length > 1 ? d.idx / path.length : 0;
-		entries.push( {
-			label: 'الحاسوب ' + ( i + 1 ), isPlayer: false,
-			metric: d.lapsCompleted + progress,
-			finishTime: d.finishTime,
-		} );
-
-	} );
-
-	entries.sort( ( a, b ) => {
-
-		if ( a.finishTime !== null && b.finishTime !== null ) return a.finishTime - b.finishTime;
-		if ( a.finishTime !== null ) return -1;
-		if ( b.finishTime !== null ) return 1;
-		return b.metric - a.metric;
-
-	} );
-
-	return entries;
-
-}
-
-// Computes a 2-wide staggered starting grid behind the finish line —
-// slot 0 is the player (front-left), slots 1-3 are AI opponents.
-function computeGridPositions( vehicleSpawn, count ) {
-
-	const { position, angle } = vehicleSpawn;
-	const forward = { x: Math.sin( angle ), z: Math.cos( angle ) };
-	const right = { x: forward.z, z: - forward.x };
-	const rowSpacing = 3.2, colOffset = 1.3;
-
-	const slots = [];
-	for ( let i = 0; i < count; i ++ ) {
-
-		const row = Math.floor( i / 2 );
-		const col = ( i % 2 === 0 ) ? -1 : 1;
-		const backDist = 2 + row * rowSpacing;
-
-		const x = position[ 0 ] - forward.x * backDist + right.x * col * colOffset;
-		const z = position[ 2 ] - forward.z * backDist + right.z * col * colOffset;
-
-		slots.push( { position: [ x, position[ 1 ], z ], angle } );
-
-	}
-
-	return slots;
-
-}
-
-// ─── Race countdown + results overlays ─────────────────────
-
-function createCountdownUI() {
-
-	const style = document.createElement( 'style' );
-	style.textContent = `
-		#hw-countdown {
-			position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
-			pointer-events: none;
-		}
-		#hw-countdown .cd-num {
-			font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 120px; font-weight: 800; color: #fff;
-			text-shadow: 0 0 30px rgba(91,140,255,0.8), 0 4px 12px rgba(0,0,0,0.6);
-		}
-	`;
-	document.head.appendChild( style );
-
-	const el = document.createElement( 'div' );
-	el.id = 'hw-countdown';
-	el.innerHTML = '<div class="cd-num"></div>';
-	document.body.appendChild( el );
-
-	return {
-		numEl: el.querySelector( '.cd-num' ),
-		set( text ) {
-
-			this.numEl.textContent = text;
-			this.numEl.animate(
-				[ { transform: 'scale(1.4)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 } ],
-				{ duration: 280, easing: 'ease-out' }
-			);
-
-		},
-		remove() { el.remove(); },
-	};
-
-}
-
-function showRaceResultsOverlay( standings, { onRestart, onMenu } ) {
-
-	const style = document.createElement( 'style' );
-	style.textContent = `
-		#hw-race-results {
-			position: fixed; inset: 0; z-index: 55; display: flex; align-items: center; justify-content: center;
-			background: rgba(5,5,10,0.78); font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
-		}
-		#hw-race-results .rr-card {
-			max-width: 400px; width: 90%; padding: 28px 24px; border-radius: 20px; text-align: center;
-			background: radial-gradient(circle at 50% 0%, #201436 0%, #0d0d16 70%);
-			border: 1px solid rgba(139,95,191,0.4); box-shadow: 0 0 50px rgba(91,60,140,0.25);
-		}
-		#hw-race-results .rr-title {
-			font-size: 26px; font-weight: 800; margin-bottom: 18px;
-			background: linear-gradient(90deg, #8B5FBF 0%, #5B8CFF 50%, #4FD8E8 100%);
-			-webkit-background-clip: text; background-clip: text; color: transparent;
-		}
-		#hw-race-results .rr-row {
-			display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-top: 1px solid rgba(255,255,255,0.08);
-		}
-		#hw-race-results .rr-row:first-of-type { border-top: none; }
-		#hw-race-results .rr-pos { width: 26px; font-weight: 800; color: #9d8fd4; }
-		#hw-race-results .rr-label { flex: 1; text-align: right; color: #fff; font-size: 14.5px; }
-		#hw-race-results .rr-row.rr-me .rr-label { color: #5B8CFF; font-weight: 700; }
-		#hw-race-results .rr-btns { display: flex; gap: 10px; margin-top: 20px; }
-		#hw-race-results button {
-			flex: 1; padding: 13px; border: none; border-radius: 999px; font-size: 14.5px; font-weight: 600; cursor: pointer;
-		}
-		#hw-race-results .rr-restart { background: linear-gradient(90deg, #8B5FBF, #5B8CFF); color: #fff; }
-		#hw-race-results .rr-menu { background: rgba(255,255,255,0.08); color: #cfc9e0; }
-	`;
-	document.head.appendChild( style );
-
-	const overlay = document.createElement( 'div' );
-	overlay.id = 'hw-race-results';
-	overlay.dir = 'rtl';
-	overlay.innerHTML = `
-		<div class="rr-card">
-			<div class="rr-title">🏁 نتيجة السباق</div>
-			${ standings.map( ( s, i ) => `
-				<div class="rr-row ${ s.isPlayer ? 'rr-me' : '' }">
-					<div class="rr-pos">${ i + 1 }</div>
-					<div class="rr-label">${ s.label }</div>
-				</div>
-			` ).join( '' ) }
-			<div class="rr-btns">
-				<button class="rr-restart">إعادة السباق</button>
-				<button class="rr-menu">الصفحة الرئيسية</button>
-			</div>
-		</div>
-	`;
-	document.body.appendChild( overlay );
-
-	overlay.querySelector( '.rr-restart' ).addEventListener( 'click', () => { overlay.remove(); onRestart(); } );
-	overlay.querySelector( '.rr-menu' ).addEventListener( 'click', () => { overlay.remove(); onMenu(); } );
 
 }
 
@@ -1786,7 +1499,6 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	const world = createPhysicsWorld();
 	let sphereBody, vehicleSpawn, lapTimer = null;
-	let trackPath = null, aiDrivers = [];
 
 	if ( freeRoam ) {
 
@@ -1799,8 +1511,8 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		// mode keeps its normal daylight scene.
 		scene.background = new THREE.Color( 0x05060a );
 		scene.fog.color.set( 0x05060a );
-		dirLight.intensity = 3; // restored — floodlights removed, no longer relying on them to carry the scene
-		hemiLight.intensity = 2;
+		dirLight.intensity = 0.4; // faint moonlight fill, floodlights carry the scene
+		hemiLight.intensity = 0.35;
 
 		const roadHalf = groundSize / 2;
 
@@ -1878,8 +1590,18 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 		}
 
-		// Floodlight poles removed (performance) — plain daylight-style
-		// lighting above instead of relying on 4 always-on SpotLights.
+		// Floodlight poles at the four corners, all aimed back at center —
+		// the actual light source for the night-stadium look set above.
+		const poleInset = roadHalf * 0.82;
+		for ( const cx of [ -1, 1 ] ) {
+
+			for ( const cz of [ -1, 1 ] ) {
+
+				buildFloodlightPole( scene, cx * poleInset, cz * poleInset, { x: 0, z: 0 } );
+
+			}
+
+		}
 
 		// Dry desert surround, peeking out beyond the paved arena's edge —
 		// sits just below the asphalt so it only shows past its footprint.
@@ -1895,9 +1617,20 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		sandMesh.receiveShadow = true;
 		scene.add( sandMesh );
 
-		// Skid-marks overlay texture removed (performance) — was a
-		// synchronous 512x512 canvas generation at load time, the most
-		// likely cause of the freeze on entering free-roam.
+		// Burnout circles + drift trails, baked once across the whole
+		// paved surface — a proper tiled texture would look obviously
+		// repeated at this scale.
+		const skidMarksTexture = createSkidMarksTexture( groundSize );
+		const skidOverlay = new THREE.Mesh(
+			new THREE.PlaneGeometry( groundSize, groundSize ),
+			new THREE.MeshStandardMaterial( {
+				map: skidMarksTexture, transparent: true, roughness: 1,
+				metalness: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1,
+			} )
+		);
+		skidOverlay.rotation.x = - Math.PI / 2;
+		skidOverlay.position.set( 0, - 0.1195, 0 );
+		scene.add( skidOverlay );
 
 		// Concrete barriers dressing the same line as the invisible
 		// collision walls above (no extra physics needed — the collider's
@@ -1952,19 +1685,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		scene.fog.near = groundSize * 0.4;
 		scene.fog.far = groundSize * 0.8;
 
-		const { npcConfigs } = buildTrack( scene, models, customCells );
-		trackPath = computeTrackPath( customCells );
-
-		// Starting grid: player at the front, AI staggered behind —
-		// instead of the player spawning exactly on the line.
-		let gridSpawn = spawn;
-		if ( spawn && npcConfigs.length > 0 ) {
-
-			const gridSlots = computeGridPositions( spawn, 1 + npcConfigs.length );
-			gridSpawn = gridSlots[ 0 ];
-			aiDrivers = createAIDrivers( npcConfigs, gridSlots, models, scene, world, trackPath );
-
-		}
+		buildTrack( scene, models, customCells );
 
 		// Probes
 		const probeHeight = 6;
@@ -1990,8 +1711,8 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			restitution: 0.0,
 		} );
 
-		vehicleSpawn = gridSpawn;
-		sphereBody = createSphereBody( world, gridSpawn ? gridSpawn.position : null );
+		vehicleSpawn = spawn;
+		sphereBody = createSphereBody( world, spawn ? spawn.position : null );
 		lapTimer = new LapTimer( customCells, mapParam );
 
 	}
@@ -2059,76 +1780,14 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	// hazards. Edge-detected so holding a key doesn't rapid-fire.
 	let prevKeys = { r: false, t: false, l: false, h: false };
 
-	// Race flow: only for an actual track with a finish line (not
-	// free-roam) — grid start + countdown, then unlock controls.
-	const isRace = !! ( lapTimer && lapTimer.enabled );
-	const raceState = { phase: isRace ? 'countdown' : 'racing', countdown: 3, countdownTimer: 0, totalTime: 0 };
-	let countdownUI = null;
-	let resultsShown = false;
-
-	if ( isRace ) {
-
-		countdownUI = createCountdownUI();
-		countdownUI.set( String( raceState.countdown ) );
-
-		lapTimer.onFinish = () => {
-
-			raceState.phase = 'finished';
-
-		};
-
-	}
-
 	return {
 
 		frameUpdate( dt ) {
 
-			if ( raceState.phase === 'countdown' ) {
-
-				raceState.countdownTimer += dt;
-				if ( raceState.countdownTimer >= 1 ) {
-
-					raceState.countdownTimer -= 1;
-					raceState.countdown -= 1;
-
-					if ( raceState.countdown > 0 ) {
-
-						countdownUI.set( String( raceState.countdown ) );
-
-					} else {
-
-						countdownUI.set( 'GO!' );
-						raceState.phase = 'racing';
-						setTimeout( () => { if ( countdownUI ) { countdownUI.remove(); countdownUI = null; } }, 500 );
-
-					}
-
-				}
-
-			} else if ( raceState.phase === 'racing' ) {
-
-				raceState.totalTime += dt;
-
-			}
-
-			const racing = raceState.phase === 'racing';
-			const rawInput = controls.update();
-			const input = racing ? rawInput : { x: 0, z: 0, touchActive: false };
+			const input = controls.update();
 
 			updateVehicleAndFx( dt, input, ctx );
-			updateAIDrivers( aiDrivers, trackPath, dt, racing, raceState.totalTime );
 			updateVehicleLights( vehicleLights, dt, 1, vehicle.linearSpeed < -0.01 );
-
-			if ( raceState.phase === 'finished' && ! resultsShown ) {
-
-				resultsShown = true;
-				const standings = computeStandings( aiDrivers, trackPath, raceState.totalTime );
-				showRaceResultsOverlay( standings, {
-					onRestart: () => location.reload(),
-					onMenu: () => { location.href = location.pathname; },
-				} );
-
-			}
 
 			const rKey = !! controls.keys[ 'KeyR' ];
 			const tKey = !! controls.keys[ 'KeyT' ];
@@ -2350,68 +2009,19 @@ async function startARMode( { mapParam, customText, vehicleKey, flagImage, sessi
 
 let activeMode = null;
 const timer = new THREE.Timer();
-let crashed = false;
 
 function animate( timestamp, frame ) {
-
-	if ( crashed ) return;
 
 	timer.update( timestamp );
 	const dt = Math.min( timer.getDelta(), 1 / 30 );
 
-	try {
-
-		if ( activeMode ) activeMode.frameUpdate( dt, timestamp, frame );
-
-	} catch ( e ) {
-
-		// A silent crash here just froze the screen with nothing shown
-		// (setAnimationLoop stops calling back after an uncaught
-		// exception, and there's no console visible on most phones).
-		// Show the actual error instead of a blank/black screen.
-		crashed = true;
-		console.error( '[animate] crashed:', e );
-		showGenericErrorOverlay( e );
-
-	}
+	if ( activeMode ) activeMode.frameUpdate( dt, timestamp, frame );
 
 }
 
 renderer.setAnimationLoop( animate );
 
-function showGenericErrorOverlay( error ) {
-
-	const box = document.createElement( 'div' );
-	box.dir = 'rtl';
-	box.style.cssText = `
-		position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column;
-		align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center;
-		background: rgba(20,22,26,0.95); font-family: 'Segoe UI', Tahoma, Arial, sans-serif; overflow-y: auto;
-	`;
-
-	const title = document.createElement( 'div' );
-	title.textContent = 'صار خطأ وتوقفت اللعبة';
-	title.style.cssText = 'color:#fff; font-size:20px; font-weight:700;';
-
-	const msg = document.createElement( 'div' );
-	msg.textContent = String( error && error.message ? error.message : error );
-	msg.style.cssText = 'color:#ffb4b4; font-size:14px; max-width:90%;';
-
-	const stack = document.createElement( 'pre' );
-	stack.textContent = error && error.stack ? error.stack : '';
-	stack.style.cssText = `
-		color:#9a94b0; font-size:11px; text-align:left; direction:ltr; max-width:90%; max-height:40vh;
-		overflow:auto; background:rgba(255,255,255,0.05); padding:10px; border-radius:8px; white-space:pre-wrap;
-	`;
-
-	box.appendChild( title );
-	box.appendChild( msg );
-	box.appendChild( stack );
-	document.body.appendChild( box );
-
-}
-
-function showErrorOverlay( message, stack, onRetry, title = 'تعذّر تشغيل الوضع' ) {
+function showErrorOverlay( message, stack, onRetry ) {
 
 	const box = document.createElement( 'div' );
 	box.dir = 'rtl';
@@ -2421,9 +2031,9 @@ function showErrorOverlay( message, stack, onRetry, title = 'تعذّر تشغي
 		background: rgba(20,22,26,0.92); font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
 	`;
 
-	const titleEl = document.createElement( 'div' );
-	titleEl.textContent = title;
-	titleEl.style.cssText = 'color:#fff; font-size:18px; font-weight:600;';
+	const title = document.createElement( 'div' );
+	title.textContent = 'تعذّر تشغيل وضع الواقع المعزز';
+	title.style.cssText = 'color:#fff; font-size:18px; font-weight:600;';
 
 	const detail = document.createElement( 'div' );
 	detail.textContent = message;
@@ -2448,13 +2058,13 @@ function showErrorOverlay( message, stack, onRetry, title = 'تعذّر تشغي
 
 	} );
 
-	box.appendChild( titleEl );
+	box.appendChild( title );
 	box.appendChild( detail );
 	box.appendChild( stackBox );
 	box.appendChild( retryBtn );
 	document.body.appendChild( box );
 
-	console.error( title + ':', message, stack );
+	console.error( 'AR MODE failed:', message, stack );
 
 }
 
@@ -2505,8 +2115,7 @@ async function init() {
 					showErrorOverlay(
 						( e && e.message ) ? e.message : String( e ),
 						e && e.stack ? e.stack : '',
-						resolve,
-						'تعذّر تشغيل وضع الواقع المعزز'
+						resolve
 					);
 
 				} );
@@ -2516,27 +2125,8 @@ async function init() {
 
 		} else {
 
-			try {
-
-				activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } );
-				break;
-
-			} catch ( e ) {
-
-				activeMode = null;
-
-				await new Promise( ( resolve ) => {
-
-					showErrorOverlay(
-						( e && e.message ) ? e.message : String( e ),
-						e && e.stack ? e.stack : '',
-						resolve
-					);
-
-				} );
-				continue; // back to the mode menu instead of a silent black screen
-
-			}
+			activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } );
+			break;
 
 		}
 
