@@ -305,8 +305,11 @@ export function buildTrack( scene, models, customCells ) {
 
 	// Returned so callers that need it (e.g. AR placement/cleanup) can
 	// reference the group without changing what buildTrack() does for
-	// existing callers, who simply ignore this return value.
-	return { trackGroup, trackPieceGroup, decoGroup };
+	// existing callers, who simply ignore this return value. npcConfigs
+	// is separate from the decorative parked trucks above — main.js uses
+	// it to spawn actual racing AI (same models, fresh instances).
+	const npcConfigs = customCells ? [] : NPC_TRUCKS.map( ( [ key, x, y, z, rotDeg ] ) => ( { key, x, y, z, rotDeg } ) );
+	return { trackGroup, trackPieceGroup, decoGroup, npcConfigs };
 
 }
 
@@ -403,6 +406,69 @@ export function computeSpawnPosition( cells ) {
 	const angle = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
 
 	return { position: [ x, 0.5, z ], angle };
+
+}
+
+// Traces the track's cell loop into an ordered sequence of world-space
+// waypoints for AI navigation — starting at the finish line, moving in
+// the same direction a player would drive. Assumes a single closed loop:
+// each cell has exactly two grid-adjacent neighbors among the track
+// cells, so the loop can be traced by always stepping to the
+// not-just-visited neighbor.
+export function computeTrackPath( customCells ) {
+
+	const cells = customCells || TRACK_CELLS;
+	if ( cells.length < 2 ) return [];
+
+	const key = ( gx, gz ) => gx + ',' + gz;
+	const byKey = new Map();
+	for ( const c of cells ) byKey.set( key( c[ 0 ], c[ 1 ] ), c );
+
+	function neighborsOf( c ) {
+
+		const [ gx, gz ] = c;
+		const candidates = [ [ gx + 1, gz ], [ gx - 1, gz ], [ gx, gz + 1 ], [ gx, gz - 1 ] ];
+		return candidates.map( ( [ nx, nz ] ) => byKey.get( key( nx, nz ) ) ).filter( Boolean );
+
+	}
+
+	let finishCell = cells.find( ( c ) => c[ 2 ] === 'track-finish' ) || cells[ 0 ];
+	const finishNeighbors = neighborsOf( finishCell );
+	if ( finishNeighbors.length < 1 ) return [];
+
+	const spawn = computeSpawnPosition( cells );
+	const forward = { x: Math.sin( spawn.angle ), z: Math.cos( spawn.angle ) };
+
+	// Of the finish cell's (up to two) neighbors, pick whichever is more
+	// in the direction a player crossing the line would be heading.
+	let next = finishNeighbors[ 0 ];
+	let bestDot = - Infinity;
+	for ( const n of finishNeighbors ) {
+
+		const dx = n[ 0 ] - finishCell[ 0 ], dz = n[ 1 ] - finishCell[ 1 ];
+		const dot = dx * forward.x + dz * forward.z;
+		if ( dot > bestDot ) { bestDot = dot; next = n; }
+
+	}
+
+	const ordered = [ finishCell ];
+	let prev = finishCell;
+	let cur = next;
+	const guardMax = cells.length + 2;
+
+	while ( cur && cur !== finishCell && ordered.length < guardMax ) {
+
+		ordered.push( cur );
+		const options = neighborsOf( cur ).filter( ( n ) => n !== prev );
+		prev = cur;
+		cur = options[ 0 ] || null;
+
+	}
+
+	return ordered.map( ( c ) => ( {
+		x: ( c[ 0 ] + 0.5 ) * CELL_RAW * GRID_SCALE,
+		z: ( c[ 1 ] + 0.5 ) * CELL_RAW * GRID_SCALE,
+	} ) );
 
 }
 

@@ -54,6 +54,7 @@ export class LapTimer {
 		this.running = false;
 		this.finished = false;
 		this.totalTime = 0;
+		this.onFinish = null; // set by the caller if it wants a callback instead of the built-in overlay
 
 		this.lineCenter = new THREE.Vector3();
 		this.lineForward = new THREE.Vector3( 0, 0, 1 );
@@ -212,7 +213,15 @@ export class LapTimer {
 			this.lapEl.textContent = TOTAL_LAPS + '/' + TOTAL_LAPS;
 			this.lastEl.textContent = formatTime( this.lastLap );
 			this.bestEl.textContent = formatTime( this.bestLap );
+			if ( this.onFinish ) {
+
+			this.onFinish();
+
+		} else {
+
 			this.showFinishOverlay();
+
+		}
 			return;
 
 		}
