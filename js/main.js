@@ -1624,7 +1624,7 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 			const dx = target.x - d.vehicle.spherePos.x, dz = target.z - d.vehicle.spherePos.z;
 			const dist = Math.hypot( dx, dz );
 
-			if ( dist < 1.5 ) {
+			if ( dist < 1.0 ) {
 
 				d.idx = ( d.idx + 1 ) % path.length;
 				if ( d.idx === 0 ) {
@@ -2330,17 +2330,62 @@ async function startARMode( { mapParam, customText, vehicleKey, flagImage, sessi
 
 let activeMode = null;
 const timer = new THREE.Timer();
+let crashed = false;
 
 function animate( timestamp, frame ) {
+
+	if ( crashed ) return;
 
 	timer.update( timestamp );
 	const dt = Math.min( timer.getDelta(), 1 / 30 );
 
-	if ( activeMode ) activeMode.frameUpdate( dt, timestamp, frame );
+	try {
+
+		if ( activeMode ) activeMode.frameUpdate( dt, timestamp, frame );
+
+	} catch ( e ) {
+
+		crashed = true;
+		console.error( '[animate] crashed:', e );
+		showGenericErrorOverlay( e );
+
+	}
 
 }
 
 renderer.setAnimationLoop( animate );
+
+function showGenericErrorOverlay( error ) {
+
+	const box = document.createElement( 'div' );
+	box.dir = 'rtl';
+	box.style.cssText = `
+		position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column;
+		align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center;
+		background: rgba(20,22,26,0.95); font-family: 'Segoe UI', Tahoma, Arial, sans-serif; overflow-y: auto;
+	`;
+
+	const title = document.createElement( 'div' );
+	title.textContent = 'صار خطأ وتوقفت اللعبة';
+	title.style.cssText = 'color:#fff; font-size:20px; font-weight:700;';
+
+	const msg = document.createElement( 'div' );
+	msg.textContent = String( error && error.message ? error.message : error );
+	msg.style.cssText = 'color:#ffb4b4; font-size:14px; max-width:90%;';
+
+	const stack = document.createElement( 'pre' );
+	stack.textContent = error && error.stack ? error.stack : '';
+	stack.style.cssText = `
+		color:#9a94b0; font-size:11px; text-align:left; direction:ltr; max-width:90%; max-height:40vh;
+		overflow:auto; background:rgba(255,255,255,0.05); padding:10px; border-radius:8px; white-space:pre-wrap;
+	`;
+
+	box.appendChild( title );
+	box.appendChild( msg );
+	box.appendChild( stack );
+	document.body.appendChild( box );
+
+}
 
 function showErrorOverlay( message, stack, onRetry ) {
 
@@ -2451,8 +2496,27 @@ async function init() {
 
 		} else {
 
-			activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } );
-			break;
+			try {
+
+				activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } );
+				break;
+
+			} catch ( e ) {
+
+				activeMode = null;
+
+				await new Promise( ( resolve ) => {
+
+					showErrorOverlay(
+						( e && e.message ) ? e.message : String( e ),
+						e && e.stack ? e.stack : '',
+						resolve
+					);
+
+				} );
+				continue; // back to the mode menu instead of a silent black screen
+
+			}
 
 		}
 

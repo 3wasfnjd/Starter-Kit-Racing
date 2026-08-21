@@ -466,10 +466,45 @@ export function computeTrackPath( customCells ) {
 
 	}
 
-	return ordered.map( ( c ) => ( {
+	const coarse = ordered.map( ( c ) => ( {
 		x: ( c[ 0 ] + 0.5 ) * CELL_RAW * GRID_SCALE,
 		z: ( c[ 1 ] + 0.5 ) * CELL_RAW * GRID_SCALE,
 	} ) );
+
+	// Only ~1 waypoint per track piece made the AI take one sharp,
+	// sudden turn per cell instead of gradually curving — subdividing
+	// with a light smoothing pass (average of each point's neighbors,
+	// applied a few times) spreads each direction change over several
+	// closer-together points, so steering corrections happen gradually.
+	const SUBDIVISIONS = 4;
+	let smooth = [];
+	for ( let i = 0; i < coarse.length; i ++ ) {
+
+		const a = coarse[ i ];
+		const b = coarse[ ( i + 1 ) % coarse.length ];
+		for ( let s = 0; s < SUBDIVISIONS; s ++ ) {
+
+			const t = s / SUBDIVISIONS;
+			smooth.push( { x: a.x + ( b.x - a.x ) * t, z: a.z + ( b.z - a.z ) * t } );
+
+		}
+
+	}
+
+	for ( let pass = 0; pass < 2; pass ++ ) {
+
+		const next = smooth.map( ( p, i ) => {
+
+			const prev = smooth[ ( i - 1 + smooth.length ) % smooth.length ];
+			const nxt = smooth[ ( i + 1 ) % smooth.length ];
+			return { x: ( prev.x + p.x + nxt.x ) / 3, z: ( prev.z + p.z + nxt.z ) / 3 };
+
+		} );
+		smooth = next;
+
+	}
+
+	return smooth;
 
 }
 
