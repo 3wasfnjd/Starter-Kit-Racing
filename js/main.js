@@ -1333,6 +1333,26 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false ) {
 
 // ─── Race countdown ─────────────────────────────────────────
 
+// TEMPORARY diagnostic helper — flashes a short-lived note in the
+// corner of the screen. Used to get definitive visual proof the AI
+// stuck-recovery watchdog actually fires (console.warn alone isn't
+// visible on a phone). Safe to remove once the AI driving issue is
+// confirmed fixed.
+function flashDebugNote( text ) {
+
+	const el = document.createElement( 'div' );
+	el.textContent = text;
+	el.style.cssText = `
+		position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 80;
+		background: rgba(20,10,30,0.85); color: #fff; padding: 8px 16px; border-radius: 10px;
+		font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px; direction: rtl;
+		border: 1px solid rgba(139,95,191,0.5);
+	`;
+	document.body.appendChild( el );
+	setTimeout( () => el.remove(), 2500 );
+
+}
+
 function createCountdownUI() {
 
 	const style = document.createElement( 'style' );
@@ -1614,8 +1634,9 @@ function createAIDrivers( npcConfigs, gridSlots, models, scene, world, path ) {
 			lapsCompleted: 0,
 			finished: false,
 			finishTime: null,
-			stuckTimer: 0,
-			lastPos: { x: slot.position[ 0 ], z: slot.position[ 2 ] },
+			stuckStrikes: 0,
+			sampleTimer: 0,
+			samplePos: { x: slot.position[ 0 ], z: slot.position[ 2 ] },
 		};
 
 	} );
@@ -1635,29 +1656,33 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 
 		if ( racing && ! d.finished ) {
 
-			// Stuck watchdog: if a car hasn't actually moved much for a
-			// couple seconds (wedged against a wall at a bad angle,
-			// wheels spinning against something, etc.), steering alone
-			// might never recover it — decorations have no collider, but
-			// the track's own boundary/corner walls do. Forcibly
-			// reposition it back onto the path with a clean heading and
-			// zero velocity rather than leaving it stuck indefinitely.
-			const movedDist = Math.hypot(
-				d.vehicle.spherePos.x - d.lastPos.x,
-				d.vehicle.spherePos.z - d.lastPos.z
-			);
-			if ( movedDist < 0.15 ) {
+			// Stuck watchdog: if a car hasn't made real progress over
+			// several half-second samples (wedged against a wall at a
+			// bad angle, etc.), steering alone might never recover it —
+			// decorations have no collider, but the track's own
+			// boundary/corner walls do. Sampling every 0.5s (instead of
+			// checking every single frame) avoids a false reset from
+			// small physics jitter/vibration while genuinely wedged
+			// against something — a per-frame check kept getting reset
+			// by that jitter and never actually reaching the threshold.
+			d.sampleTimer += dt;
+			if ( d.sampleTimer >= 0.5 ) {
 
-				d.stuckTimer += dt;
+				d.sampleTimer = 0;
+				const progressed = Math.hypot(
+					d.vehicle.spherePos.x - d.samplePos.x,
+					d.vehicle.spherePos.z - d.samplePos.z
+				);
+				d.samplePos = { x: d.vehicle.spherePos.x, z: d.vehicle.spherePos.z };
 
-			} else {
-
-				d.stuckTimer = 0;
-				d.lastPos = { x: d.vehicle.spherePos.x, z: d.vehicle.spherePos.z };
+				if ( progressed < 0.4 ) d.stuckStrikes += 1; else d.stuckStrikes = 0;
 
 			}
 
-			if ( d.stuckTimer > 2.5 ) {
+			if ( d.stuckStrikes >= 3 ) { // ~1.5s of near-zero net movement
+
+				console.warn( '[AI] stuck-recovery triggered for a driver, resyncing to path' );
+				flashDebugNote( '🔄 تصحيح مسار سيارة ذكاء اصطناعي' );
 
 				let bestJ = d.idx, bestD = Infinity;
 				for ( let j = 0; j < path.length; j ++ ) {
@@ -1682,8 +1707,9 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 				d.vehicle.angularSpeed = 0;
 				d.vehicle.acceleration = 0;
 
-				d.stuckTimer = 0;
-				d.lastPos = { x: p.x, z: p.z };
+				d.stuckStrikes = 0;
+				d.sampleTimer = 0;
+				d.samplePos = { x: p.x, z: p.z };
 
 			}
 
