@@ -1685,7 +1685,6 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 			if ( d.stuckStrikes >= 3 ) { // ~1.5s of near-zero net movement
 
 				console.warn( '[AI] stuck-recovery triggered for a driver, resyncing to path' );
-				flashDebugNote( '🔄 تصحيح مسار سيارة ذكاء اصطناعي' );
 
 				let bestJ = d.idx, bestD = Infinity;
 				for ( let j = 0; j < path.length; j ++ ) {
@@ -1776,7 +1775,7 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 				// driver braking before a corner instead of charging in
 				// at full speed and losing grip.
 				const sharpness = THREE.MathUtils.clamp( Math.abs( angleDiff ) / ( Math.PI / 3 ), 0, 1 );
-				input.z = 1 - sharpness * 0.75;
+				input.z = 1 - sharpness * 0.5;
 
 			}
 
