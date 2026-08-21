@@ -1570,7 +1570,7 @@ function computeGridPositions( vehicleSpawn, count ) {
 	const { position, angle } = vehicleSpawn;
 	const forward = { x: Math.sin( angle ), z: Math.cos( angle ) };
 	const right = { x: forward.z, z: - forward.x };
-	const rowSpacing = 3.2, colOffset = 1.3;
+	const rowSpacing = 3.2, colOffset = 0.8;
 
 	const slots = [];
 	for ( let i = 0; i < count; i ++ ) {
@@ -1766,7 +1766,7 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 				// model straight at the target every frame while the
 				// physics body kept its old momentum, so the car looked
 				// like it was spinning out at every turn.
-				input.x = THREE.MathUtils.clamp( angleDiff * 3, -1, 1 );
+				input.x = THREE.MathUtils.clamp( angleDiff * 2, -1, 1 );
 				input.touchActive = false;
 
 				// Ease off the throttle for sharp turns, like a real
