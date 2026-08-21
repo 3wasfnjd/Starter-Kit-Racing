@@ -1624,7 +1624,8 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 
 	if ( ! path || path.length < 2 ) return;
 
-	const LOOKAHEAD = 4; // waypoints ahead to steer toward (points are close together now, ~1.9m apart)
+	const LOOKAHEAD = 2; // waypoints ahead to steer toward — reduced from 4, which was cutting corners wide enough to sometimes clip off-track decoration
+	const MAX_DRIFT = 4; // if further than this from the path, force a resync instead of continuing to compound the error
 
 	for ( const d of drivers ) {
 
@@ -1645,6 +1646,22 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 					if ( d.lapsCompleted >= TOTAL_RACE_LAPS ) { d.finished = true; d.finishTime = totalTime; }
 
 				}
+
+			} else if ( distToNext > MAX_DRIFT ) {
+
+				// Drifted too far off course (e.g. clipped a decoration
+				// piece and got deflected) — instead of continuing to
+				// chase an increasingly wrong target, snap to whichever
+				// path point is actually closest right now.
+				let bestJ = d.idx, bestD = Infinity;
+				for ( let j = 0; j < path.length; j ++ ) {
+
+					const ddx = path[ j ].x - d.vehicle.spherePos.x, ddz = path[ j ].z - d.vehicle.spherePos.z;
+					const dd = ddx * ddx + ddz * ddz;
+					if ( dd < bestD ) { bestD = dd; bestJ = j; }
+
+				}
+				d.idx = bestJ;
 
 			}
 
@@ -1669,7 +1686,7 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 				// model straight at the target every frame while the
 				// physics body kept its old momentum, so the car looked
 				// like it was spinning out at every turn.
-				input.x = THREE.MathUtils.clamp( angleDiff * 2.2, -1, 1 );
+				input.x = THREE.MathUtils.clamp( angleDiff * 3, -1, 1 );
 				input.touchActive = false;
 
 				// Ease off the throttle for sharp turns, like a real
