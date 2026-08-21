@@ -438,7 +438,10 @@ export function computeTrackPath( customCells ) {
 	if ( finishNeighbors.length < 1 ) return [];
 
 	const spawn = computeSpawnPosition( cells );
-	const forward = { x: Math.sin( spawn.angle ), z: Math.cos( spawn.angle ) };
+	// Flipped relative to spawn.angle's raw sin/cos — verified against
+	// actual gameplay that the true forward driving direction from the
+	// finish line is the opposite of what the raw angle math suggests.
+	const forward = { x: - Math.sin( spawn.angle ), z: - Math.cos( spawn.angle ) };
 
 	// Of the finish cell's (up to two) neighbors, pick whichever is more
 	// in the direction a player crossing the line would be heading.
@@ -466,10 +469,46 @@ export function computeTrackPath( customCells ) {
 
 	}
 
-	const coarse = ordered.map( ( c ) => ( {
-		x: ( c[ 0 ] + 0.5 ) * CELL_RAW * GRID_SCALE,
-		z: ( c[ 1 ] + 0.5 ) * CELL_RAW * GRID_SCALE,
-	} ) );
+	// For corner cells, using the plain cell-center point put the
+	// waypoint off the actual curved pavement — a corner's real drivable
+	// surface sweeps around an arc pivoted at one corner of the cell,
+	// not through its middle, so the center point can land in the
+	// "cut corner" dead zone. This computes the arc's actual midpoint at
+	// a mid-track racing radius instead, matching the exact geometry
+	// Physics.js uses for the corner's own collision walls.
+	const CELL_HALF = CELL_RAW / 2;
+	const WALL_HALF_THICK = 0.25;
+	const ARC_SPAN = - Math.PI / 2;
+	const ARC_CENTER_X = - CELL_HALF;
+	const ARC_CENTER_Z = CELL_HALF;
+	const OUTER_R = 2 * CELL_HALF - WALL_HALF_THICK;
+	const INNER_R = WALL_HALF_THICK;
+	const RACING_R = ( INNER_R + OUTER_R ) / 2;
+
+	const coarse = ordered.map( ( c ) => {
+
+		const cx = ( c[ 0 ] + 0.5 ) * CELL_RAW * GRID_SCALE;
+		const cz = ( c[ 1 ] + 0.5 ) * CELL_RAW * GRID_SCALE;
+
+		if ( c[ 2 ] === 'track-corner' ) {
+
+			const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ c[ 3 ] ] || 0 );
+			const cr = Math.cos( rad ), sr = Math.sin( rad );
+			const wcx = cx + ( ARC_CENTER_X * cr + ARC_CENTER_Z * sr ) * GRID_SCALE;
+			const wcz = cz + ( - ARC_CENTER_X * sr + ARC_CENTER_Z * cr ) * GRID_SCALE;
+			const arcStart = - rad;
+			const aMid = arcStart + 0.5 * ARC_SPAN;
+
+			return {
+				x: wcx + RACING_R * Math.cos( aMid ) * GRID_SCALE,
+				z: wcz + RACING_R * Math.sin( aMid ) * GRID_SCALE,
+			};
+
+		}
+
+		return { x: cx, z: cz };
+
+	} );
 
 	// Only ~1 waypoint per track piece made the AI take one sharp,
 	// sudden turn per cell instead of gradually curving — subdividing

@@ -1568,7 +1568,10 @@ const TOTAL_RACE_LAPS = 3; // matches LapTimer.js's own TOTAL_LAPS
 function computeGridPositions( vehicleSpawn, count ) {
 
 	const { position, angle } = vehicleSpawn;
-	const forward = { x: Math.sin( angle ), z: Math.cos( angle ) };
+	// Flipped relative to angle's raw sin/cos — matches the same
+	// correction applied in Track.js's computeTrackPath, verified
+	// against actual gameplay direction.
+	const forward = { x: - Math.sin( angle ), z: - Math.cos( angle ) };
 	const right = { x: forward.z, z: - forward.x };
 	const rowSpacing = 3.2, colOffset = 0.8;
 
