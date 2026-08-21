@@ -1562,7 +1562,7 @@ function computeGridPositions( vehicleSpawn, count ) {
 		const x = position[ 0 ] - forward.x * backDist + right.x * col * colOffset;
 		const z = position[ 2 ] - forward.z * backDist + right.z * col * colOffset;
 
-		slots.push( { position: [ x, position[ 1 ], z ], angle } );
+		slots.push( { position: [ x, position[ 1 ], z ], angle, backDist } );
 
 	}
 
@@ -1573,6 +1573,22 @@ function computeGridPositions( vehicleSpawn, count ) {
 function createAIDrivers( npcConfigs, gridSlots, models, scene, world, path ) {
 
 	if ( ! path || path.length < 2 ) return [];
+
+	// Average spacing between consecutive path points — used to convert
+	// each grid slot's "how far back from the line" distance directly
+	// into a starting path index, counting backward from index 0 (the
+	// finish line). This avoids a plain nearest-point spatial search,
+	// which could pick a point on the wrong side of the loop where the
+	// start and end come back close together near the finish line,
+	// sending that car off in the wrong direction from the start.
+	let totalLen = 0;
+	for ( let j = 0; j < path.length; j ++ ) {
+
+		const a = path[ j ], b = path[ ( j + 1 ) % path.length ];
+		totalLen += Math.hypot( b.x - a.x, b.z - a.z );
+
+	}
+	const avgSpacing = totalLen / path.length;
 
 	return npcConfigs.map( ( cfg, i ) => {
 
@@ -1590,14 +1606,8 @@ function createAIDrivers( npcConfigs, gridSlots, models, scene, world, path ) {
 		const group = vehicle.init( model );
 		scene.add( group );
 
-		let bestIdx = 0, bestDist = Infinity;
-		for ( let j = 0; j < path.length; j ++ ) {
-
-			const dx = path[ j ].x - slot.position[ 0 ], dz = path[ j ].z - slot.position[ 2 ];
-			const d = dx * dx + dz * dz;
-			if ( d < bestDist ) { bestDist = d; bestIdx = j; }
-
-		}
+		const stepsBack = Math.round( slot.backDist / avgSpacing );
+		const bestIdx = ( ( path.length - stepsBack ) % path.length + path.length ) % path.length;
 
 		return {
 			vehicle, idx: bestIdx,
