@@ -1614,6 +1614,8 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 
 	if ( ! path || path.length < 2 ) return;
 
+	const LOOKAHEAD = 4; // waypoints ahead to steer toward (points are close together now, ~1.9m apart)
+
 	for ( const d of drivers ) {
 
 		const input = { x: 0, z: 0, touchActive: false };
@@ -1621,10 +1623,10 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 		if ( racing && ! d.finished ) {
 
 			const target = path[ ( d.idx + 1 ) % path.length ];
-			const dx = target.x - d.vehicle.spherePos.x, dz = target.z - d.vehicle.spherePos.z;
-			const dist = Math.hypot( dx, dz );
+			const dx0 = target.x - d.vehicle.spherePos.x, dz0 = target.z - d.vehicle.spherePos.z;
+			const distToNext = Math.hypot( dx0, dz0 );
 
-			if ( dist < 1.0 ) {
+			if ( distToNext < 1.0 ) {
 
 				d.idx = ( d.idx + 1 ) % path.length;
 				if ( d.idx === 0 ) {
@@ -1636,11 +1638,35 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 
 			}
 
+			// Steer toward a point further down the path (not just the
+			// very next waypoint) so the car starts turning-in before a
+			// corner instead of reacting only once right on top of it —
+			// same idea as a real driver looking ahead through a turn.
+			const lookaheadPoint = path[ ( d.idx + LOOKAHEAD ) % path.length ];
+			const dx = lookaheadPoint.x - d.vehicle.spherePos.x, dz = lookaheadPoint.z - d.vehicle.spherePos.z;
+			const dist = Math.hypot( dx, dz );
+
 			if ( dist > 0.001 ) {
 
-				input.x = dx / dist;
-				input.z = dz / dist;
-				input.touchActive = true;
+				const carAngle = d.vehicle.container.rotation.y;
+				const targetAngle = Math.atan2( dx, dz );
+				let angleDiff = targetAngle - carAngle;
+				angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
+
+				// Proper steering-wheel input (same code path the
+				// keyboard uses) instead of the touch mode's instant
+				// slerp-to-direction — that was rotating the visible
+				// model straight at the target every frame while the
+				// physics body kept its old momentum, so the car looked
+				// like it was spinning out at every turn.
+				input.x = THREE.MathUtils.clamp( angleDiff * 2.2, -1, 1 );
+				input.touchActive = false;
+
+				// Ease off the throttle for sharp turns, like a real
+				// driver braking before a corner instead of charging in
+				// at full speed and losing grip.
+				const sharpness = THREE.MathUtils.clamp( Math.abs( angleDiff ) / ( Math.PI / 3 ), 0, 1 );
+				input.z = 1 - sharpness * 0.75;
 
 			}
 
