@@ -1614,6 +1614,8 @@ function createAIDrivers( npcConfigs, gridSlots, models, scene, world, path ) {
 			lapsCompleted: 0,
 			finished: false,
 			finishTime: null,
+			stuckTimer: 0,
+			lastPos: { x: slot.position[ 0 ], z: slot.position[ 2 ] },
 		};
 
 	} );
@@ -1632,6 +1634,58 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 		const input = { x: 0, z: 0, touchActive: false };
 
 		if ( racing && ! d.finished ) {
+
+			// Stuck watchdog: if a car hasn't actually moved much for a
+			// couple seconds (wedged against a wall at a bad angle,
+			// wheels spinning against something, etc.), steering alone
+			// might never recover it — decorations have no collider, but
+			// the track's own boundary/corner walls do. Forcibly
+			// reposition it back onto the path with a clean heading and
+			// zero velocity rather than leaving it stuck indefinitely.
+			const movedDist = Math.hypot(
+				d.vehicle.spherePos.x - d.lastPos.x,
+				d.vehicle.spherePos.z - d.lastPos.z
+			);
+			if ( movedDist < 0.15 ) {
+
+				d.stuckTimer += dt;
+
+			} else {
+
+				d.stuckTimer = 0;
+				d.lastPos = { x: d.vehicle.spherePos.x, z: d.vehicle.spherePos.z };
+
+			}
+
+			if ( d.stuckTimer > 2.5 ) {
+
+				let bestJ = d.idx, bestD = Infinity;
+				for ( let j = 0; j < path.length; j ++ ) {
+
+					const ddx = path[ j ].x - d.vehicle.spherePos.x, ddz = path[ j ].z - d.vehicle.spherePos.z;
+					const dd = ddx * ddx + ddz * ddz;
+					if ( dd < bestD ) { bestD = dd; bestJ = j; }
+
+				}
+				d.idx = bestJ;
+				const p = path[ bestJ ], pNext = path[ ( bestJ + 1 ) % path.length ];
+				const heading = Math.atan2( pNext.x - p.x, pNext.z - p.z );
+
+				rigidBody.setPosition( d.vehicle.physicsWorld, d.vehicle.rigidBody, [ p.x, 0.5, p.z ], false );
+				rigidBody.setLinearVelocity( d.vehicle.physicsWorld, d.vehicle.rigidBody, [ 0, 0, 0 ] );
+				rigidBody.setAngularVelocity( d.vehicle.physicsWorld, d.vehicle.rigidBody, [ 0, 0, 0 ] );
+				d.vehicle.spherePos.set( p.x, 0.5, p.z );
+				d.vehicle.sphereVel.set( 0, 0, 0 );
+				d.vehicle.container.position.set( p.x, 0, p.z );
+				d.vehicle.container.rotation.set( 0, heading, 0 );
+				d.vehicle.linearSpeed = 0;
+				d.vehicle.angularSpeed = 0;
+				d.vehicle.acceleration = 0;
+
+				d.stuckTimer = 0;
+				d.lastPos = { x: p.x, z: p.z };
+
+			}
 
 			const target = path[ ( d.idx + 1 ) % path.length ];
 			const dx0 = target.x - d.vehicle.spherePos.x, dz0 = target.z - d.vehicle.spherePos.z;
