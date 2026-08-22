@@ -6,11 +6,15 @@ import * as THREE from 'three';
 // those is wired up).
 //
 // Interaction:
-//  - Bring either controller within GRAB_RANGE of the object and hold
-//    that hand's thumbstick-click button (xr-standard index 3) — the
-//    object then tracks that controller's position/orientation exactly
-//    (offset preserved from the moment of grab, so it doesn't jump).
-//  - Release the button — the object stays wherever it was left.
+//  - Bring either controller within GRAB_RANGE of the object — it lights
+//    up (emissive glow) so it's obvious you're close enough, even before
+//    touching anything.
+//  - While lit up, hold that hand's GRIP/squeeze button (xr-standard
+//    index 1 — closing your hand around the controller, the standard
+//    "grab" gesture in VR/AR) — the object then tracks that controller's
+//    position/orientation exactly (offset preserved from the moment of
+//    grab, so it doesn't jump).
+//  - Release the grip — the object stays wherever it was left.
 //  - Left stick Y-axis (while not grabbing with the left hand) scales
 //    the object up/down, matching the same axis already used for the
 //    vehicle resize control in room-drive AR mode.
@@ -18,7 +22,7 @@ import * as THREE from 'three';
 //    the current position and scale. Fires onConfirm() once; grabbing
 //    and scaling are disabled after that.
 
-const GRAB_RANGE = 0.35; // meters
+const GRAB_RANGE = 0.5; // meters — generous on purpose, easier to find than to fine-tune
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 1.5;
 const SCALE_SPEED = 0.8; // per second at full stick deflection
@@ -37,12 +41,33 @@ export class PlaceableObject {
 		this._grabOffset = new THREE.Vector3();
 		this._grabQuatOffset = new THREE.Quaternion();
 
-		this._prevStickClick = { left: false, right: false };
+		this._prevGrip = { left: false, right: false };
 		this._prevTrigger = { left: false, right: false };
 
 		this._tmpPos = new THREE.Vector3();
 		this._tmpQuat = new THREE.Quaternion();
 		this._invQuat = new THREE.Quaternion();
+
+		// Visual proximity feedback — every material on the object
+		// glows white-ish when a controller is in grab range, and glows
+		// brighter/warmer while actually being held. Wrapped in
+		// try/catch since not every material type supports emissive.
+		this._materials = [];
+		object.traverse( ( c ) => { if ( c.isMesh && c.material ) this._materials.push( c.material ); } );
+		this._baseEmissive = this._materials.map( ( m ) => ( m.emissive ? m.emissive.clone() : null ) );
+
+	}
+
+	_setHighlight( state ) { // 'none' | 'near' | 'held'
+
+		this._materials.forEach( ( m, i ) => {
+
+			if ( ! m.emissive ) return;
+			if ( state === 'held' ) m.emissive.setRGB( 0.5, 0.4, 0.05 );
+			else if ( state === 'near' ) m.emissive.setRGB( 0.25, 0.25, 0.3 );
+			else m.emissive.copy( this._baseEmissive[ i ] );
+
+		} );
 
 	}
 
@@ -53,19 +78,21 @@ export class PlaceableObject {
 		const gamepads = this.arManager.gamepads;
 		const controllers = this.arManager.controllers;
 
+		let nearestDist = Infinity;
+
 		for ( const hand of [ 'left', 'right' ] ) {
 
 			const gp = gamepads[ hand ];
 			const controller = controllers[ hand ];
 			if ( ! gp || ! controller ) continue;
 
-			const stickClick = gp.buttons[ 3 ] ? gp.buttons[ 3 ].pressed : false;
-			const stickClickEdge = stickClick && ! this._prevStickClick[ hand ];
-			this._prevStickClick[ hand ] = stickClick;
+			const grip = gp.buttons[ 1 ] ? gp.buttons[ 1 ].pressed : false;
+			const gripEdge = grip && ! this._prevGrip[ hand ];
+			this._prevGrip[ hand ] = grip;
 
 			if ( this._grabbedHand === hand ) {
 
-				if ( ! stickClick ) {
+				if ( ! grip ) {
 
 					this._grabbedHand = null; // released
 
@@ -82,10 +109,12 @@ export class PlaceableObject {
 
 				}
 
-			} else if ( this._grabbedHand === null && stickClickEdge ) {
+			} else if ( this._grabbedHand === null ) {
 
 				const dist = controller.position.distanceTo( this.object.position );
-				if ( dist <= GRAB_RANGE ) {
+				nearestDist = Math.min( nearestDist, dist );
+
+				if ( dist <= GRAB_RANGE && gripEdge ) {
 
 					this._grabbedHand = hand;
 
@@ -108,12 +137,17 @@ export class PlaceableObject {
 
 				this.locked = true;
 				this._grabbedHand = null;
+				this._setHighlight( 'none' );
 				if ( this.onConfirm ) this.onConfirm();
 				return;
 
 			}
 
 		}
+
+		if ( this._grabbedHand ) this._setHighlight( 'held' );
+		else if ( nearestDist <= GRAB_RANGE ) this._setHighlight( 'near' );
+		else this._setHighlight( 'none' );
 
 		// Left stick Y-axis scales the object — only while the left hand
 		// isn't the one currently grabbing (avoids fighting the grab).
