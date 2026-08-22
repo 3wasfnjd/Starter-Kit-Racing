@@ -325,14 +325,14 @@ function createModeMenu( { arAvailable } ) {
 									<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2" fill="#cfc9e0" stroke="none"/>
 								</svg>
 								<div class="hw-mode-label">مضمار عائم</div>
-								<div class="hw-mode-sub">اختبار (مرحلة 2)</div>
+								<div class="hw-mode-sub">مضمار مصغّر</div>
 							</button>
-							<button class="hw-mode-card hw-ar-arena-btn" disabled>
+							<button class="hw-mode-card hw-ar-arena-btn">
 								<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
 									<rect x="4" y="9" width="16" height="9" rx="1.5"/><path d="M4 9l8-5 8 5"/>
 								</svg>
 								<div class="hw-mode-label">حلبة عائمة</div>
-								<div class="hw-mode-sub">قريبًا</div>
+								<div class="hw-mode-sub">حلبة تفحيط مصغّرة</div>
 							</button>
 						</div>
 						<a href="#" class="hw-back-link">‹ رجوع</a>
@@ -480,6 +480,19 @@ function createModeMenu( { arAvailable } ) {
 
 			menu.remove();
 			resolve( { choice: 'ar', arSubMode: 'track', vehicleKey: selectedVehicle, sessionPromise } );
+
+		} );
+
+		const arArenaBtn = menu.querySelector( '.hw-ar-arena-btn' );
+		arArenaBtn.addEventListener( 'click', () => {
+
+			const sessionPromise = navigator.xr.requestSession( 'immersive-ar', {
+				requiredFeatures: [ 'local-floor' ],
+				optionalFeatures: [ 'plane-detection', 'mesh-detection' ],
+			} );
+
+			menu.remove();
+			resolve( { choice: 'ar', arSubMode: 'arena', vehicleKey: selectedVehicle, sessionPromise } );
 
 		} );
 
@@ -2574,6 +2587,37 @@ async function startARPlaceableTest( { sessionPromise } ) {
 
 }
 
+// Visual-only drift arena (ground + 4 grandstand walls) — no physics,
+// no touching scene.background/fog/lighting (which the free-roam NORMAL
+// mode version does, but that would break AR passthrough). Everything
+// is parented under one returned Group so it can be grabbed/moved/
+// scaled as a unit, same idea as buildTrack()'s trackGroup.
+function buildArenaVisual( groundSize ) {
+
+	const arenaGroup = new THREE.Group();
+	const roadHalf = groundSize / 2;
+
+	const asphaltTexture = createAsphaltTexture();
+	asphaltTexture.repeat.set( groundSize / 8, groundSize / 8 );
+	const groundMesh = new THREE.Mesh(
+		new THREE.PlaneGeometry( groundSize, groundSize ),
+		new THREE.MeshStandardMaterial( { map: asphaltTexture, roughness: 1, metalness: 0 } )
+	);
+	groundMesh.rotation.x = - Math.PI / 2;
+	arenaGroup.add( groundMesh );
+
+	const wallThickness = 0.2;
+	for ( const sign of [ 1, -1 ] ) {
+
+		buildGrandstandWall( arenaGroup, 'x', roadHalf * 2, sign * roadHalf, wallThickness, sign );
+		buildGrandstandWall( arenaGroup, 'z', roadHalf * 2, sign * roadHalf, wallThickness, sign );
+
+	}
+
+	return { arenaGroup, roadHalf };
+
+}
+
 // ─── AR floating track (Stage 3) ────────────────────────────
 // The default track, built exactly like NORMAL mode, but grabbable/
 // movable/scalable (PlaceableObject, same mechanic proven in Stage 2)
@@ -2684,6 +2728,109 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 			} catch ( e ) {
 
 				console.error( '[main] floating-track frameUpdate() error:', e );
+
+			}
+
+			renderer.render( scene, placeholderCamera );
+
+		}
+
+	};
+
+}
+
+// ─── AR floating arena (Stage 4) ────────────────────────────
+// Same idea as the floating track (Stage 3): grabbable/movable/scalable
+// (PlaceableObject), simple kinematic car as a child of the arena group
+// so it automatically follows the group's placement/scale. Player only
+// for this first version — no AI drifting alongside yet.
+async function startARFloatingArena( { vehicleKey, sessionPromise } ) {
+
+	const arManager = new ARManager( { renderer, scene, models } );
+	await arManager.requestSession( sessionPromise );
+	arManager.previewGroup.visible = false; // not using hit-test placement here
+
+	const placeholderCamera = new THREE.PerspectiveCamera();
+
+	const ARENA_SIZE = 60; // matches NORMAL mode free-roam's groundSize
+	const { arenaGroup, roadHalf } = buildArenaVisual( ARENA_SIZE );
+
+	// Small tabletop scale by default, positioned a short reach in front
+	// of wherever the headset happens to be when the session starts —
+	// same reasoning as the floating track.
+	arenaGroup.scale.setScalar( 0.02 );
+	arenaGroup.position.set( 0, 0.9, - 0.6 );
+	scene.add( arenaGroup );
+
+	const light = new THREE.DirectionalLight( 0xffffff, 2.5 );
+	light.position.set( 1, 2, 1 );
+	scene.add( light );
+	scene.add( new THREE.AmbientLight( 0xffffff, 0.7 ) );
+
+	// Arena spans ~60 units at scale 1 (similar order of magnitude to
+	// the track), so the same small-tabletop-to-large-room scale range
+	// applies here too.
+	const placeable = new PlaceableObject( arenaGroup, arManager, { minScale: 0.005, maxScale: 0.1 } );
+
+	const carModel = ( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] ).clone();
+	carModel.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
+	carModel.position.set( 0, 0.5, 0 );
+	arenaGroup.add( carModel ); // child of arenaGroup — inherits its transform automatically
+
+	const car = { x: 0, z: 0, heading: 0, speed: 0 };
+	const CAR_MAX_SPEED = 8; // local units/sec, in the arena's own (unscaled) coordinate space
+	const CAR_ACCEL = 10;
+	const CAR_TURN_RATE = 2.4; // rad/sec at full speed
+
+	let racing = false;
+
+	placeable.onConfirm = () => {
+
+		racing = true;
+
+	};
+
+	return {
+
+		frameUpdate( dt ) {
+
+			try {
+
+				placeable.update( dt );
+
+				if ( racing ) {
+
+					const gp = arManager.gamepads.right;
+					const axes = gp ? gp.axes : [];
+					const steerRaw = axes.length > 2 ? axes[ 2 ] : 0;
+					const steer = Math.abs( steerRaw ) > 0.12 ? steerRaw : 0;
+					const throttle = gp && gp.buttons[ 0 ] ? gp.buttons[ 0 ].value : 0;
+					const brake = arManager.gamepads.left && arManager.gamepads.left.buttons[ 0 ]
+						? arManager.gamepads.left.buttons[ 0 ].value : 0;
+
+					const targetSpeed = ( throttle - brake ) * CAR_MAX_SPEED;
+					car.speed += THREE.MathUtils.clamp( targetSpeed - car.speed, - CAR_ACCEL * dt, CAR_ACCEL * dt );
+
+					const turnFactor = THREE.MathUtils.clamp( Math.abs( car.speed ) / CAR_MAX_SPEED, 0.15, 1 );
+					car.heading -= steer * CAR_TURN_RATE * turnFactor * dt * Math.sign( car.speed || 1 );
+
+					car.x += Math.sin( car.heading ) * car.speed * dt;
+					car.z += Math.cos( car.heading ) * car.speed * dt;
+
+					// Crude boundary clamp (simple square arena bounds) —
+					// not real wall collision, just keeps the car inside.
+					const margin = 2;
+					car.x = THREE.MathUtils.clamp( car.x, - roadHalf + margin, roadHalf - margin );
+					car.z = THREE.MathUtils.clamp( car.z, - roadHalf + margin, roadHalf - margin );
+
+					carModel.position.set( car.x, 0.5, car.z );
+					carModel.rotation.y = car.heading;
+
+				}
+
+			} catch ( e ) {
+
+				console.error( '[main] floating-arena frameUpdate() error:', e );
 
 			}
 
@@ -3040,6 +3187,31 @@ async function init() {
 						e && e.stack ? e.stack : '',
 						resolve,
 						'تعذّر تشغيل المضمار العائم'
+					);
+
+				} );
+				continue;
+
+			}
+
+		} else if ( choice === 'ar' && arSubMode === 'arena' ) {
+
+			try {
+
+				activeMode = await startARFloatingArena( { vehicleKey, sessionPromise } );
+				break;
+
+			} catch ( e ) {
+
+				activeMode = null;
+
+				await new Promise( ( resolve ) => {
+
+					showErrorOverlay(
+						( e && e.message ) ? e.message : String( e ),
+						e && e.stack ? e.stack : '',
+						resolve,
+						'تعذّر تشغيل الحلبة العائمة'
 					);
 
 				} );
