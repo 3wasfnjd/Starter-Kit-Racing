@@ -2727,12 +2727,28 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 	const gridSlots = computeGridPositions( spawn, 4 );
 	const playerSlot = gridSlots[ 0 ];
 
-	// Simple kinematic car — a plain model, no Vehicle.js/rigid body.
+	// Player car wrapped in a container Group — matches Vehicle.js's own
+	// convention (container -> model -> body node), which is what
+	// addVehicleLights()/Radio() expect. The container is what moves;
+	// carModel itself stays static at local origin inside it.
+	const carContainer = new THREE.Group();
 	const carModel = ( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] ).clone();
 	carModel.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
-	carModel.position.set( playerSlot.position[ 0 ], playerSlot.position[ 1 ], playerSlot.position[ 2 ] );
-	carModel.rotation.y = playerSlot.angle;
-	trackGroup.add( carModel ); // child of trackGroup — inherits its transform automatically
+	carContainer.add( carModel );
+	carContainer.position.set( playerSlot.position[ 0 ], playerSlot.position[ 1 ], playerSlot.position[ 2 ] );
+	carContainer.rotation.y = playerSlot.angle;
+	trackGroup.add( carContainer ); // child of trackGroup — inherits its transform automatically
+
+	const vehicleLights = addVehicleLights( carContainer );
+
+	const audio = new GameAudio();
+	audio.init( renderer.xr.getCamera(), carContainer );
+	// No DOM click/touchstart/keydown once inside the XR session, so the
+	// normal gesture-based unlock() would never fire — same reasoning as
+	// the existing room-drive AR mode.
+	audio.forceUnlock();
+
+	const radio = new Radio( audio.listener, carContainer );
 
 	const car = {
 		x: playerSlot.position[ 0 ], z: playerSlot.position[ 2 ], heading: playerSlot.angle,
@@ -2780,19 +2796,44 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 					const turnFactor = THREE.MathUtils.clamp( Math.abs( car.speed ) / CAR_MAX_SPEED, 0.15, 1 );
 					car.heading -= steer * CAR_TURN_RATE * turnFactor * dt * Math.sign( car.speed || 1 );
 
+					const prevX = car.x, prevZ = car.z;
 					car.x += Math.sin( car.heading ) * car.speed * dt;
 					car.z += Math.cos( car.heading ) * car.speed * dt;
 
 					// Crude boundary clamp (overall track bounding box) —
 					// not real per-wall collision, just keeps the car from
-					// driving off into empty space indefinitely.
-					car.x = THREE.MathUtils.clamp( car.x, bounds.centerX - bounds.halfWidth, bounds.centerX + bounds.halfWidth );
-					car.z = THREE.MathUtils.clamp( car.z, bounds.centerZ - bounds.halfDepth, bounds.centerZ + bounds.halfDepth );
+					// driving off into empty space indefinitely. No real
+					// rigid body here to generate a genuine contact event,
+					// so an impact sound plays whenever the clamp actually
+					// catches meaningful speed — a reasonable stand-in for
+					// "hit the wall".
+					const clampedX = THREE.MathUtils.clamp( car.x, bounds.centerX - bounds.halfWidth, bounds.centerX + bounds.halfWidth );
+					const clampedZ = THREE.MathUtils.clamp( car.z, bounds.centerZ - bounds.halfDepth, bounds.centerZ + bounds.halfDepth );
+					if ( ( clampedX !== car.x || clampedZ !== car.z ) && Math.abs( car.speed ) > 1.5 ) {
 
-					carModel.position.set( car.x, spawn.position[ 1 ], car.z );
-					carModel.rotation.y = car.heading;
+						audio.playImpact( Math.abs( car.speed ) );
+						car.speed *= 0.3;
+
+					}
+					car.x = clampedX;
+					car.z = clampedZ;
+
+					carContainer.position.set( car.x, playerSlot.position[ 1 ], car.z );
+					carContainer.rotation.y = car.heading;
+
+					audio.update( dt, car.speed / CAR_MAX_SPEED, throttle - brake, 0, car.speed < -0.01 );
 
 				}
+
+				updateVehicleLights( vehicleLights, dt, trackGroup.scale.x, car.speed < -0.01 );
+				if ( arManager.getHeadlightToggle() ) toggleHeadlights( vehicleLights );
+				if ( arManager.getHazardToggle() ) toggleHazards( vehicleLights );
+				setHighBeam( vehicleLights, arManager.getHighBeamHold() );
+				audio.setHorn( arManager.getHornHold() );
+
+				const radioBtn = arManager.getRadioButtons();
+				if ( radioBtn.next ) radio.next();
+				if ( radioBtn.toggle ) radio.togglePlayPause();
 
 			} catch ( e ) {
 
@@ -2985,10 +3026,20 @@ async function startARFloatingArena( { vehicleKey, sessionPromise } ) {
 
 	const placeable = new PlaceableObject( arenaGroup, arManager, { minScale: 0.005, maxScale: 0.1 } );
 
+	const carContainer = new THREE.Group();
 	const carModel = ( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] ).clone();
 	carModel.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
-	carModel.position.set( 0, 0.5, 0 );
-	arenaGroup.add( carModel ); // child of arenaGroup — inherits its transform automatically
+	carContainer.add( carModel );
+	carContainer.position.set( 0, 0.5, 0 );
+	arenaGroup.add( carContainer ); // child of arenaGroup — inherits its transform automatically
+
+	const vehicleLights = addVehicleLights( carContainer );
+
+	const audio = new GameAudio();
+	audio.init( renderer.xr.getCamera(), carContainer );
+	audio.forceUnlock();
+
+	const radio = new Radio( audio.listener, carContainer );
 
 	const car = { x: 0, z: 0, heading: 0, speed: 0 };
 	const CAR_MAX_SPEED = 8; // local units/sec, in the arena's own (unscaled) coordinate space
@@ -3037,15 +3088,43 @@ async function startARFloatingArena( { vehicleKey, sessionPromise } ) {
 					car.z += Math.cos( car.heading ) * car.speed * dt;
 
 					// Crude boundary clamp (simple square pad) — not real
-					// wall collision, just keeps the car inside.
+					// wall collision, just keeps the car inside. No real
+					// rigid body here for a genuine contact event, so an
+					// impact sound plays whenever the clamp actually
+					// catches meaningful speed — a stand-in for "hit the
+					// barrier".
 					const margin = 2;
-					car.x = THREE.MathUtils.clamp( car.x, - PAD_HALF + margin, PAD_HALF - margin );
-					car.z = THREE.MathUtils.clamp( car.z, - PAD_HALF + margin, PAD_HALF - margin );
+					const clampedX = THREE.MathUtils.clamp( car.x, - PAD_HALF + margin, PAD_HALF - margin );
+					const clampedZ = THREE.MathUtils.clamp( car.z, - PAD_HALF + margin, PAD_HALF - margin );
+					if ( ( clampedX !== car.x || clampedZ !== car.z ) && Math.abs( car.speed ) > 1.5 ) {
 
-					carModel.position.set( car.x, 0.5, car.z );
-					carModel.rotation.y = car.heading;
+						audio.playImpact( Math.abs( car.speed ) );
+						car.speed *= 0.3;
+
+					}
+					car.x = clampedX;
+					car.z = clampedZ;
+
+					carContainer.position.set( car.x, 0.5, car.z );
+					carContainer.rotation.y = car.heading;
+
+					// Rough drift-intensity stand-in: sharper steering at
+					// higher speed reads as more sideways slide, matching
+					// this mode's always-full-throttle drift-show feel.
+					const driftEstimate = THREE.MathUtils.clamp( Math.abs( steer ) * ( Math.abs( car.speed ) / CAR_MAX_SPEED ), 0, 1 );
+					audio.update( dt, car.speed / CAR_MAX_SPEED, throttle - brake, driftEstimate, car.speed < -0.01 );
 
 				}
+
+				updateVehicleLights( vehicleLights, dt, arenaGroup.scale.x, car.speed < -0.01 );
+				if ( arManager.getHeadlightToggle() ) toggleHeadlights( vehicleLights );
+				if ( arManager.getHazardToggle() ) toggleHazards( vehicleLights );
+				setHighBeam( vehicleLights, arManager.getHighBeamHold() );
+				audio.setHorn( arManager.getHornHold() );
+
+				const radioBtn = arManager.getRadioButtons();
+				if ( radioBtn.next ) radio.next();
+				if ( radioBtn.toggle ) radio.togglePlayPause();
 
 			} catch ( e ) {
 
