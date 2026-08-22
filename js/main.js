@@ -2604,6 +2604,93 @@ async function startARPlaceableTest( { sessionPromise } ) {
 // track for free, no extra bookkeeping needed. It trades away momentum/
 // suspension/drift physics for correctness under a moving reference
 // frame; can revisit if that trade turns out to matter in practice.
+// ─── Kinematic AI (no physics — for the floating track/arena, ──
+// ─── where crashcat's world-space rigid bodies can't follow    ──
+// ─── a grabbable/scalable parent group's own transform)        ──
+// Same path-following/lookahead-steering math as the web version's
+// updateAIDrivers(), just operating on plain {x,z,heading,speed} state
+// instead of a Vehicle+rigidBody, and parented under the track/arena
+// group so movement is automatically correct after a grab or resize.
+
+function createKinematicTrackAI( npcConfigs, gridSlots, models, parentGroup, path ) {
+
+	if ( ! path || path.length < 2 ) return [];
+
+	let totalLen = 0;
+	for ( let j = 0; j < path.length; j ++ ) {
+
+		const a = path[ j ], b = path[ ( j + 1 ) % path.length ];
+		totalLen += Math.hypot( b.x - a.x, b.z - a.z );
+
+	}
+	const avgSpacing = totalLen / path.length;
+
+	return npcConfigs.map( ( cfg, i ) => {
+
+		const slot = gridSlots[ i + 1 ]; // slot 0 is the player
+		const model = ( models[ cfg.key ] || models[ 'vehicle-truck-yellow' ] ).clone();
+		model.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
+		model.position.set( slot.position[ 0 ], slot.position[ 1 ], slot.position[ 2 ] );
+		model.rotation.y = slot.angle;
+		parentGroup.add( model );
+
+		const stepsBack = Math.round( slot.backDist / avgSpacing );
+		const idx = ( ( path.length - stepsBack ) % path.length + path.length ) % path.length;
+
+		return {
+			model, idx,
+			x: slot.position[ 0 ], z: slot.position[ 2 ], heading: slot.angle, speed: 0,
+			y: slot.position[ 1 ],
+		};
+
+	} );
+
+}
+
+function updateKinematicTrackAI( drivers, path, dt, racing ) {
+
+	if ( ! path || path.length < 2 ) return;
+
+	const LOOKAHEAD = 2;
+	const MAX_SPEED = 8, ACCEL = 10, TURN_RATE = 3;
+
+	for ( const d of drivers ) {
+
+		if ( ! racing ) continue;
+
+		const target = path[ ( d.idx + 1 ) % path.length ];
+		const dx0 = target.x - d.x, dz0 = target.z - d.z;
+		if ( Math.hypot( dx0, dz0 ) < 1.0 ) d.idx = ( d.idx + 1 ) % path.length;
+
+		const lookaheadPoint = path[ ( d.idx + LOOKAHEAD ) % path.length ];
+		const dx = lookaheadPoint.x - d.x, dz = lookaheadPoint.z - d.z;
+		const dist = Math.hypot( dx, dz );
+
+		let targetSpeed = MAX_SPEED;
+		if ( dist > 0.001 ) {
+
+			const targetAngle = Math.atan2( dx, dz );
+			let angleDiff = targetAngle - d.heading;
+			angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
+
+			d.heading += THREE.MathUtils.clamp( angleDiff, - TURN_RATE * dt, TURN_RATE * dt );
+
+			const sharpness = THREE.MathUtils.clamp( Math.abs( angleDiff ) / ( Math.PI / 3 ), 0, 1 );
+			targetSpeed = MAX_SPEED * ( 1 - sharpness * 0.5 );
+
+		}
+
+		d.speed += THREE.MathUtils.clamp( targetSpeed - d.speed, - ACCEL * dt, ACCEL * dt );
+		d.x += Math.sin( d.heading ) * d.speed * dt;
+		d.z += Math.cos( d.heading ) * d.speed * dt;
+
+		d.model.position.set( d.x, d.y, d.z );
+		d.model.rotation.y = d.heading;
+
+	}
+
+}
+
 async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 
 	const arManager = new ARManager( { renderer, scene, models } );
@@ -2615,6 +2702,7 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 	const { trackGroup } = buildTrack( scene, models, null, { skipDeco: true } );
 	const bounds = computeTrackBounds( TRACK_CELLS );
 	const spawn = computeSpawnPosition( null );
+	const trackPath = computeTrackPath( null );
 
 	// Small tabletop scale by default, positioned a short reach in front
 	// of wherever the headset happens to be when the session starts —
@@ -2634,20 +2722,30 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 	// enough to feel like an actual tabletop model.
 	const placeable = new PlaceableObject( trackGroup, arManager, { minScale: 0.005, maxScale: 0.1 } );
 
+	// Starting grid: player at the front, 3 AI staggered behind — same
+	// grid math as the web race mode.
+	const gridSlots = computeGridPositions( spawn, 4 );
+	const playerSlot = gridSlots[ 0 ];
+
 	// Simple kinematic car — a plain model, no Vehicle.js/rigid body.
 	const carModel = ( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] ).clone();
 	carModel.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
-	carModel.position.set( spawn.position[ 0 ], spawn.position[ 1 ], spawn.position[ 2 ] );
-	carModel.rotation.y = spawn.angle;
+	carModel.position.set( playerSlot.position[ 0 ], playerSlot.position[ 1 ], playerSlot.position[ 2 ] );
+	carModel.rotation.y = playerSlot.angle;
 	trackGroup.add( carModel ); // child of trackGroup — inherits its transform automatically
 
 	const car = {
-		x: spawn.position[ 0 ], z: spawn.position[ 2 ], heading: spawn.angle,
+		x: playerSlot.position[ 0 ], z: playerSlot.position[ 2 ], heading: playerSlot.angle,
 		speed: 0,
 	};
 	const CAR_MAX_SPEED = 8; // local units/sec, in the track's own (unscaled) coordinate space
 	const CAR_ACCEL = 10;
 	const CAR_TURN_RATE = 2.4; // rad/sec at full speed
+
+	const aiDrivers = createKinematicTrackAI(
+		NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
+		gridSlots, models, trackGroup, trackPath
+	);
 
 	let racing = false;
 
@@ -2664,6 +2762,7 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 			try {
 
 				placeable.update( dt );
+				updateKinematicTrackAI( aiDrivers, trackPath, dt, racing );
 
 				if ( racing ) {
 
@@ -2786,6 +2885,81 @@ function buildDriftPad( half, models ) {
 
 }
 
+// Kinematic version of the web free-roam AI (random wander target,
+// always full throttle, no easing off for turns — same idea as
+// updateFreeRoamAI in the web build) for the floating arena.
+function createKinematicArenaAI( npcConfigs, models, parentGroup, padHalf ) {
+
+	const spawnMargin = padHalf * 0.5;
+
+	return npcConfigs.map( ( cfg, i ) => {
+
+		const angle = ( i / npcConfigs.length ) * Math.PI * 2;
+		const dist = spawnMargin * ( 0.4 + Math.random() * 0.5 );
+		const x = Math.cos( angle ) * dist;
+		const z = Math.sin( angle ) * dist;
+		const heading = Math.random() * Math.PI * 2;
+
+		const model = ( models[ cfg.key ] || models[ 'vehicle-truck-yellow' ] ).clone();
+		model.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
+		model.position.set( x, 0.5, z );
+		model.rotation.y = heading;
+		parentGroup.add( model );
+
+		return { model, x, z, heading, speed: 0, target: { x, z }, retargetTimer: 0 };
+
+	} );
+
+}
+
+function updateKinematicArenaAI( drivers, dt, racing, padHalf ) {
+
+	const wanderRadius = padHalf * 0.6;
+	const MAX_SPEED = 8, ACCEL = 10, TURN_RATE = 3.5;
+
+	for ( const d of drivers ) {
+
+		if ( ! racing ) continue;
+
+		d.retargetTimer -= dt;
+		const distToTarget = Math.hypot( d.target.x - d.x, d.target.z - d.z );
+
+		if ( d.retargetTimer <= 0 || distToTarget < 3 ) {
+
+			const a = Math.random() * Math.PI * 2;
+			const r = Math.random() * wanderRadius;
+			d.target = { x: Math.cos( a ) * r, z: Math.sin( a ) * r };
+			d.retargetTimer = 2 + Math.random() * 3;
+
+		}
+
+		const dx = d.target.x - d.x, dz = d.target.z - d.z;
+		const dist = Math.hypot( dx, dz );
+
+		if ( dist > 0.001 ) {
+
+			const targetAngle = Math.atan2( dx, dz );
+			let angleDiff = targetAngle - d.heading;
+			angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
+			d.heading += THREE.MathUtils.clamp( angleDiff, - TURN_RATE * dt, TURN_RATE * dt );
+
+		}
+
+		d.speed += THREE.MathUtils.clamp( MAX_SPEED - d.speed, - ACCEL * dt, ACCEL * dt );
+		d.x += Math.sin( d.heading ) * d.speed * dt;
+		d.z += Math.cos( d.heading ) * d.speed * dt;
+
+		const margin = 2;
+		d.x = THREE.MathUtils.clamp( d.x, - padHalf + margin, padHalf - margin );
+		d.z = THREE.MathUtils.clamp( d.z, - padHalf + margin, padHalf - margin );
+
+		d.model.position.set( d.x, 0.5, d.z );
+		d.model.rotation.y = d.heading;
+
+	}
+
+}
+
 async function startARFloatingArena( { vehicleKey, sessionPromise } ) {
 
 	const arManager = new ARManager( { renderer, scene, models } );
@@ -2821,6 +2995,11 @@ async function startARFloatingArena( { vehicleKey, sessionPromise } ) {
 	const CAR_ACCEL = 10;
 	const CAR_TURN_RATE = 2.4; // rad/sec at full speed
 
+	const aiDrivers = createKinematicArenaAI(
+		NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
+		models, arenaGroup, PAD_HALF
+	);
+
 	let racing = false;
 
 	placeable.onConfirm = () => {
@@ -2836,6 +3015,7 @@ async function startARFloatingArena( { vehicleKey, sessionPromise } ) {
 			try {
 
 				placeable.update( dt );
+				updateKinematicArenaAI( aiDrivers, dt, racing, PAD_HALF );
 
 				if ( racing ) {
 
