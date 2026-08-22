@@ -1693,16 +1693,31 @@ function createFreeRoamAI( npcConfigs, models, scene, world, roadHalf ) {
 
 function updateFreeRoamAI( drivers, dt, roadHalf ) {
 
-	const wanderRadius = roadHalf * 0.75; // stay well clear of the boundary wall/barrier ring
+	// Kept well inside the boundary wall (and the grandstands beyond
+	// it) — the wander target itself never gets close to the wall, and
+	// current-position is checked every frame as a second safety net so
+	// speed/drift momentum carrying a car past its target can't send it
+	// into the wall either.
+	const wanderRadius = roadHalf * 0.45;
+	const pullBackRadius = roadHalf * 0.6;
 
 	for ( const d of drivers ) {
 
 		d.retargetTimer -= dt;
 
+		const distFromCenter = Math.hypot( d.vehicle.spherePos.x, d.vehicle.spherePos.z );
 		const dx0 = d.target.x - d.vehicle.spherePos.x, dz0 = d.target.z - d.vehicle.spherePos.z;
 		const distToTarget = Math.hypot( dx0, dz0 );
 
-		if ( d.retargetTimer <= 0 || distToTarget < 3 ) {
+		if ( distFromCenter > pullBackRadius ) {
+
+			// Too close to the wall/grandstands right now — override
+			// whatever the current target was and head straight back
+			// toward the middle immediately, ignoring the normal timer.
+			d.target = { x: 0, z: 0 };
+			d.retargetTimer = 2 + Math.random() * 3;
+
+		} else if ( d.retargetTimer <= 0 || distToTarget < 3 ) {
 
 			const a = Math.random() * Math.PI * 2;
 			const r = Math.random() * wanderRadius;
@@ -2025,16 +2040,6 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		groundMesh.position.set( 0, - 0.12, 0 );
 		groundMesh.receiveShadow = true;
 		scene.add( groundMesh );
-
-		const laneTexture = createLaneMarkingsTexture();
-		laneTexture.repeat.set( groundSize / 12, groundSize / 12 );
-		const laneMesh = new THREE.Mesh(
-			new THREE.PlaneGeometry( groundSize, groundSize ),
-			new THREE.MeshBasicMaterial( { map: laneTexture, transparent: true, depthWrite: false } )
-		);
-		laneMesh.rotation.x = - Math.PI / 2;
-		laneMesh.position.set( 0, - 0.119, 0 );
-		scene.add( laneMesh );
 
 		// Solid perimeter walls so the car bounces off the edge instead of
 		// driving past it and falling into the void — now with visible
