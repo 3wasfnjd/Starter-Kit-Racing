@@ -18,9 +18,11 @@ import * as THREE from 'three';
 //  - Left stick Y-axis (while not grabbing with the left hand) scales
 //    the object up/down, matching the same axis already used for the
 //    vehicle resize control in room-drive AR mode.
-//  - Trigger (xr-standard index 0), from either hand — confirms/locks
-//    the current position and scale. Fires onConfirm() once; grabbing
-//    and scaling are disabled after that.
+//  - Trigger (xr-standard index 0), from either hand — fires onConfirm()
+//    once (e.g. to start the race). Grabbing and scaling stay available
+//    afterward too — confirming doesn't lock the object in place, since
+//    the whole point is being able to keep adjusting position/size
+//    whenever you want, even mid-race.
 
 const GRAB_RANGE = 0.5; // meters — generous on purpose, easier to find than to fine-tune
 const MIN_SCALE = 0.05;
@@ -34,7 +36,7 @@ export class PlaceableObject {
 		this.object = object;
 		this.arManager = arManager;
 
-		this.locked = false;
+		this.confirmed = false;
 		this.onConfirm = null;
 
 		this._grabbedHand = null; // 'left' | 'right' | null
@@ -72,8 +74,6 @@ export class PlaceableObject {
 	}
 
 	update( dt ) {
-
-		if ( this.locked ) return;
 
 		const gamepads = this.arManager.gamepads;
 		const controllers = this.arManager.controllers;
@@ -133,13 +133,10 @@ export class PlaceableObject {
 			const trigEdge = trig && ! this._prevTrigger[ hand ];
 			this._prevTrigger[ hand ] = trig;
 
-			if ( trigEdge ) {
+			if ( trigEdge && ! this.confirmed ) {
 
-				this.locked = true;
-				this._grabbedHand = null;
-				this._setHighlight( 'none' );
+				this.confirmed = true;
 				if ( this.onConfirm ) this.onConfirm();
-				return;
 
 			}
 
