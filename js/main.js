@@ -2747,10 +2747,12 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 	const spawn = computeSpawnPosition( null );
 	const trackPath = computeTrackPath( null );
 
-	// Small tabletop scale by default, positioned a short reach in front
-	// of wherever the headset happens to be when the session starts —
-	// same reasoning as the Stage 2 test box.
-	trackGroup.scale.setScalar( 0.04 );
+	// Scale is temporarily locked (min===max disables the resize stick
+	// control) while sorting out position/physics alignment — resize
+	// adds a whole extra dimension of things that can go wrong, so it's
+	// worth confirming everything else is solid at one fixed size first.
+	const FIXED_SCALE = 0.04;
+	trackGroup.scale.setScalar( FIXED_SCALE );
 	trackGroup.position.set( 0, 0.9, - 0.6 );
 
 	const light = new THREE.DirectionalLight( 0xffffff, 2.5 );
@@ -2758,12 +2760,7 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 	scene.add( light );
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.7 ) );
 
-	// Track spans ~60 units at scale 1, so this range covers roughly
-	// 0.3m (a small tabletop model) up to 6m (a large room-filling
-	// layout) — the previous shared default (0.05-1.5, tuned for the
-	// much smaller Stage 2 test box) didn't let the track get small
-	// enough to feel like an actual tabletop model.
-	const placeable = new PlaceableObject( trackGroup, arManager, { minScale: 0.005, maxScale: 0.1 } );
+	const placeable = new PlaceableObject( trackGroup, arManager, { minScale: FIXED_SCALE, maxScale: FIXED_SCALE } );
 
 	// Starting grid: player at the front, 3 AI staggered behind — same
 	// grid math as the web race mode.
