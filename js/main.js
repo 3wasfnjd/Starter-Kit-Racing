@@ -6,7 +6,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle, MAX_SPEED } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath } from './Track.js';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath, NPC_TRUCKS } from './Track.js';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { DriftMarks } from './DriftMarks.js';
@@ -1646,6 +1646,96 @@ function createAIDrivers( npcConfigs, gridSlots, models, scene, world, path ) {
 
 }
 
+// ─── Free-roam AI (random wandering "تفحيط" show, no fixed path) ──
+// Unlike the race AI above, these don't follow a track — they just pick
+// a random point inside the open arena, drive at it aggressively (full
+// throttle, no easing off for the turn — the opposite of the race AI's
+// cornering behavior), and pick a new random point every few seconds.
+// The sharp steering at speed naturally induces the same drift the
+// player's own car gets from Vehicle.js's physics, giving a "تفحيط
+// show" look. No collision avoidance — bumping the boundary wall or
+// another car is fine, even expected, for this look.
+
+function createFreeRoamAI( npcConfigs, models, scene, world, roadHalf ) {
+
+	const spawnMargin = roadHalf * 0.5; // keep starting points away from the walls
+
+	return npcConfigs.map( ( cfg, i ) => {
+
+		const angle = ( i / npcConfigs.length ) * Math.PI * 2;
+		const dist = spawnMargin * ( 0.4 + Math.random() * 0.5 );
+		const x = Math.cos( angle ) * dist;
+		const z = Math.sin( angle ) * dist;
+		const heading = Math.random() * Math.PI * 2;
+
+		const sphereBody = createSphereBody( world, [ x, 0.5, z ] );
+
+		const vehicle = new Vehicle();
+		vehicle.rigidBody = sphereBody;
+		vehicle.physicsWorld = world;
+		vehicle.spherePos.set( x, 0.5, z );
+		vehicle.prevModelPos.set( x, 0, z );
+		vehicle.container.rotation.y = heading;
+
+		const model = models[ cfg.key ] || models[ 'vehicle-truck-yellow' ];
+		const group = vehicle.init( model );
+		scene.add( group );
+
+		return {
+			vehicle,
+			target: { x, z }, // reached immediately, forces a fresh pick on frame 1
+			retargetTimer: 0,
+		};
+
+	} );
+
+}
+
+function updateFreeRoamAI( drivers, dt, roadHalf ) {
+
+	const wanderRadius = roadHalf * 0.75; // stay well clear of the boundary wall/barrier ring
+
+	for ( const d of drivers ) {
+
+		d.retargetTimer -= dt;
+
+		const dx0 = d.target.x - d.vehicle.spherePos.x, dz0 = d.target.z - d.vehicle.spherePos.z;
+		const distToTarget = Math.hypot( dx0, dz0 );
+
+		if ( d.retargetTimer <= 0 || distToTarget < 3 ) {
+
+			const a = Math.random() * Math.PI * 2;
+			const r = Math.random() * wanderRadius;
+			d.target = { x: Math.cos( a ) * r, z: Math.sin( a ) * r };
+			d.retargetTimer = 2 + Math.random() * 3; // new target every 2-5s even if not reached
+
+		}
+
+		const dx = d.target.x - d.vehicle.spherePos.x, dz = d.target.z - d.vehicle.spherePos.z;
+		const dist = Math.hypot( dx, dz );
+
+		const input = { x: 0, z: 1, touchActive: false }; // always full throttle — no easing off for turns, unlike the race AI
+
+		if ( dist > 0.001 ) {
+
+			const carAngle = d.vehicle.container.rotation.y;
+			const targetAngle = Math.atan2( dx, dz );
+			let angleDiff = targetAngle - carAngle;
+			angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
+
+			// Higher gain than the race AI on purpose — snappier, more
+			// aggressive direction changes at speed are exactly what
+			// triggers Vehicle.js's own drift physics.
+			input.x = THREE.MathUtils.clamp( angleDiff * 3.5, -1, 1 );
+
+		}
+
+		d.vehicle.update( dt, input );
+
+	}
+
+}
+
 function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 
 	if ( ! path || path.length < 2 ) return;
@@ -1887,6 +1977,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const world = createPhysicsWorld();
 	let sphereBody, vehicleSpawn, lapTimer = null;
 	let trackPath = null, aiDrivers = [];
+	let freeRoamHalf = 0;
 
 	if ( freeRoam ) {
 
@@ -2051,6 +2142,15 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		buildTireStack( scene, roadHalf - 3, - ( roadHalf - 3 ), 6 );
 		buildWarningSign( scene, -4.5, roadHalf - 1, Math.PI );
 		buildWarningSign( scene, 4.5, roadHalf - 1, Math.PI );
+
+		// Same 3 NPC models as the race grid, but wandering/drifting
+		// randomly instead of following a track — see
+		// createFreeRoamAI/updateFreeRoamAI.
+		aiDrivers = createFreeRoamAI(
+			NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
+			models, scene, world, roadHalf
+		);
+		freeRoamHalf = roadHalf;
 
 		vehicleSpawn = { position: [ 0, 0.5, 0 ], angle: 0 };
 		sphereBody = createSphereBody( world, vehicleSpawn.position );
@@ -2231,7 +2331,15 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			const input = racing ? rawInput : { x: 0, z: 0, touchActive: false };
 
 			updateVehicleAndFx( dt, input, ctx );
-			updateAIDrivers( aiDrivers, trackPath, dt, racing, raceState.totalTime );
+			if ( isRace ) {
+
+				updateAIDrivers( aiDrivers, trackPath, dt, racing, raceState.totalTime );
+
+			} else {
+
+				updateFreeRoamAI( aiDrivers, dt, freeRoamHalf );
+
+			}
 			updateVehicleLights( vehicleLights, dt, 1, vehicle.linearSpeed < -0.01 );
 
 			if ( raceState.phase === 'finished' && ! resultsShown ) {

@@ -109,7 +109,7 @@ const DECO_CELLS = [
 	[  2,  4, 'decoration-forest', 0 ],
 ];
 
-const NPC_TRUCKS = [
+export const NPC_TRUCKS = [
 	[ 'vehicle-truck-green',  -3.51, -0.01,  12.70,  98.0 ],
 	[ 'vehicle-truck-purple', -23.78, -0.14, -13.56,   0.0 ],
 	[ 'vehicle-truck-red',    -1.36, -0.15, -23.80, 155.9 ],
