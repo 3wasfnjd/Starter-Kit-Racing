@@ -2719,11 +2719,15 @@ function buildDriftPad( half ) {
 
 	const pad = new THREE.Group();
 
-	const asphaltTexture = createAsphaltTexture();
-	asphaltTexture.repeat.set( half / 4, half / 4 );
+	// Solid color sampled directly from the track's own shared palette
+	// texture (models/Textures/colormap.png — the "colormap" the actual
+	// track-straight/track-corner models sample their asphalt gray from)
+	// rather than a separately generated texture, so this matches the
+	// real track's pavement color exactly instead of just visually
+	// resembling it.
 	const groundMesh = new THREE.Mesh(
 		new THREE.PlaneGeometry( half * 2, half * 2 ),
-		new THREE.MeshStandardMaterial( { map: asphaltTexture, roughness: 1, metalness: 0 } )
+		new THREE.MeshStandardMaterial( { color: 0x3a3a40, roughness: 1, metalness: 0 } )
 	);
 	groundMesh.rotation.x = - Math.PI / 2;
 	pad.add( groundMesh );
