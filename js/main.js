@@ -66,6 +66,7 @@ const modelNames = [
 	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
+	'ground_tile', 'barrier_segment',
 ];
 
 const models = {};
@@ -2715,24 +2716,57 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 // inside: no walls, no decoration, no track loop. Grabbable/movable/
 // scalable (PlaceableObject) and a simple kinematic car, same mechanic
 // as the floating track.
-function buildDriftPad( half ) {
+function buildDriftPad( half, models ) {
 
 	const pad = new THREE.Group();
 
-	// Solid color sampled directly from the track's own shared palette
-	// texture (models/Textures/colormap.png — the "colormap" the actual
-	// track-straight/track-corner models sample their asphalt gray from)
-	// rather than a separately generated texture, so this matches the
-	// real track's pavement color exactly instead of just visually
-	// resembling it.
-	const groundMesh = new THREE.Mesh(
-		new THREE.PlaneGeometry( half * 2, half * 2 ),
-		new THREE.MeshStandardMaterial( { color: 0x3a3a40, roughness: 1, metalness: 0 } )
-	);
-	groundMesh.rotation.x = - Math.PI / 2;
-	pad.add( groundMesh );
+	// Real asset (models/ground_tile.glb) instead of a runtime
+	// PlaneGeometry — same color, now an actual game asset like every
+	// other piece in the project. The source tile is 10×0.1×10, so it's
+	// scaled non-uniformly to cover the full pad footprint.
+	const groundSrc = models[ 'ground_tile' ];
+	if ( groundSrc ) {
 
+		const groundMesh = groundSrc.clone();
+		groundMesh.scale.set( ( half * 2 ) / 10, 1, ( half * 2 ) / 10 );
+		groundMesh.position.y = - 0.05; // top face flush with y=0, matching the tile's own 0.1 thickness
+		pad.add( groundMesh );
+
+	}
+
+	// Real asset (models/barrier_segment.glb, 8 units long) instead of
+	// runtime-built boxes — each instance is a small wrapper group so
+	// the segment can be length-scaled in its own local space before
+	// the group applies the 90°-per-axis rotation, since scale and
+	// rotation don't commute otherwise.
+	const barrierSrc = models[ 'barrier_segment' ];
 	const barrierSeg = 8;
+
+	function placeBarrier( center, fixedCoord, segLen, axis ) {
+
+		if ( ! barrierSrc ) return;
+
+		const instance = barrierSrc.clone();
+		instance.scale.x = segLen / barrierSeg;
+
+		const wrapper = new THREE.Group();
+		wrapper.add( instance );
+
+		if ( axis === 'x' ) {
+
+			wrapper.position.set( center, 0, fixedCoord );
+
+		} else {
+
+			wrapper.rotation.y = Math.PI / 2;
+			wrapper.position.set( fixedCoord, 0, center );
+
+		}
+
+		pad.add( wrapper );
+
+	}
+
 	for ( const sign of [ 1, -1 ] ) {
 
 		for ( let p = - half; p < half; p += barrierSeg ) {
@@ -2741,8 +2775,8 @@ function buildDriftPad( half ) {
 			if ( segLen <= 0 ) continue;
 			const center = p + segLen / 2;
 
-			buildBarrierSegment( pad, null, center, sign * half, segLen, 'x' );
-			buildBarrierSegment( pad, null, sign * half, center, segLen, 'z' );
+			placeBarrier( center, sign * half, segLen, 'x' );
+			placeBarrier( center, sign * half, segLen, 'z' );
 
 		}
 
@@ -2761,7 +2795,7 @@ async function startARFloatingArena( { vehicleKey, sessionPromise } ) {
 	const placeholderCamera = new THREE.PerspectiveCamera();
 
 	const PAD_HALF = 30; // half-size, in the pad's own (unscaled) coordinate space
-	const arenaGroup = buildDriftPad( PAD_HALF );
+	const arenaGroup = buildDriftPad( PAD_HALF, models );
 
 	// Small tabletop scale by default, positioned a short reach in front
 	// of wherever the headset happens to be when the session starts —
