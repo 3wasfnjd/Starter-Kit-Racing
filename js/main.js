@@ -220,6 +220,11 @@ function createModeMenu( { arAvailable } ) {
 			#hajwalah-menu .hw-mode-card svg { width: 40px; height: 40px; }
 			#hajwalah-menu .hw-mode-label { font-size: 13.5px; font-weight: 600; text-align: center; }
 			#hajwalah-menu .hw-mode-sub { font-size: 10.5px; color: #a79fc4; text-align: center; }
+			#hajwalah-menu .hw-back-link {
+				color: #a79fc4; text-decoration: none; font-size: 12px; text-align: center; cursor: pointer; margin-top: -4px;
+			}
+			#hajwalah-menu .hw-step { display: flex; flex-direction: column; gap: 12px; }
+			#hajwalah-menu .hw-step.hidden { display: none; }
 			#hajwalah-menu .hw-footer { margin-top: 6px; color: #6b6680; font-size: 11.5px; text-align: center; letter-spacing: 0.5px; }
 			#hajwalah-menu .hw-footer b { color: #9d8fd4; }
 			#hajwalah-menu .hw-features-link {
@@ -280,27 +285,56 @@ function createModeMenu( { arAvailable } ) {
 						<input type="checkbox" class="hw-freeroam-checkbox" />
 						الوضع العادي: تحكم حر بدون مضمار
 					</label>
-					<div class="hw-mode-row">
-						<button class="hw-mode-card primary hw-normal-btn">
-							<svg viewBox="0 0 24 24" fill="none" stroke="#5B8CFF" stroke-width="1.6">
-								<circle cx="12" cy="12" r="9"/>
-								<circle cx="12" cy="12" r="2.4" fill="#5B8CFF" stroke="none"/>
-								<path d="M12 5v4.6M6.2 15.5l3.6-2.2M17.8 15.5l-3.6-2.2"/>
-							</svg>
-							<div class="hw-mode-label">الوضع العادي</div>
-							<div class="hw-mode-sub">مضمار كلاسيكي</div>
-						</button>
-						<button class="hw-mode-card hw-ar-btn" ${ arAvailable ? '' : 'disabled' }>
-							<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
-								<rect x="2.5" y="8" width="19" height="9" rx="3.5"/>
-								<circle cx="8.3" cy="12.5" r="1.9"/>
-								<circle cx="15.7" cy="12.5" r="1.9"/>
-								<path d="M9.8 12.5h4.4"/>
-								<path d="M6 8c0-2.2 1.8-4 4-4h4c2.2 0 4 1.8 4 4"/>
-							</svg>
-							<div class="hw-mode-label">الواقع المعزز</div>
-							<div class="hw-mode-sub">${ arAvailable ? 'Meta Quest 3' : 'غير متاح على هذا الجهاز' }</div>
-						</button>
+
+					<div class="hw-step hw-step-top">
+						<div class="hw-mode-row">
+							<button class="hw-mode-card primary hw-web-btn">
+								<svg viewBox="0 0 24 24" fill="none" stroke="#5B8CFF" stroke-width="1.6">
+									<rect x="2.5" y="4.5" width="19" height="13" rx="2"/>
+									<path d="M8 21h8M12 17.5v3.5"/>
+								</svg>
+								<div class="hw-mode-label">وضع الويب</div>
+								<div class="hw-mode-sub">أيفون / كمبيوتر</div>
+							</button>
+							<button class="hw-mode-card hw-ar-entry-btn" ${ arAvailable ? '' : 'disabled' }>
+								<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
+									<rect x="2.5" y="8" width="19" height="9" rx="3.5"/>
+									<circle cx="8.3" cy="12.5" r="1.9"/>
+									<circle cx="15.7" cy="12.5" r="1.9"/>
+									<path d="M9.8 12.5h4.4"/>
+									<path d="M6 8c0-2.2 1.8-4 4-4h4c2.2 0 4 1.8 4 4"/>
+								</svg>
+								<div class="hw-mode-label">وضع AR</div>
+								<div class="hw-mode-sub">${ arAvailable ? 'Meta Quest 3' : 'غير متاح على هذا الجهاز' }</div>
+							</button>
+						</div>
+					</div>
+
+					<div class="hw-step hw-step-ar hidden">
+						<div class="hw-mode-row">
+							<button class="hw-mode-card primary hw-ar-room-btn">
+								<svg viewBox="0 0 24 24" fill="none" stroke="#5B8CFF" stroke-width="1.6">
+									<path d="M4 20V9l8-5 8 5v11" /><path d="M9 20v-6h6v6" />
+								</svg>
+								<div class="hw-mode-label">حر بالغرفة</div>
+								<div class="hw-mode-sub">قيادة حقيقية بمكانك</div>
+							</button>
+							<button class="hw-mode-card hw-ar-track-btn" disabled>
+								<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
+									<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2" fill="#cfc9e0" stroke="none"/>
+								</svg>
+								<div class="hw-mode-label">مضمار عائم</div>
+								<div class="hw-mode-sub">قريبًا</div>
+							</button>
+							<button class="hw-mode-card hw-ar-arena-btn" disabled>
+								<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
+									<rect x="4" y="9" width="16" height="9" rx="1.5"/><path d="M4 9l8-5 8 5"/>
+								</svg>
+								<div class="hw-mode-label">حلبة عائمة</div>
+								<div class="hw-mode-sub">قريبًا</div>
+							</button>
+						</div>
+						<a href="#" class="hw-back-link">‹ رجوع</a>
 					</div>
 				</div>
 				<div class="hw-footer">
@@ -370,10 +404,15 @@ function createModeMenu( { arAvailable } ) {
 
 		const textInput = menu.querySelector( '.hw-text-input' );
 		const freeRoamCheckbox = menu.querySelector( '.hw-freeroam-checkbox' );
-		const normalBtn = menu.querySelector( '.hw-normal-btn' );
-		const arBtn = menu.querySelector( '.hw-ar-btn' );
+		const freeRoamRow = menu.querySelector( '.hw-checkbox-row' );
+		const webBtn = menu.querySelector( '.hw-web-btn' );
+		const arEntryBtn = menu.querySelector( '.hw-ar-entry-btn' );
+		const stepTop = menu.querySelector( '.hw-step-top' );
+		const stepAr = menu.querySelector( '.hw-step-ar' );
+		const arRoomBtn = menu.querySelector( '.hw-ar-room-btn' );
+		const backLink = menu.querySelector( '.hw-back-link' );
 
-		normalBtn.addEventListener( 'click', () => {
+		webBtn.addEventListener( 'click', () => {
 
 			requestFullscreenSafe();
 			menu.remove();
@@ -381,9 +420,30 @@ function createModeMenu( { arAvailable } ) {
 
 		} );
 
-		arBtn.addEventListener( 'click', () => {
+		// Entering AR is now a two-step pick: which AR experience, not
+		// just "AR yes/no" — the free-roam checkbox above only means
+		// anything for the web mode, so it's hidden once inside the AR
+		// step to avoid implying it affects the AR sub-choice below it.
+		arEntryBtn.addEventListener( 'click', () => {
 
-			if ( arBtn.disabled ) return;
+			if ( arEntryBtn.disabled ) return;
+			stepTop.classList.add( 'hidden' );
+			stepAr.classList.remove( 'hidden' );
+			freeRoamRow.classList.add( 'hidden' );
+
+		} );
+
+		backLink.addEventListener( 'click', ( e ) => {
+
+			e.preventDefault();
+			stepAr.classList.add( 'hidden' );
+			stepTop.classList.remove( 'hidden' );
+			freeRoamRow.classList.remove( 'hidden' );
+
+		} );
+
+		arRoomBtn.addEventListener( 'click', () => {
+
 			// No requestFullscreenSafe() here on purpose: it would consume
 			// the click's transient user-activation, and requestSession()
 			// below needs that same activation. AR sessions take over the
@@ -401,11 +461,15 @@ function createModeMenu( { arAvailable } ) {
 
 			menu.remove();
 			resolve( {
-				choice: 'ar', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked,
+				choice: 'ar', arSubMode: 'room', customText: textInput.value.trim(),
 				vehicleKey: selectedVehicle, flagImage: flagImageDataUrl, sessionPromise,
 			} );
 
 		} );
+
+		// hw-ar-track-btn / hw-ar-arena-btn are `disabled` placeholders
+		// for now ("قريبًا") — wired up once the floating track/arena
+		// AR sub-modes are actually built in a later stage.
 
 		const featuresLink = menu.querySelector( '.hw-features-link' );
 		featuresLink.addEventListener( 'click', ( e ) => {
@@ -1685,6 +1749,9 @@ function createFreeRoamAI( npcConfigs, models, scene, world, roadHalf ) {
 			vehicle,
 			target: { x, z }, // reached immediately, forces a fresh pick on frame 1
 			retargetTimer: 0,
+			stuckStrikes: 0,
+			sampleTimer: 0,
+			samplePos: { x, z },
 		};
 
 	} );
@@ -1702,6 +1769,50 @@ function updateFreeRoamAI( drivers, dt, roadHalf ) {
 	const pullBackRadius = roadHalf * 0.6;
 
 	for ( const d of drivers ) {
+
+		// Same stuck watchdog as the race AI: if genuinely wedged
+		// against a wall (steering back toward center alone can't
+		// always recover from a bad angle), teleport back to a safe
+		// spot near the middle rather than leaving it stuck.
+		d.sampleTimer += dt;
+		if ( d.sampleTimer >= 0.5 ) {
+
+			d.sampleTimer = 0;
+			const progressed = Math.hypot(
+				d.vehicle.spherePos.x - d.samplePos.x,
+				d.vehicle.spherePos.z - d.samplePos.z
+			);
+			d.samplePos = { x: d.vehicle.spherePos.x, z: d.vehicle.spherePos.z };
+			if ( progressed < 0.4 ) d.stuckStrikes += 1; else d.stuckStrikes = 0;
+
+		}
+
+		if ( d.stuckStrikes >= 3 ) {
+
+			const a = Math.random() * Math.PI * 2;
+			const r = Math.random() * wanderRadius * 0.4;
+			const p = { x: Math.cos( a ) * r, z: Math.sin( a ) * r };
+			const heading = Math.random() * Math.PI * 2;
+
+			rigidBody.setPosition( d.vehicle.physicsWorld, d.vehicle.rigidBody, [ p.x, 0.5, p.z ], false );
+			rigidBody.setLinearVelocity( d.vehicle.physicsWorld, d.vehicle.rigidBody, [ 0, 0, 0 ] );
+			rigidBody.setAngularVelocity( d.vehicle.physicsWorld, d.vehicle.rigidBody, [ 0, 0, 0 ] );
+			d.vehicle.spherePos.set( p.x, 0.5, p.z );
+			d.vehicle.sphereVel.set( 0, 0, 0 );
+			d.vehicle.container.position.set( p.x, 0, p.z );
+			d.vehicle.container.rotation.set( 0, heading, 0 );
+			d.vehicle.linearSpeed = 0;
+			d.vehicle.angularSpeed = 0;
+			d.vehicle.acceleration = 0;
+
+			d.target = { x: p.x, z: p.z };
+			d.retargetTimer = 0;
+			d.stuckStrikes = 0;
+			d.sampleTimer = 0;
+			d.samplePos = { x: p.x, z: p.z };
+			continue;
+
+		}
 
 		d.retargetTimer -= dt;
 
@@ -2148,11 +2259,11 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		buildWarningSign( scene, -4.5, roadHalf - 1, Math.PI );
 		buildWarningSign( scene, 4.5, roadHalf - 1, Math.PI );
 
-		// Same 3 NPC models as the race grid, but wandering/drifting
-		// randomly instead of following a track — see
-		// createFreeRoamAI/updateFreeRoamAI.
+		// All 4 vehicle models wander/drift here — unlike the race grid
+		// (which reserves yellow for the player by default and uses the
+		// other 3 for AI), free-roam has no such reservation.
 		aiDrivers = createFreeRoamAI(
-			NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
+			[ { key: 'vehicle-truck-yellow' }, ...NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ) ],
 			models, scene, world, roadHalf
 		);
 		freeRoamHalf = roadHalf;
