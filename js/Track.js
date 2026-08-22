@@ -277,7 +277,7 @@ export function buildTrack( scene, models, customCells, { compactDeco = false, s
 
 	} );
 
-	if ( ! customCells ) {
+	if ( ! customCells && ! skipDeco ) {
 
 		for ( const [ key, x, y, z, rotDeg ] of NPC_TRUCKS ) {
 

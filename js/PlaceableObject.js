@@ -103,7 +103,16 @@ export class PlaceableObject {
 					// Follow this controller's current pose, preserving
 					// the offset recorded at grab time so the object
 					// doesn't snap to the controller's exact position.
+					// Rotation is constrained to yaw-only (Y axis) — a
+					// tilted hand otherwise tilts the whole track/arena
+					// in 3D, which the physics rebuild at lock-in can't
+					// represent (it only reads out a flattened yaw), so
+					// an actually-tilted visual track would end up
+					// mismatched from its own flat invisible colliders.
 					this._tmpQuat.copy( controller.quaternion ).multiply( this._grabQuatOffset );
+					const yaw = new THREE.Euler().setFromQuaternion( this._tmpQuat, 'YXZ' ).y;
+					this._tmpQuat.setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
+
 					this._tmpPos.copy( this._grabOffset ).applyQuaternion( controller.quaternion ).add( controller.position );
 
 					this.object.position.copy( this._tmpPos );

@@ -1333,7 +1333,7 @@ function toggleHazards( vehicleLights ) {
 // High beam is held, not toggled — while held, headlights go brighter
 // and farther-reaching (and force ON even if the player hadn't turned
 // regular headlights on, matching a real high-beam flasher stalk).
-function setHighBeam( vehicleLights, on ) {
+function setHighBeam( vehicleLights, on, scale = 1 ) {
 
 	if ( ! vehicleLights ) return;
 	if ( vehicleLights._highBeamOn === on ) return; // no change, skip
@@ -1341,18 +1341,20 @@ function setHighBeam( vehicleLights, on ) {
 	if ( on ) vehicleLights._headlightsBeforeHighBeam = vehicleLights.headlights[ 0 ].light.visible;
 	vehicleLights._highBeamOn = on;
 
+	const s = Math.max( scale, 0.001 );
+
 	vehicleLights.headlights.forEach( ( h ) => {
 
 		if ( on ) {
 
 			h.light.visible = true;
-			h.light.intensity = h.baseIntensity * 2.5;
-			h.light.distance = h.baseDistance * 1.4;
+			h.light.intensity = h.baseIntensity * s * s * 2.5;
+			h.light.distance = h.baseDistance * s * 1.4;
 
 		} else {
 
-			h.light.intensity = h.baseIntensity;
-			h.light.distance = h.baseDistance;
+			h.light.intensity = h.baseIntensity * s * s;
+			h.light.distance = h.baseDistance * s;
 			h.light.visible = vehicleLights._headlightsBeforeHighBeam;
 
 		}
@@ -2852,7 +2854,7 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 		// tabletop-sized loop, badly mismatched with the thin ground and
 		// walls. Scaled down to match, with a small floor so it never
 		// vanishes to zero at extreme shrink.
-		const carRadius = Math.max( 0.5 * arTransform.scale, 0.02 );
+		const carRadius = Math.max( 0.5 * arTransform.scale, 0.003 );
 
 		// Real player Vehicle — same class NORMAL mode uses, so it gets
 		// genuine wall collision, suspension, and drift physics.
@@ -2882,7 +2884,12 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 		// Smoke authored at real-meter scale (NORMAL mode) — shrink
 		// proportionally so it doesn't render as room-filling clouds
 		// around a tabletop-sized car.
-		const particles = new SmokeTrails( scene, Math.max( arTransform.scale * 3, 0.02 ) );
+		// NORMAL mode uses SmokeTrails at scale=1 for a full-size car —
+		// this car is `arTransform.scale` of that size, so smoke uses
+		// the same proportion directly instead of an inflated multiplier
+		// (the previous ×3 with a 0.02 floor made smoke visibly bigger
+		// than the car itself at typical AR-tabletop scales).
+		const particles = new SmokeTrails( scene, arTransform.scale );
 		const driftMarks = new DriftMarks( scene, 'ar-floating-track' );
 
 		const _forward = new THREE.Vector3();
@@ -2955,7 +2962,7 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 
 					if ( arManager.getHeadlightToggle() ) toggleHeadlights( raceCtx.vehicleLights );
 					if ( arManager.getHazardToggle() ) toggleHazards( raceCtx.vehicleLights );
-					setHighBeam( raceCtx.vehicleLights, arManager.getHighBeamHold() );
+					setHighBeam( raceCtx.vehicleLights, arManager.getHighBeamHold(), raceCtx.arScale );
 					raceCtx.audio.setHorn( arManager.getHornHold() );
 
 					const radioBtn = arManager.getRadioButtons();
