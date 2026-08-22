@@ -168,14 +168,14 @@ export function buildWallColliders( world, debugGroup, customCells, arTransform 
 
 }
 
-export function createSphereBody( world, spawnPos ) {
+export function createSphereBody( world, spawnPos, radius = 0.5 ) {
 
 	const body = rigidBody.create( world, {
-		shape: sphere.create( { radius: 0.5 } ),
+		shape: sphere.create( { radius } ),
 		motionType: MotionType.DYNAMIC,
 		objectLayer: world._OL_MOVING,
 		position: spawnPos || [ 3.5, 0.5, 5 ],
-		mass: 1000.0,
+		mass: 1000.0 * Math.pow( radius / 0.5, 3 ), // volume-proportional, so tiny AR-scaled spheres aren't absurdly heavy for their size
 		friction: 5.0,
 		restitution: 0.1,
 		linearDamping: 0.1,

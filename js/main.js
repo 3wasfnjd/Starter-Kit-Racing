@@ -480,7 +480,7 @@ function createModeMenu( { arAvailable } ) {
 			} );
 
 			menu.remove();
-			resolve( { choice: 'ar', arSubMode: 'track', vehicleKey: selectedVehicle, sessionPromise } );
+			resolve( { choice: 'ar', arSubMode: 'track', vehicleKey: selectedVehicle, customText: textInput.value.trim(), flagImage: flagImageDataUrl, sessionPromise } );
 
 		} );
 
@@ -1683,7 +1683,7 @@ function computeGridPositions( vehicleSpawn, count ) {
 
 }
 
-function createAIDrivers( npcConfigs, gridSlots, models, scene, world, path ) {
+function createAIDrivers( npcConfigs, gridSlots, models, scene, world, path, radius = 0.5 ) {
 
 	if ( ! path || path.length < 2 ) return [];
 
@@ -1706,9 +1706,10 @@ function createAIDrivers( npcConfigs, gridSlots, models, scene, world, path ) {
 	return npcConfigs.map( ( cfg, i ) => {
 
 		const slot = gridSlots[ i + 1 ]; // slot 0 is the player
-		const sphereBody = createSphereBody( world, slot.position );
+		const sphereBody = createSphereBody( world, slot.position, radius );
 
 		const vehicle = new Vehicle();
+		vehicle.sphereRadius = radius;
 		vehicle.rigidBody = sphereBody;
 		vehicle.physicsWorld = world;
 		vehicle.spherePos.set( slot.position[ 0 ], slot.position[ 1 ], slot.position[ 2 ] );
@@ -1717,6 +1718,7 @@ function createAIDrivers( npcConfigs, gridSlots, models, scene, world, path ) {
 
 		const model = models[ cfg.key ] || models[ 'vehicle-truck-yellow' ];
 		const group = vehicle.init( model );
+		group.scale.setScalar( radius / 0.5 ); // matches the player's own visual scale — 1 for NORMAL mode (radius=0.5), shrunk in AR contexts
 		scene.add( group );
 
 		const stepsBack = Math.round( slot.backDist / avgSpacing );
@@ -2704,7 +2706,7 @@ function arTransformSpawn( position, angle, arTransform ) {
 
 }
 
-async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
+async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessionPromise } ) {
 
 	const arManager = new ARManager( { renderer, scene, models } );
 	await arManager.requestSession( sessionPromise );
@@ -2776,9 +2778,14 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 		const world = createPhysicsWorld();
 		buildWallColliders( world, null, null, arTransform );
 
+		// Ground thickness has a hard floor instead of scaling all the
+		// way down with the track — a paper-thin collider at typical AR
+		// scales (0.005-0.04×) let fast-moving cars tunnel straight
+		// through in a single physics step and fall forever.
+		const groundHalfY = Math.max( 0.01 * arTransform.scale, 0.02 );
 		const groundXf = applyArTransform( [ bounds.centerX, - 0.125, bounds.centerZ ], [ 0, 0, 0, 1 ], arTransform );
 		rigidBody.create( world, {
-			shape: box.create( { halfExtents: [ bounds.halfWidth * arTransform.scale, 0.01 * arTransform.scale, bounds.halfDepth * arTransform.scale ] } ),
+			shape: box.create( { halfExtents: [ bounds.halfWidth * arTransform.scale, groundHalfY, bounds.halfDepth * arTransform.scale ] } ),
 			motionType: MotionType.STATIC,
 			objectLayer: world._OL_STATIC,
 			position: groundXf.position,
@@ -2786,12 +2793,21 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 			restitution: 0.0,
 		} );
 
+		// The physics sphere was hardcoded at a real 0.5m radius (fine
+		// for NORMAL/room-drive AR, where the car is roughly life-sized)
+		// — at AR-track scale that's comically oversized relative to a
+		// tabletop-sized loop, badly mismatched with the thin ground and
+		// walls. Scaled down to match, with a small floor so it never
+		// vanishes to zero at extreme shrink.
+		const carRadius = Math.max( 0.5 * arTransform.scale, 0.02 );
+
 		// Real player Vehicle — same class NORMAL mode uses, so it gets
 		// genuine wall collision, suspension, and drift physics.
 		const playerWorld = arTransformSpawn( playerSlot.position, playerSlot.angle, arTransform );
-		const sphereBody = createSphereBody( world, [ playerWorld.position[ 0 ], playerWorld.position[ 1 ], playerWorld.position[ 2 ] ] );
+		const sphereBody = createSphereBody( world, [ playerWorld.position[ 0 ], playerWorld.position[ 1 ], playerWorld.position[ 2 ] ], carRadius );
 
 		const vehicle = new Vehicle();
+		vehicle.sphereRadius = carRadius;
 		vehicle.rigidBody = sphereBody;
 		vehicle.physicsWorld = world;
 		vehicle.spherePos.set( playerWorld.position[ 0 ], playerWorld.position[ 1 ], playerWorld.position[ 2 ] );
@@ -2799,15 +2815,21 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 		vehicle.container.rotation.y = playerWorld.angle;
 
 		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
+		vehicleGroup.scale.setScalar( arTransform.scale ); // Vehicle.js never touches .scale itself (only position/rotation), so this persists safely
 		scene.add( vehicleGroup );
+		addCustomTextDecals( vehicleGroup, customText );
 		const vehicleLights = addVehicleLights( vehicleGroup );
+		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 
 		const audio = new GameAudio();
 		audio.init( renderer.xr.getCamera(), vehicleGroup );
 		audio.forceUnlock();
 		const radio = new Radio( audio.listener, vehicleGroup );
 
-		const particles = new SmokeTrails( scene, Math.max( arTransform.scale * 3, 0.05 ) );
+		// Smoke authored at real-meter scale (NORMAL mode) — shrink
+		// proportionally so it doesn't render as room-filling clouds
+		// around a tabletop-sized car.
+		const particles = new SmokeTrails( scene, Math.max( arTransform.scale * 3, 0.02 ) );
 		const driftMarks = new DriftMarks( scene, 'ar-floating-track' );
 
 		const _forward = new THREE.Vector3();
@@ -2824,7 +2846,7 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 			}
 		};
 
-		const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer: null, contactListener, vehicleFlag: null };
+		const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer: null, contactListener, vehicleFlag };
 
 		// Real AI opponents — exact same functions the web race mode
 		// uses (createAIDrivers/updateAIDrivers), just spawned at
@@ -2846,7 +2868,7 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 		} );
 		const aiDrivers = createAIDrivers(
 			NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
-			worldGridSlots, models, scene, world, worldTrackPath
+			worldGridSlots, models, scene, world, worldTrackPath, carRadius
 		);
 
 		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, contactListener, ctx, aiDrivers, worldTrackPath };
@@ -3525,7 +3547,7 @@ async function init() {
 
 			try {
 
-				activeMode = await startARFloatingTrack( { vehicleKey, sessionPromise } );
+				activeMode = await startARFloatingTrack( { vehicleKey, customText, flagImage, sessionPromise } );
 				break;
 
 			} catch ( e ) {

@@ -40,6 +40,7 @@ export class Vehicle {
 
 		this.spherePos = new THREE.Vector3( 3.5, 0.5, 5 );
 		this.sphereVel = new THREE.Vector3();
+		this.sphereRadius = 0.5; // overridable — AR floating-track/arena use a scaled-down sphere to match a shrunk track
 
 		this.rigidBody = null;
 		this.physicsWorld = null;
@@ -249,7 +250,7 @@ export class Vehicle {
 
 		this.container.position.set(
 			this.spherePos.x,
-			this.spherePos.y - 0.5,
+			this.spherePos.y - this.sphereRadius,
 			this.spherePos.z
 		);
 
