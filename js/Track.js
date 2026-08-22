@@ -115,7 +115,7 @@ export const NPC_TRUCKS = [
 	[ 'vehicle-truck-red',    -1.36, -0.15, -23.80, 155.9 ],
 ];
 
-export function buildTrack( scene, models, customCells, { compactDeco = false } = {} ) {
+export function buildTrack( scene, models, customCells, { compactDeco = false, skipDeco = false } = {} ) {
 
 	const trackGroup = new THREE.Group();
 	trackGroup.position.y = -0.5;
@@ -132,7 +132,7 @@ export function buildTrack( scene, models, customCells, { compactDeco = false } 
 
 	}
 
-	{
+	if ( ! skipDeco ) {
 
 		const occupied = new Set();
 		let minX = Infinity, maxX = - Infinity;

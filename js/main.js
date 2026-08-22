@@ -2598,7 +2598,7 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 
 	const placeholderCamera = new THREE.PerspectiveCamera();
 
-	const { trackGroup } = buildTrack( scene, models, null, { compactDeco: true } );
+	const { trackGroup } = buildTrack( scene, models, null, { skipDeco: true } );
 	const bounds = computeTrackBounds( TRACK_CELLS );
 	const spawn = computeSpawnPosition( null );
 
