@@ -2747,22 +2747,30 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 	const placeholderCamera = new THREE.PerspectiveCamera();
 
 	const { trackGroup } = buildTrack( scene, models, null, { skipDeco: true } );
+	const spawn = computeSpawnPosition( null );
 
 	const FIXED_SCALE = 0.012;
 	trackGroup.scale.setScalar( FIXED_SCALE );
-	// Further out (was 0.6m — too close, overlapped the view) and lower
-	// (was 0.9m — around eye level when seated; a tabletop-style layout
-	// should sit below eye level, not straight ahead in the middle of
-	// the view).
-	trackGroup.position.set( 0, 0.55, - 1.3 );
+	// Closer (was 1.3m, halved to 0.65m) and lower (below eye level,
+	// tabletop-style). Rotated 180° from the finish line's own forward
+	// angle so the start gate faces back toward the viewer instead of
+	// away — best guess pending visual confirmation.
+	trackGroup.position.set( 0, 0.55, - 0.65 );
+	trackGroup.rotation.y = spawn.angle + Math.PI;
 
 	const light = new THREE.DirectionalLight( 0xffffff, 2.5 );
 	light.position.set( 1, 2, 1 );
 	scene.add( light );
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.7 ) );
 
-	// Scale locked (min===max) — resize comes back in a later stage.
-	const placeable = new PlaceableObject( trackGroup, arManager, { minScale: FIXED_SCALE, maxScale: FIXED_SCALE } );
+	// Grab hitbox is the start gate specifically (a small range right at
+	// the finish line's position), not the whole track — grabbing from
+	// anywhere near the track made accidental grabs too easy.
+	const gatePoint = new THREE.Vector3( spawn.position[ 0 ], 0, spawn.position[ 2 ] );
+	const placeable = new PlaceableObject( trackGroup, arManager, {
+		minScale: FIXED_SCALE, maxScale: FIXED_SCALE, // locked — resize comes back in a later stage
+		grabPoint: gatePoint, grabRange: 0.15,
+	} );
 
 	placeable.onConfirm = () => {
 

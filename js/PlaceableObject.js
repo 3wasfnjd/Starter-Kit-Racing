@@ -6,14 +6,19 @@ import * as THREE from 'three';
 // those is wired up).
 //
 // Interaction:
-//  - Bring either controller within GRAB_RANGE of the object — it lights
-//    up (emissive glow) so it's obvious you're close enough, even before
-//    touching anything.
+//  - Bring either controller within grabRange of the grab point — it
+//    lights up (emissive glow) so it's obvious you're close enough,
+//    even before touching anything. The grab point defaults to the
+//    object's own origin, but can be offset to a specific spot instead
+//    (e.g. the start gate) via the `grabPoint` option, so the pickup
+//    hitbox isn't the whole object — avoids accidentally grabbing from
+//    anywhere nearby.
 //  - While lit up, hold that hand's GRIP/squeeze button (xr-standard
 //    index 1 — closing your hand around the controller, the standard
 //    "grab" gesture in VR/AR) — the object then tracks that controller's
-//    position/orientation exactly (offset preserved from the moment of
-//    grab, so it doesn't jump).
+//    position/orientation exactly, keeping the grab point glued to the
+//    controller (offset preserved from the moment of grab, so it
+//    doesn't jump).
 //  - Release the grip — the object stays wherever it was left.
 //  - Left stick Y-axis (while not grabbing with the left hand) scales
 //    the object up/down, matching the same axis already used for the
@@ -24,19 +29,21 @@ import * as THREE from 'three';
 //    the whole point is being able to keep adjusting position/size
 //    whenever you want, even mid-race.
 
-const GRAB_RANGE = 0.5; // meters — generous on purpose, easier to find than to fine-tune
+const DEFAULT_GRAB_RANGE = 0.5; // meters — generous on purpose, easier to find than to fine-tune
 const DEFAULT_MIN_SCALE = 0.05;
 const DEFAULT_MAX_SCALE = 1.5;
 const SCALE_SPEED = 0.8; // per second at full stick deflection
 
 export class PlaceableObject {
 
-	constructor( object, arManager, { minScale = DEFAULT_MIN_SCALE, maxScale = DEFAULT_MAX_SCALE } = {} ) {
+	constructor( object, arManager, { minScale = DEFAULT_MIN_SCALE, maxScale = DEFAULT_MAX_SCALE, grabPoint = null, grabRange = DEFAULT_GRAB_RANGE } = {} ) {
 
 		this.object = object;
 		this.arManager = arManager;
 		this.minScale = minScale;
 		this.maxScale = maxScale;
+		this.grabPoint = grabPoint ? grabPoint.clone() : new THREE.Vector3(); // local-space offset within the object
+		this.grabRange = grabRange;
 
 		this.confirmed = false;
 		this.onConfirm = null;
@@ -51,6 +58,7 @@ export class PlaceableObject {
 		this._tmpPos = new THREE.Vector3();
 		this._tmpQuat = new THREE.Quaternion();
 		this._invQuat = new THREE.Quaternion();
+		this._grabPointWorld = new THREE.Vector3();
 
 		// Visual proximity feedback — every material on the object
 		// glows white-ish when a controller is in grab range, and glows
@@ -59,6 +67,13 @@ export class PlaceableObject {
 		this._materials = [];
 		object.traverse( ( c ) => { if ( c.isMesh && c.material ) this._materials.push( c.material ); } );
 		this._baseEmissive = this._materials.map( ( m ) => ( m.emissive ? m.emissive.clone() : null ) );
+
+	}
+
+	_getGrabPointWorld() {
+
+		this.object.updateMatrixWorld();
+		return this._grabPointWorld.copy( this.grabPoint ).applyMatrix4( this.object.matrixWorld );
 
 	}
 
@@ -101,39 +116,44 @@ export class PlaceableObject {
 				} else {
 
 					// Follow this controller's current pose, preserving
-					// the offset recorded at grab time so the object
-					// doesn't snap to the controller's exact position.
-					// Rotation is constrained to yaw-only (Y axis) — a
-					// tilted hand otherwise tilts the whole track/arena
-					// in 3D, which the physics rebuild at lock-in can't
-					// represent (it only reads out a flattened yaw), so
-					// an actually-tilted visual track would end up
-					// mismatched from its own flat invisible colliders.
+					// the offset recorded at grab time so the grab point
+					// doesn't jump. Rotation is constrained to yaw-only
+					// (Y axis) — a tilted hand otherwise tilts the whole
+					// track/arena in 3D, which the physics rebuild at
+					// lock-in can't represent (it only reads out a
+					// flattened yaw), so an actually-tilted visual track
+					// would end up mismatched from its own flat
+					// invisible colliders.
 					this._tmpQuat.copy( controller.quaternion ).multiply( this._grabQuatOffset );
 					const yaw = new THREE.Euler().setFromQuaternion( this._tmpQuat, 'YXZ' ).y;
 					this._tmpQuat.setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
 
-					this._tmpPos.copy( this._grabOffset ).applyQuaternion( controller.quaternion ).add( controller.position );
+					// Solve for object.position such that the grab point
+					// (not the object's own origin) ends up exactly where
+					// it should be relative to the controller.
+					const grabPointWorldNew = this._tmpPos.copy( this._grabOffset ).applyQuaternion( controller.quaternion ).add( controller.position );
+					const grabPointOffsetFromOrigin = this.grabPoint.clone().multiplyScalar( this.object.scale.x ).applyQuaternion( this._tmpQuat );
 
-					this.object.position.copy( this._tmpPos );
+					this.object.position.copy( grabPointWorldNew ).sub( grabPointOffsetFromOrigin );
 					this.object.quaternion.copy( this._tmpQuat );
 
 				}
 
 			} else if ( this._grabbedHand === null ) {
 
-				const dist = controller.position.distanceTo( this.object.position );
+				const grabPointWorld = this._getGrabPointWorld();
+				const dist = controller.position.distanceTo( grabPointWorld );
 				nearestDist = Math.min( nearestDist, dist );
 
-				if ( dist <= GRAB_RANGE && gripEdge ) {
+				if ( dist <= this.grabRange && gripEdge ) {
 
 					this._grabbedHand = hand;
 
-					// Record the object's current position/rotation
+					// Record the grab point's current position/rotation
 					// relative to this controller, so tracking starts
 					// from exactly where things are right now.
 					this._invQuat.copy( controller.quaternion ).invert();
-					this._grabOffset.copy( this.object.position ).sub( controller.position ).applyQuaternion( this._invQuat );
+					this._grabOffset.copy( grabPointWorld ).sub( controller.position ).applyQuaternion( this._invQuat );
 					this._grabQuatOffset.copy( this._invQuat ).multiply( this.object.quaternion );
 
 				}
@@ -154,7 +174,7 @@ export class PlaceableObject {
 		}
 
 		if ( this._grabbedHand ) this._setHighlight( 'held' );
-		else if ( nearestDist <= GRAB_RANGE ) this._setHighlight( 'near' );
+		else if ( nearestDist <= this.grabRange ) this._setHighlight( 'near' );
 		else this._setHighlight( 'none' );
 
 		// Left stick Y-axis scales the object — only while the left hand
