@@ -2782,7 +2782,13 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 		// mismatch was causing violent jitter/bouncing instead of the
 		// car settling naturally onto the track.
 		const world = createPhysicsWorld( arTransform.scale );
-		buildWallColliders( world, null, null, arTransform );
+		// TEMPORARY debug aid: renders wireframe boxes at the actual
+		// physics wall positions, so we can directly compare them
+		// against the visible track and catch any offset mismatch.
+		// Safe to remove once confirmed correct.
+		const debugGroup = new THREE.Group();
+		scene.add( debugGroup );
+		buildWallColliders( world, debugGroup, null, arTransform );
 
 		// Ground thickness has a hard floor instead of scaling all the
 		// way down with the track — a paper-thin collider at typical AR
