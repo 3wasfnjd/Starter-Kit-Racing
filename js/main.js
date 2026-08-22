@@ -2734,8 +2734,12 @@ function arTransformSpawn( position, angle, arTransform ) {
 
 }
 
-async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessionPromise } ) {
+async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 
+	// STAGE 1 (rebuild): place + lock the track only — no physics, no
+	// vehicle, no lights/audio/AI. Confirms the track's shape/position
+	// look right before adding anything else on top, one small piece at
+	// a time.
 	const arManager = new ARManager( { renderer, scene, models } );
 	await arManager.requestSession( sessionPromise );
 	arManager.previewGroup.visible = false; // not using hit-test placement here
@@ -2743,14 +2747,7 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 	const placeholderCamera = new THREE.PerspectiveCamera();
 
 	const { trackGroup } = buildTrack( scene, models, null, { skipDeco: true } );
-	const bounds = computeTrackBounds( TRACK_CELLS );
-	const spawn = computeSpawnPosition( null );
-	const trackPath = computeTrackPath( null );
 
-	// Scale is temporarily locked (min===max disables the resize stick
-	// control) while sorting out position/physics alignment — resize
-	// adds a whole extra dimension of things that can go wrong, so it's
-	// worth confirming everything else is solid at one fixed size first.
 	const FIXED_SCALE = 0.04;
 	trackGroup.scale.setScalar( FIXED_SCALE );
 	trackGroup.position.set( 0, 0.9, - 0.6 );
@@ -2760,182 +2757,14 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 	scene.add( light );
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.7 ) );
 
+	// Scale locked (min===max) — resize comes back in a later stage.
 	const placeable = new PlaceableObject( trackGroup, arManager, { minScale: FIXED_SCALE, maxScale: FIXED_SCALE } );
-
-	// Starting grid: player at the front, 3 AI staggered behind — same
-	// grid math as the web race mode.
-	const gridSlots = computeGridPositions( spawn, 4 );
-	const playerSlot = gridSlots[ 0 ];
-
-	// ── Placement-phase preview: lightweight kinematic car + AI, no
-	// physics, just so the grid isn't empty while positioning the track.
-	const previewContainer = new THREE.Group();
-	const previewModel = ( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] ).clone();
-	previewModel.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
-	previewContainer.add( previewModel );
-	previewContainer.position.set( playerSlot.position[ 0 ], playerSlot.position[ 1 ], playerSlot.position[ 2 ] );
-	previewContainer.rotation.y = playerSlot.angle;
-	trackGroup.add( previewContainer );
-
-	const previewAI = createKinematicTrackAI(
-		NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
-		gridSlots, models, trackGroup, trackPath
-	);
-
-	// ── Race-phase state (populated once locked in) ──────────
-	let phase = 'placing'; // 'placing' -> 'racing'
-	let raceCtx = null;
-
-	function lockInAndStartRace() {
-
-		// Track stays exactly where/how big it is from this point on —
-		// real physics colliders are built to match THIS transform once,
-		// which only works correctly as long as nothing moves afterward
-		// (crashcat's rigid bodies don't live in trackGroup's own
-		// transform space, so they'd desync from any further grab/resize).
-		const yaw = new THREE.Euler().setFromQuaternion( trackGroup.quaternion, 'YXZ' ).y;
-		const yawQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
-		const arTransform = { position: trackGroup.position.clone(), quaternion: yawQuat, scale: trackGroup.scale.x };
-
-		trackGroup.remove( previewContainer );
-		previewAI.forEach( ( d ) => trackGroup.remove( d.model ) );
-
-		// Gravity scaled down with the track — real 9.81 m/s² acting on
-		// a sphere shrunk to AR-tabletop size is a huge force relative
-		// to its own tiny size (unlike a real toy car, which is light
-		// enough that gravity feels proportionally gentle) — that
-		// mismatch was causing violent jitter/bouncing instead of the
-		// car settling naturally onto the track.
-		const world = createPhysicsWorld( arTransform.scale );
-		// TEMPORARY debug aid: renders wireframe boxes at the actual
-		// physics wall positions, so we can directly compare them
-		// against the visible track and catch any offset mismatch.
-		// Safe to remove once confirmed correct.
-		const debugGroup = new THREE.Group();
-		scene.add( debugGroup );
-		buildWallColliders( world, debugGroup, null, arTransform );
-
-		// Ground thickness has a hard floor instead of scaling all the
-		// way down with the track — a paper-thin collider at typical AR
-		// scales (0.005-0.04×) let fast-moving cars tunnel straight
-		// through in a single physics step and fall forever.
-		const groundHalfY = Math.max( 0.01 * arTransform.scale, 0.02 );
-		const groundXf = applyArTransform( [ bounds.centerX, - 0.125, bounds.centerZ ], [ 0, 0, 0, 1 ], arTransform );
-		rigidBody.create( world, {
-			shape: box.create( { halfExtents: [ bounds.halfWidth * arTransform.scale, groundHalfY, bounds.halfDepth * arTransform.scale ] } ),
-			motionType: MotionType.STATIC,
-			objectLayer: world._OL_STATIC,
-			position: groundXf.position,
-			friction: 5.0,
-			restitution: 0.0,
-		} );
-
-		// TEMPORARY debug aid: a visible (not just physics) box at the
-		// ground collider's exact computed position/size, so we can see
-		// directly whether it lines up with the visible track or is
-		// missing/misplaced. Safe to remove once confirmed correct.
-		const groundDebugMesh = new THREE.Mesh(
-			new THREE.BoxGeometry(
-				bounds.halfWidth * arTransform.scale * 2,
-				groundHalfY * 2,
-				bounds.halfDepth * arTransform.scale * 2
-			),
-			new THREE.MeshBasicMaterial( { color: 0x0000ff, wireframe: true } )
-		);
-		groundDebugMesh.position.set( groundXf.position[ 0 ], groundXf.position[ 1 ], groundXf.position[ 2 ] );
-		scene.add( groundDebugMesh );
-
-		// The physics sphere was hardcoded at a real 0.5m radius (fine
-		// for NORMAL/room-drive AR, where the car is roughly life-sized)
-		// — at AR-track scale that's comically oversized relative to a
-		// tabletop-sized loop, badly mismatched with the thin ground and
-		// walls. Scaled down to match, with a small floor so it never
-		// vanishes to zero at extreme shrink.
-		const carRadius = Math.max( 0.5 * arTransform.scale, 0.003 );
-
-		// Real player Vehicle — same class NORMAL mode uses, so it gets
-		// genuine wall collision, suspension, and drift physics.
-		const playerWorld = arTransformSpawn( playerSlot.position, playerSlot.angle, arTransform );
-		const sphereBody = createSphereBody( world, [ playerWorld.position[ 0 ], playerWorld.position[ 1 ], playerWorld.position[ 2 ] ], carRadius );
-
-		const vehicle = new Vehicle();
-		vehicle.sphereRadius = carRadius;
-		vehicle.rigidBody = sphereBody;
-		vehicle.physicsWorld = world;
-		vehicle.spherePos.set( playerWorld.position[ 0 ], playerWorld.position[ 1 ], playerWorld.position[ 2 ] );
-		vehicle.prevModelPos.set( playerWorld.position[ 0 ], 0, playerWorld.position[ 2 ] );
-		vehicle.container.rotation.y = playerWorld.angle;
-
-		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
-		vehicleGroup.scale.setScalar( arTransform.scale ); // Vehicle.js never touches .scale itself (only position/rotation), so this persists safely
-		scene.add( vehicleGroup );
-		addCustomTextDecals( vehicleGroup, customText );
-		const vehicleLights = addVehicleLights( vehicleGroup );
-		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
-
-		const audio = new GameAudio();
-		audio.init( renderer.xr.getCamera(), vehicleGroup );
-		audio.forceUnlock();
-		const radio = new Radio( audio.listener, vehicleGroup );
-
-		// Smoke authored at real-meter scale (NORMAL mode) — shrink
-		// proportionally so it doesn't render as room-filling clouds
-		// around a tabletop-sized car.
-		// NORMAL mode uses SmokeTrails at scale=1 for a full-size car —
-		// this car is `arTransform.scale` of that size, so smoke uses
-		// the same proportion directly instead of an inflated multiplier
-		// (the previous ×3 with a 0.02 floor made smoke visibly bigger
-		// than the car itself at typical AR-tabletop scales).
-		const particles = new SmokeTrails( scene, arTransform.scale );
-		const driftMarks = new DriftMarks( scene, 'ar-floating-track' );
-
-		const _forward = new THREE.Vector3();
-		const contactListener = {
-			onContactAdded( bodyA, bodyB ) {
-
-				if ( bodyA !== sphereBody && bodyB !== sphereBody ) return;
-				_forward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
-				_forward.y = 0;
-				_forward.normalize();
-				const impactVelocity = Math.abs( vehicle.modelVelocity.dot( _forward ) );
-				audio.playImpact( impactVelocity );
-
-			}
-		};
-
-		const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer: null, contactListener, vehicleFlag };
-
-		// Real AI opponents — exact same functions the web race mode
-		// uses (createAIDrivers/updateAIDrivers), just spawned at
-		// AR-transformed grid slots and steering against a
-		// world-transformed copy of the path (updateAIDrivers compares
-		// waypoints directly against the vehicle's spherePos, which is
-		// now in real WebXR world space, not the track's local space).
-		const worldGridSlots = gridSlots.map( ( slot ) => {
-
-			const w = arTransformSpawn( slot.position, slot.angle, arTransform );
-			return { position: w.position, angle: w.angle, backDist: slot.backDist };
-
-		} );
-		const worldTrackPath = trackPath.map( ( p ) => {
-
-			const w = applyArTransform( [ p.x, 0, p.z ], [ 0, 0, 0, 1 ], arTransform );
-			return { x: w.position[ 0 ], z: w.position[ 2 ] };
-
-		} );
-		const aiDrivers = createAIDrivers(
-			NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
-			worldGridSlots, models, scene, world, worldTrackPath, carRadius
-		);
-
-		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, contactListener, ctx, aiDrivers, worldTrackPath, arScale: arTransform.scale };
-		phase = 'racing';
-
-	}
 
 	placeable.onConfirm = () => {
 
-		lockInAndStartRace();
+		// Nothing else happens yet at this stage — just stops updating
+		// (frameUpdate below skips placeable.update() once confirmed),
+		// which freezes the track wherever it was left.
 
 	};
 
@@ -2945,28 +2774,7 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 
 			try {
 
-				if ( phase === 'placing' ) {
-
-					placeable.update( dt );
-					updateKinematicTrackAI( previewAI, trackPath, dt, false );
-
-				} else if ( phase === 'racing' && raceCtx ) {
-
-					const input = arManager.getDriveInput();
-					updateVehicleAndFx( dt, input, raceCtx.ctx );
-					updateAIDrivers( raceCtx.aiDrivers, raceCtx.worldTrackPath, dt, true, 0 );
-					updateVehicleLights( raceCtx.vehicleLights, dt, raceCtx.arScale, raceCtx.vehicle.linearSpeed < -0.01 );
-
-					if ( arManager.getHeadlightToggle() ) toggleHeadlights( raceCtx.vehicleLights );
-					if ( arManager.getHazardToggle() ) toggleHazards( raceCtx.vehicleLights );
-					setHighBeam( raceCtx.vehicleLights, arManager.getHighBeamHold(), raceCtx.arScale );
-					raceCtx.audio.setHorn( arManager.getHornHold() );
-
-					const radioBtn = arManager.getRadioButtons();
-					if ( radioBtn.next ) raceCtx.radio.next();
-					if ( radioBtn.toggle ) raceCtx.radio.togglePlayPause();
-
-				}
+				if ( ! placeable.confirmed ) placeable.update( dt );
 
 			} catch ( e ) {
 
