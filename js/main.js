@@ -66,7 +66,7 @@ const modelNames = [
 	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
-	'ground_tile', 'barrier_segment',
+	'ground-tile', 'barrier-segment',
 ];
 
 const models = {};
@@ -2720,11 +2720,11 @@ function buildDriftPad( half, models ) {
 
 	const pad = new THREE.Group();
 
-	// Real asset (models/ground_tile.glb) instead of a runtime
+	// Real asset (models/ground-tile.glb) instead of a runtime
 	// PlaneGeometry — same color, now an actual game asset like every
 	// other piece in the project. The source tile is 10×0.1×10, so it's
 	// scaled non-uniformly to cover the full pad footprint.
-	const groundSrc = models[ 'ground_tile' ];
+	const groundSrc = models[ 'ground-tile' ];
 	if ( groundSrc ) {
 
 		const groundMesh = groundSrc.clone();
@@ -2734,12 +2734,12 @@ function buildDriftPad( half, models ) {
 
 	}
 
-	// Real asset (models/barrier_segment.glb, 8 units long) instead of
+	// Real asset (models/barrier-segment.glb, 8 units long) instead of
 	// runtime-built boxes — each instance is a small wrapper group so
 	// the segment can be length-scaled in its own local space before
 	// the group applies the 90°-per-axis rotation, since scale and
 	// rotation don't commute otherwise.
-	const barrierSrc = models[ 'barrier_segment' ];
+	const barrierSrc = models[ 'barrier-segment' ];
 	const barrierSeg = 8;
 
 	function placeBarrier( center, fixedCoord, segLen, axis ) {
