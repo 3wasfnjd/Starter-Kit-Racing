@@ -2748,7 +2748,7 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 
 	const { trackGroup } = buildTrack( scene, models, null, { skipDeco: true } );
 
-	const FIXED_SCALE = 0.04;
+	const FIXED_SCALE = 0.02;
 	trackGroup.scale.setScalar( FIXED_SCALE );
 	trackGroup.position.set( 0, 0.9, - 0.6 );
 
@@ -2762,9 +2762,10 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 
 	placeable.onConfirm = () => {
 
-		// Nothing else happens yet at this stage — just stops updating
-		// (frameUpdate below skips placeable.update() once confirmed),
-		// which freezes the track wherever it was left.
+		// The grab-highlight glow was staying on forever after lock —
+		// explicitly clear it back to normal now that it's done being
+		// held.
+		placeable._setHighlight( 'none' );
 
 	};
 
