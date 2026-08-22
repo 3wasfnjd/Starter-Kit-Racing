@@ -2750,8 +2750,16 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 	await arManager.requestSession( sessionPromise );
 	arManager.previewGroup.visible = false; // not using hit-test placement here
 
-	const placeholderCamera = new THREE.PerspectiveCamera();
+	// Custom post-processing (bloom) is authored for a single flat camera
+	// and isn't guaranteed to handle WebXR's per-eye stereo rendering
+	// correctly — also the direct cause of lights blowing out into an
+	// overwhelming glow, since bloom amplifies bright pixels heavily.
+	// Room-drive AR mode already disables this; this mode was missing
+	// the same fix.
+	renderer.setEffects( [] );
+	arManager.session.addEventListener( 'end', () => { renderer.setEffects( [ bloomPass ] ); } );
 
+	const placeholderCamera = new THREE.PerspectiveCamera();
 	const { trackGroup } = buildTrack( scene, models, null, { skipDeco: true } );
 	const spawn = computeSpawnPosition( null );
 	const bounds = computeTrackBounds( TRACK_CELLS );
@@ -3094,6 +3102,10 @@ async function startARFloatingArena( { vehicleKey, sessionPromise } ) {
 	const arManager = new ARManager( { renderer, scene, models } );
 	await arManager.requestSession( sessionPromise );
 	arManager.previewGroup.visible = false; // not using hit-test placement here
+
+	// Same bloom fix as the floating track — see its comment.
+	renderer.setEffects( [] );
+	arManager.session.addEventListener( 'end', () => { renderer.setEffects( [ bloomPass ] ); } );
 
 	const placeholderCamera = new THREE.PerspectiveCamera();
 
