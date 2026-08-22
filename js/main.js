@@ -2587,53 +2587,6 @@ async function startARPlaceableTest( { sessionPromise } ) {
 
 }
 
-// Visual-only drift arena (ground + 4 grandstand walls) — no physics,
-// no touching scene.background/fog/lighting (which the free-roam NORMAL
-// mode version does, but that would break AR passthrough). Everything
-// is parented under one returned Group so it can be grabbed/moved/
-// scaled as a unit, same idea as buildTrack()'s trackGroup.
-function buildArenaVisual( groundSize ) {
-
-	const arenaGroup = new THREE.Group();
-	const roadHalf = groundSize / 2;
-
-	const asphaltTexture = createAsphaltTexture();
-	asphaltTexture.repeat.set( groundSize / 8, groundSize / 8 );
-	const groundMesh = new THREE.Mesh(
-		new THREE.PlaneGeometry( groundSize, groundSize ),
-		new THREE.MeshStandardMaterial( { map: asphaltTexture, roughness: 1, metalness: 0 } )
-	);
-	groundMesh.rotation.x = - Math.PI / 2;
-	arenaGroup.add( groundMesh );
-
-	const wallThickness = 0.2;
-	for ( const sign of [ 1, -1 ] ) {
-
-		buildGrandstandWall( arenaGroup, 'x', roadHalf * 2, sign * roadHalf, wallThickness, sign );
-		buildGrandstandWall( arenaGroup, 'z', roadHalf * 2, sign * roadHalf, wallThickness, sign );
-
-	}
-
-	// Same red/white striped barrier used around the actual race track —
-	// just one side for now (between the play area and the north
-	// grandstand), matching the track's visual style. buildBarrierSegment
-	// accepts world=null for a visual-only barrier (no physics), same as
-	// everything else in this arena.
-	const barrierSeg = 8;
-	for ( let p = - roadHalf; p < roadHalf; p += barrierSeg ) {
-
-		const segLen = Math.min( barrierSeg, roadHalf - p ) - 0.3; // small gaps between segments, like real jersey barrier sections
-		if ( segLen <= 0 ) continue;
-		const center = p + segLen / 2;
-
-		buildBarrierSegment( arenaGroup, null, center, roadHalf, segLen, 'x' );
-
-	}
-
-	return { arenaGroup, roadHalf };
-
-}
-
 // ─── AR floating track (Stage 3) ────────────────────────────
 // The default track, built exactly like NORMAL mode, but grabbable/
 // movable/scalable (PlaceableObject, same mechanic proven in Stage 2)
@@ -2768,32 +2721,32 @@ async function startARFloatingArena( { vehicleKey, sessionPromise } ) {
 
 	const placeholderCamera = new THREE.PerspectiveCamera();
 
-	const ARENA_SIZE = 60; // matches NORMAL mode free-roam's groundSize
-	const { arenaGroup, roadHalf } = buildArenaVisual( ARENA_SIZE );
+	// Same asphalt-loop-plus-barrier visual as the floating track (see
+	// startARFloatingTrack) — the "arena" here is that same track shape,
+	// just driven freely within its footprint instead of following the
+	// road as a path.
+	const { trackGroup: arenaGroup } = buildTrack( scene, models, null, { skipDeco: true } );
+	const bounds = computeTrackBounds( TRACK_CELLS );
 
 	// Small tabletop scale by default, positioned a short reach in front
 	// of wherever the headset happens to be when the session starts —
 	// same reasoning as the floating track.
-	arenaGroup.scale.setScalar( 0.02 );
+	arenaGroup.scale.setScalar( 0.04 );
 	arenaGroup.position.set( 0, 0.9, - 0.6 );
-	scene.add( arenaGroup );
 
 	const light = new THREE.DirectionalLight( 0xffffff, 2.5 );
 	light.position.set( 1, 2, 1 );
 	scene.add( light );
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.7 ) );
 
-	// Arena spans ~60 units at scale 1 (similar order of magnitude to
-	// the track), so the same small-tabletop-to-large-room scale range
-	// applies here too.
 	const placeable = new PlaceableObject( arenaGroup, arManager, { minScale: 0.005, maxScale: 0.1 } );
 
 	const carModel = ( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] ).clone();
 	carModel.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
-	carModel.position.set( 0, 0.5, 0 );
+	carModel.position.set( bounds.centerX, 0.5, bounds.centerZ );
 	arenaGroup.add( carModel ); // child of arenaGroup — inherits its transform automatically
 
-	const car = { x: 0, z: 0, heading: 0, speed: 0 };
+	const car = { x: bounds.centerX, z: bounds.centerZ, heading: 0, speed: 0 };
 	const CAR_MAX_SPEED = 8; // local units/sec, in the arena's own (unscaled) coordinate space
 	const CAR_ACCEL = 10;
 	const CAR_TURN_RATE = 2.4; // rad/sec at full speed
@@ -2833,11 +2786,10 @@ async function startARFloatingArena( { vehicleKey, sessionPromise } ) {
 					car.x += Math.sin( car.heading ) * car.speed * dt;
 					car.z += Math.cos( car.heading ) * car.speed * dt;
 
-					// Crude boundary clamp (simple square arena bounds) —
+					// Crude boundary clamp (overall track bounding box) —
 					// not real wall collision, just keeps the car inside.
-					const margin = 2;
-					car.x = THREE.MathUtils.clamp( car.x, - roadHalf + margin, roadHalf - margin );
-					car.z = THREE.MathUtils.clamp( car.z, - roadHalf + margin, roadHalf - margin );
+					car.x = THREE.MathUtils.clamp( car.x, bounds.centerX - bounds.halfWidth, bounds.centerX + bounds.halfWidth );
+					car.z = THREE.MathUtils.clamp( car.z, bounds.centerZ - bounds.halfDepth, bounds.centerZ + bounds.halfDepth );
 
 					carModel.position.set( car.x, 0.5, car.z );
 					carModel.rotation.y = car.heading;
