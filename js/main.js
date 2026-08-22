@@ -2613,7 +2613,12 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 	scene.add( light );
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.7 ) );
 
-	const placeable = new PlaceableObject( trackGroup, arManager );
+	// Track spans ~60 units at scale 1, so this range covers roughly
+	// 0.3m (a small tabletop model) up to 6m (a large room-filling
+	// layout) — the previous shared default (0.05-1.5, tuned for the
+	// much smaller Stage 2 test box) didn't let the track get small
+	// enough to feel like an actual tabletop model.
+	const placeable = new PlaceableObject( trackGroup, arManager, { minScale: 0.005, maxScale: 0.1 } );
 
 	// Simple kinematic car — a plain model, no Vehicle.js/rigid body.
 	const carModel = ( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] ).clone();
