@@ -1342,18 +1342,19 @@ function setHighBeam( vehicleLights, on, scale = 1 ) {
 	vehicleLights._highBeamOn = on;
 
 	const s = Math.max( scale, 0.001 );
+	const intensityScale = Math.sqrt( s );
 
 	vehicleLights.headlights.forEach( ( h ) => {
 
 		if ( on ) {
 
 			h.light.visible = true;
-			h.light.intensity = h.baseIntensity * s * s * 2.5;
+			h.light.intensity = h.baseIntensity * intensityScale * 2.5;
 			h.light.distance = h.baseDistance * s * 1.4;
 
 		} else {
 
-			h.light.intensity = h.baseIntensity * s * s;
+			h.light.intensity = h.baseIntensity * intensityScale;
 			h.light.distance = h.baseDistance * s;
 			h.light.visible = vehicleLights._headlightsBeforeHighBeam;
 
@@ -1387,18 +1388,22 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false ) {
 	// not just headlights. Taillights are always-on, so at AR-tabletop
 	// scale an unscaled ~0.9m range dwarfed the entire shrunk track,
 	// washing the whole scene in red. Distance scales linearly with
-	// `scale` (so it's exactly baseDistance at scale=1, matching the
-	// original tuning) and intensity scales with scale², following
-	// inverse-square falloff so the illuminated patch looks like it
-	// belongs to a light of that size.
+	// `scale`. Intensity uses sqrt(scale) rather than true inverse-
+	// square (scale²) — physically "more correct", but at the floating
+	// track's very small fixed scale (~0.016) squaring pushed intensity
+	// down to a fraction of a percent of base, making every light
+	// essentially invisible even when correctly toggled on. sqrt keeps
+	// a visible amount of light at small scales while still dimming
+	// noticeably larger cars less than smaller ones.
 	const s = Math.max( scale, 0.001 );
+	const intensityScale = Math.sqrt( s );
 
 	if ( vehicleLights.headlights ) {
 
 		vehicleLights.headlights.forEach( ( h ) => {
 
 			h.light.distance = h.baseDistance * s;
-			h.light.intensity = h.baseIntensity * s * s;
+			h.light.intensity = h.baseIntensity * intensityScale;
 
 		} );
 
@@ -1409,7 +1414,7 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false ) {
 		vehicleLights.taillights.forEach( ( t ) => {
 
 			t.light.distance = t.baseDistance * s;
-			t.light.intensity = t.baseIntensity * s * s;
+			t.light.intensity = t.baseIntensity * intensityScale;
 
 		} );
 
@@ -1420,7 +1425,7 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false ) {
 		vehicleLights.hazards.forEach( ( h ) => {
 
 			h.light.distance = h.baseDistance * s;
-			h.light.intensity = h.baseIntensity * s * s;
+			h.light.intensity = h.baseIntensity * intensityScale;
 
 		} );
 
@@ -1431,7 +1436,7 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false ) {
 		vehicleLights.reverseLights.forEach( ( r ) => {
 
 			r.light.distance = r.baseDistance * s;
-			r.light.intensity = r.baseIntensity * s * s;
+			r.light.intensity = r.baseIntensity * intensityScale;
 			r.light.visible = isReversing;
 			if ( r.lens ) r.lens.visible = isReversing;
 
@@ -2811,9 +2816,16 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 		// to its own tiny size, causing violent jitter/bouncing instead
 		// of the car settling naturally onto the track.
 		const world = createPhysicsWorld( arTransform.scale );
-		buildWallColliders( world, null, null, arTransform );
+		// TEMPORARY debug aid: green wireframe boxes at the actual
+		// physics wall positions, and a blue wireframe at the ground
+		// collider — lets us directly compare against the visible
+		// track instead of guessing from code review alone. Safe to
+		// remove once confirmed correct.
+		const debugGroup = new THREE.Group();
+		scene.add( debugGroup );
+		buildWallColliders( world, debugGroup, null, arTransform );
 
-		const groundHalfY = Math.max( 0.01 * arTransform.scale, 0.02 );
+		const groundHalfY = Math.max( 0.01 * arTransform.scale, 0.002 );
 		const groundXf = applyArTransform( [ bounds.centerX, - 0.125, bounds.centerZ ], [ 0, 0, 0, 1 ], arTransform );
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents: [ bounds.halfWidth * arTransform.scale, groundHalfY, bounds.halfDepth * arTransform.scale ] } ),
@@ -2829,7 +2841,13 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 		// oversized relative to a tabletop-sized loop.
 		const carRadius = Math.max( 0.5 * arTransform.scale, 0.003 );
 
-		const playerWorld = arTransformSpawn( spawn.position, spawn.angle, arTransform );
+		// Spawn slightly behind the finish line (same grid convention as
+		// the web race mode) instead of exactly on top of it — spawning
+		// exactly at the line risked overlapping finish-line-specific
+		// geometry/colliders, a likely cause of the car getting shoved
+		// backward on the very first physics step.
+		const gridSlot = computeGridPositions( spawn, 1 )[ 0 ];
+		const playerWorld = arTransformSpawn( gridSlot.position, gridSlot.angle, arTransform );
 		const sphereBody = createSphereBody( world, playerWorld.position, carRadius );
 
 		const vehicle = new Vehicle();

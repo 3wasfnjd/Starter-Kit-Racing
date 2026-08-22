@@ -107,7 +107,7 @@ export class SmokeTrails {
 
 		if ( shouldEmit ) {
 
-			const roadY = vehicle.container.position.y + 0.05;
+			const roadY = vehicle.container.position.y + 0.05 * this.scale;
 			const bl = vehicle.wheelBL ? vehicle.wheelBL.getWorldPosition( _blPos ) : null;
 			const br = vehicle.wheelBR ? vehicle.wheelBR.getWorldPosition( _brPos ) : null;
 
