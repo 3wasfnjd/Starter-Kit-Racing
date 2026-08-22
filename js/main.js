@@ -2748,9 +2748,13 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 
 	const { trackGroup } = buildTrack( scene, models, null, { skipDeco: true } );
 
-	const FIXED_SCALE = 0.02;
+	const FIXED_SCALE = 0.012;
 	trackGroup.scale.setScalar( FIXED_SCALE );
-	trackGroup.position.set( 0, 0.9, - 0.6 );
+	// Further out (was 0.6m — too close, overlapped the view) and lower
+	// (was 0.9m — around eye level when seated; a tabletop-style layout
+	// should sit below eye level, not straight ahead in the middle of
+	// the view).
+	trackGroup.position.set( 0, 0.55, - 1.3 );
 
 	const light = new THREE.DirectionalLight( 0xffffff, 2.5 );
 	light.position.set( 1, 2, 1 );
