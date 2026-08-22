@@ -2734,12 +2734,13 @@ function arTransformSpawn( position, angle, arTransform ) {
 
 }
 
-async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
+async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessionPromise } ) {
 
-	// STAGE 1 (rebuild): place + lock the track only — no physics, no
-	// vehicle, no lights/audio/AI. Confirms the track's shape/position
-	// look right before adding anything else on top, one small piece at
-	// a time.
+	// STAGE 1 (placement) + STAGE 2 (rebuild): place + lock the track,
+	// then spawn a full-featured real-physics car on it — same feature
+	// set as room-drive AR mode (lights, flag, text, smoke, drift marks,
+	// audio, radio, horn), just at the track's fixed AR scale instead of
+	// a user-resizable one.
 	const arManager = new ARManager( { renderer, scene, models } );
 	await arManager.requestSession( sessionPromise );
 	arManager.previewGroup.visible = false; // not using hit-test placement here
@@ -2748,6 +2749,7 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 
 	const { trackGroup } = buildTrack( scene, models, null, { skipDeco: true } );
 	const spawn = computeSpawnPosition( null );
+	const bounds = computeTrackBounds( TRACK_CELLS );
 
 	const FIXED_SCALE = 0.016;
 	trackGroup.scale.setScalar( FIXED_SCALE );
@@ -2786,12 +2788,93 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 		grabPoint: gatePoint, grabRange: 0.15,
 	} );
 
+	let raceCtx = null;
+
 	placeable.onConfirm = () => {
 
 		// The grab-highlight glow was staying on forever after lock —
 		// explicitly clear it back to normal now that it's done being
 		// held.
 		placeable._setHighlight( 'none' );
+
+		// Track stays exactly where/how big it is from this point on —
+		// real physics colliders are built to match THIS transform once
+		// (crashcat's rigid bodies live in absolute world space, not
+		// trackGroup's own transform, so they'd desync from any further
+		// grab — which is why resize/move are locked at this stage).
+		const yaw = new THREE.Euler().setFromQuaternion( trackGroup.quaternion, 'YXZ' ).y;
+		const yawQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
+		const arTransform = { position: trackGroup.position.clone(), quaternion: yawQuat, scale: trackGroup.scale.x };
+
+		// Gravity scaled down with the track — real 9.81 m/s² acting on
+		// a sphere shrunk to AR-tabletop size is a huge force relative
+		// to its own tiny size, causing violent jitter/bouncing instead
+		// of the car settling naturally onto the track.
+		const world = createPhysicsWorld( arTransform.scale );
+		buildWallColliders( world, null, null, arTransform );
+
+		const groundHalfY = Math.max( 0.01 * arTransform.scale, 0.02 );
+		const groundXf = applyArTransform( [ bounds.centerX, - 0.125, bounds.centerZ ], [ 0, 0, 0, 1 ], arTransform );
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: [ bounds.halfWidth * arTransform.scale, groundHalfY, bounds.halfDepth * arTransform.scale ] } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position: groundXf.position,
+			friction: 5.0,
+			restitution: 0.0,
+		} );
+
+		// Physics sphere scaled to match the track instead of the
+		// hardcoded real-0.5m default — otherwise it's comically
+		// oversized relative to a tabletop-sized loop.
+		const carRadius = Math.max( 0.5 * arTransform.scale, 0.003 );
+
+		const playerWorld = arTransformSpawn( spawn.position, spawn.angle, arTransform );
+		const sphereBody = createSphereBody( world, playerWorld.position, carRadius );
+
+		const vehicle = new Vehicle();
+		vehicle.sphereRadius = carRadius;
+		vehicle.rigidBody = sphereBody;
+		vehicle.physicsWorld = world;
+		vehicle.spherePos.set( playerWorld.position[ 0 ], playerWorld.position[ 1 ], playerWorld.position[ 2 ] );
+		vehicle.prevModelPos.set( playerWorld.position[ 0 ], 0, playerWorld.position[ 2 ] );
+		vehicle.container.rotation.y = playerWorld.angle;
+
+		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
+		vehicleGroup.scale.setScalar( arTransform.scale ); // matches the track's own fixed scale — Vehicle.js never touches .scale itself, so this persists safely
+		scene.add( vehicleGroup );
+		addCustomTextDecals( vehicleGroup, customText );
+		const vehicleLights = addVehicleLights( vehicleGroup );
+		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+
+		const audio = new GameAudio();
+		audio.init( renderer.xr.getCamera(), vehicleGroup );
+		audio.forceUnlock();
+		const radio = new Radio( audio.listener, vehicleGroup );
+
+		// NORMAL mode uses SmokeTrails at scale=1 for a full-size car —
+		// this car is `arTransform.scale` of that size, so smoke uses
+		// the same proportion directly.
+		const particles = new SmokeTrails( scene, arTransform.scale );
+		const driftMarks = new DriftMarks( scene, 'ar-floating-track' );
+
+		const _forward = new THREE.Vector3();
+		const contactListener = {
+			onContactAdded( bodyA, bodyB ) {
+
+				if ( bodyA !== sphereBody && bodyB !== sphereBody ) return;
+				_forward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+				_forward.y = 0;
+				_forward.normalize();
+				const impactVelocity = Math.abs( vehicle.modelVelocity.dot( _forward ) );
+				audio.playImpact( impactVelocity );
+
+			}
+		};
+
+		const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer: null, contactListener, vehicleFlag };
+
+		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, arScale: arTransform.scale };
 
 	};
 
@@ -2801,7 +2884,26 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 
 			try {
 
-				if ( ! placeable.confirmed ) placeable.update( dt );
+				if ( ! placeable.confirmed ) {
+
+					placeable.update( dt );
+
+				} else if ( raceCtx ) {
+
+					const input = arManager.getDriveInput();
+					updateVehicleAndFx( dt, input, raceCtx.ctx );
+					updateVehicleLights( raceCtx.vehicleLights, dt, raceCtx.arScale, raceCtx.vehicle.linearSpeed < -0.01 );
+
+					if ( arManager.getHeadlightToggle() ) toggleHeadlights( raceCtx.vehicleLights );
+					if ( arManager.getHazardToggle() ) toggleHazards( raceCtx.vehicleLights );
+					setHighBeam( raceCtx.vehicleLights, arManager.getHighBeamHold(), raceCtx.arScale );
+					raceCtx.audio.setHorn( arManager.getHornHold() );
+
+					const radioBtn = arManager.getRadioButtons();
+					if ( radioBtn.next ) raceCtx.radio.next();
+					if ( radioBtn.toggle ) raceCtx.radio.togglePlayPause();
+
+				}
 
 			} catch ( e ) {
 
