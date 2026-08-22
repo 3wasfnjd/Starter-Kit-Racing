@@ -6,7 +6,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle, MAX_SPEED } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath, NPC_TRUCKS } from './Track.js';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath, NPC_TRUCKS, TRACK_CELLS } from './Track.js';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { DriftMarks } from './DriftMarks.js';
@@ -479,7 +479,7 @@ function createModeMenu( { arAvailable } ) {
 			} );
 
 			menu.remove();
-			resolve( { choice: 'ar', arSubMode: 'track-test', sessionPromise } );
+			resolve( { choice: 'ar', arSubMode: 'track', vehicleKey: selectedVehicle, sessionPromise } );
 
 		} );
 
@@ -2574,6 +2574,122 @@ async function startARPlaceableTest( { sessionPromise } ) {
 
 }
 
+// ─── AR floating track (Stage 3) ────────────────────────────
+// The default track, built exactly like NORMAL mode, but grabbable/
+// movable/scalable (PlaceableObject, same mechanic proven in Stage 2)
+// instead of fixed in place. No AI opponents yet — single car, kept
+// simple for this first working version.
+//
+// Physics note: crashcat's rigid bodies live in absolute world space,
+// completely disconnected from a THREE.Object3D's own transform — so a
+// real physics car wouldn't follow the track being grabbed/moved/resized
+// at all. Instead the car is a plain child of trackGroup with simple
+// kinematic movement (position/heading updated directly, no rigid body),
+// entirely in the group's local space — Three.js's normal parent-child
+// transform inheritance then makes it automatically move/scale with the
+// track for free, no extra bookkeeping needed. It trades away momentum/
+// suspension/drift physics for correctness under a moving reference
+// frame; can revisit if that trade turns out to matter in practice.
+async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
+
+	const arManager = new ARManager( { renderer, scene, models } );
+	await arManager.requestSession( sessionPromise );
+	arManager.previewGroup.visible = false; // not using hit-test placement here
+
+	const placeholderCamera = new THREE.PerspectiveCamera();
+
+	const { trackGroup } = buildTrack( scene, models, null );
+	const bounds = computeTrackBounds( TRACK_CELLS );
+	const spawn = computeSpawnPosition( null );
+
+	// Small tabletop scale by default, positioned a short reach in front
+	// of wherever the headset happens to be when the session starts —
+	// same reasoning as the Stage 2 test box.
+	trackGroup.scale.setScalar( 0.04 );
+	trackGroup.position.set( 0, 0.9, - 0.6 );
+
+	const light = new THREE.DirectionalLight( 0xffffff, 2.5 );
+	light.position.set( 1, 2, 1 );
+	scene.add( light );
+	scene.add( new THREE.AmbientLight( 0xffffff, 0.7 ) );
+
+	const placeable = new PlaceableObject( trackGroup, arManager );
+
+	// Simple kinematic car — a plain model, no Vehicle.js/rigid body.
+	const carModel = ( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] ).clone();
+	carModel.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
+	carModel.position.set( spawn.position[ 0 ], spawn.position[ 1 ], spawn.position[ 2 ] );
+	carModel.rotation.y = spawn.angle;
+	trackGroup.add( carModel ); // child of trackGroup — inherits its transform automatically
+
+	const car = {
+		x: spawn.position[ 0 ], z: spawn.position[ 2 ], heading: spawn.angle,
+		speed: 0,
+	};
+	const CAR_MAX_SPEED = 8; // local units/sec, in the track's own (unscaled) coordinate space
+	const CAR_ACCEL = 10;
+	const CAR_TURN_RATE = 2.4; // rad/sec at full speed
+
+	let racing = false;
+
+	placeable.onConfirm = () => {
+
+		racing = true;
+
+	};
+
+	return {
+
+		frameUpdate( dt ) {
+
+			try {
+
+				placeable.update( dt );
+
+				if ( racing ) {
+
+					const gp = arManager.gamepads.right;
+					const axes = gp ? gp.axes : [];
+					const steerRaw = axes.length > 2 ? axes[ 2 ] : 0;
+					const steer = Math.abs( steerRaw ) > 0.12 ? steerRaw : 0;
+					const throttle = gp && gp.buttons[ 0 ] ? gp.buttons[ 0 ].value : 0;
+					const brake = arManager.gamepads.left && arManager.gamepads.left.buttons[ 0 ]
+						? arManager.gamepads.left.buttons[ 0 ].value : 0;
+
+					const targetSpeed = ( throttle - brake ) * CAR_MAX_SPEED;
+					car.speed += THREE.MathUtils.clamp( targetSpeed - car.speed, - CAR_ACCEL * dt, CAR_ACCEL * dt );
+
+					const turnFactor = THREE.MathUtils.clamp( Math.abs( car.speed ) / CAR_MAX_SPEED, 0.15, 1 );
+					car.heading -= steer * CAR_TURN_RATE * turnFactor * dt * Math.sign( car.speed || 1 );
+
+					car.x += Math.sin( car.heading ) * car.speed * dt;
+					car.z += Math.cos( car.heading ) * car.speed * dt;
+
+					// Crude boundary clamp (overall track bounding box) —
+					// not real per-wall collision, just keeps the car from
+					// driving off into empty space indefinitely.
+					car.x = THREE.MathUtils.clamp( car.x, bounds.centerX - bounds.halfWidth, bounds.centerX + bounds.halfWidth );
+					car.z = THREE.MathUtils.clamp( car.z, bounds.centerZ - bounds.halfDepth, bounds.centerZ + bounds.halfDepth );
+
+					carModel.position.set( car.x, spawn.position[ 1 ], car.z );
+					carModel.rotation.y = car.heading;
+
+				}
+
+			} catch ( e ) {
+
+				console.error( '[main] floating-track frameUpdate() error:', e );
+
+			}
+
+			renderer.render( scene, placeholderCamera );
+
+		}
+
+	};
+
+}
+
 async function startARMode( { mapParam, customText, vehicleKey, flagImage, sessionPromise } ) {
 
 	const arManager = new ARManager( { renderer, scene, models } );
@@ -2901,11 +3017,11 @@ async function init() {
 
 		const { choice, arSubMode, customText, freeRoam, vehicleKey, flagImage, sessionPromise } = await createModeMenu( { arAvailable } );
 
-		if ( choice === 'ar' && arSubMode === 'track-test' ) {
+		if ( choice === 'ar' && arSubMode === 'track' ) {
 
 			try {
 
-				activeMode = await startARPlaceableTest( { sessionPromise } );
+				activeMode = await startARFloatingTrack( { vehicleKey, sessionPromise } );
 				break;
 
 			} catch ( e ) {
@@ -2918,7 +3034,7 @@ async function init() {
 						( e && e.message ) ? e.message : String( e ),
 						e && e.stack ? e.stack : '',
 						resolve,
-						'تعذّر تشغيل اختبار المضمار العائم'
+						'تعذّر تشغيل المضمار العائم'
 					);
 
 				} );
