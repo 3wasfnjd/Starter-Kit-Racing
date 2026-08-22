@@ -2614,6 +2614,22 @@ function buildArenaVisual( groundSize ) {
 
 	}
 
+	// Same red/white striped barrier used around the actual race track —
+	// just one side for now (between the play area and the north
+	// grandstand), matching the track's visual style. buildBarrierSegment
+	// accepts world=null for a visual-only barrier (no physics), same as
+	// everything else in this arena.
+	const barrierSeg = 8;
+	for ( let p = - roadHalf; p < roadHalf; p += barrierSeg ) {
+
+		const segLen = Math.min( barrierSeg, roadHalf - p ) - 0.3; // small gaps between segments, like real jersey barrier sections
+		if ( segLen <= 0 ) continue;
+		const center = p + segLen / 2;
+
+		buildBarrierSegment( arenaGroup, null, center, roadHalf, segLen, 'x' );
+
+	}
+
 	return { arenaGroup, roadHalf };
 
 }
