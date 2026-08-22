@@ -1240,11 +1240,12 @@ function addVehicleLights( vehicleGroup ) {
 	for ( const side of [ -1, 1 ] ) {
 
 		const baseDistance = 0.9;
-		const light = new THREE.PointLight( 0xff3b30, 0.8, baseDistance, 2 );
+		const baseIntensity = 0.8;
+		const light = new THREE.PointLight( 0xff3b30, baseIntensity, baseDistance, 2 );
 		const basePosition = new THREE.Vector3( side * 0.4, 0.43, -1.32 );
 		light.position.copy( basePosition );
 		bodyNode.add( light );
-		taillights.push( { light, basePosition, baseDistance } );
+		taillights.push( { light, basePosition, baseDistance, baseIntensity } );
 
 	}
 
@@ -1288,12 +1289,13 @@ function addVehicleLights( vehicleGroup ) {
 	for ( const [ x, y, z ] of hazardPositions ) {
 
 		const baseDistance = 0.8;
-		const light = new THREE.PointLight( 0xff8c1a, 3, baseDistance, 2 );
+		const baseIntensity = 3;
+		const light = new THREE.PointLight( 0xff8c1a, baseIntensity, baseDistance, 2 );
 		const basePosition = new THREE.Vector3( x, y, z );
 		light.position.copy( basePosition );
 		light.visible = false;
 		bodyNode.add( light );
-		hazards.push( { light, basePosition, baseDistance } );
+		hazards.push( { light, basePosition, baseDistance, baseIntensity } );
 
 	}
 
@@ -1379,19 +1381,41 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false ) {
 
 	if ( ! vehicleLights ) return;
 
-	// Headlight distance/intensity scale WITH the vehicle size now — a
-	// tiny (scale ~0.03) toy-sized car casting a fixed ~14-unit beam
-	// looked absurdly oversized/disconnected from the car; a huge
-	// (scale ~3) car needs more than the default's reach. Distance scales
-	// linearly with `scale` (so it's exactly baseDistance at scale=1,
-	// matching the original tuning) and intensity scales with scale²,
-	// following inverse-square falloff so the illuminated patch looks
-	// like it belongs to a light of that size rather than getting
-	// dimmer/brighter than it should as the beam's own reach changes.
+	// Every light's distance/intensity scales with the vehicle size —
+	// not just headlights. Taillights are always-on, so at AR-tabletop
+	// scale an unscaled ~0.9m range dwarfed the entire shrunk track,
+	// washing the whole scene in red. Distance scales linearly with
+	// `scale` (so it's exactly baseDistance at scale=1, matching the
+	// original tuning) and intensity scales with scale², following
+	// inverse-square falloff so the illuminated patch looks like it
+	// belongs to a light of that size.
+	const s = Math.max( scale, 0.001 );
+
 	if ( vehicleLights.headlights ) {
 
-		const s = Math.max( scale, 0.001 );
 		vehicleLights.headlights.forEach( ( h ) => {
+
+			h.light.distance = h.baseDistance * s;
+			h.light.intensity = h.baseIntensity * s * s;
+
+		} );
+
+	}
+
+	if ( vehicleLights.taillights ) {
+
+		vehicleLights.taillights.forEach( ( t ) => {
+
+			t.light.distance = t.baseDistance * s;
+			t.light.intensity = t.baseIntensity * s * s;
+
+		} );
+
+	}
+
+	if ( vehicleLights.hazards ) {
+
+		vehicleLights.hazards.forEach( ( h ) => {
 
 			h.light.distance = h.baseDistance * s;
 			h.light.intensity = h.baseIntensity * s * s;
@@ -1404,6 +1428,8 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false ) {
 
 		vehicleLights.reverseLights.forEach( ( r ) => {
 
+			r.light.distance = r.baseDistance * s;
+			r.light.intensity = r.baseIntensity * s * s;
 			r.light.visible = isReversing;
 			if ( r.lens ) r.lens.visible = isReversing;
 
@@ -2804,6 +2830,21 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 			friction: 5.0,
 			restitution: 0.0,
 		} );
+
+		// TEMPORARY debug aid: a visible (not just physics) box at the
+		// ground collider's exact computed position/size, so we can see
+		// directly whether it lines up with the visible track or is
+		// missing/misplaced. Safe to remove once confirmed correct.
+		const groundDebugMesh = new THREE.Mesh(
+			new THREE.BoxGeometry(
+				bounds.halfWidth * arTransform.scale * 2,
+				groundHalfY * 2,
+				bounds.halfDepth * arTransform.scale * 2
+			),
+			new THREE.MeshBasicMaterial( { color: 0x0000ff, wireframe: true } )
+		);
+		groundDebugMesh.position.set( groundXf.position[ 0 ], groundXf.position[ 1 ], groundXf.position[ 2 ] );
+		scene.add( groundDebugMesh );
 
 		// The physics sphere was hardcoded at a real 0.5m radius (fine
 		// for NORMAL/room-drive AR, where the car is roughly life-sized)
