@@ -2709,10 +2709,45 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 }
 
 // ─── AR floating arena (Stage 4) ────────────────────────────
-// Same idea as the floating track (Stage 3): grabbable/movable/scalable
-// (PlaceableObject), simple kinematic car as a child of the arena group
-// so it automatically follows the group's placement/scale. Player only
-// for this first version — no AI drifting alongside yet.
+// A plain open square for drifting — flat asphalt with the track's own
+// red/white barrier around all 4 edges (buildBarrierSegment, same as the
+// real track, world=null for visual-only/no physics) and nothing else
+// inside: no walls, no decoration, no track loop. Grabbable/movable/
+// scalable (PlaceableObject) and a simple kinematic car, same mechanic
+// as the floating track.
+function buildDriftPad( half ) {
+
+	const pad = new THREE.Group();
+
+	const asphaltTexture = createAsphaltTexture();
+	asphaltTexture.repeat.set( half / 4, half / 4 );
+	const groundMesh = new THREE.Mesh(
+		new THREE.PlaneGeometry( half * 2, half * 2 ),
+		new THREE.MeshStandardMaterial( { map: asphaltTexture, roughness: 1, metalness: 0 } )
+	);
+	groundMesh.rotation.x = - Math.PI / 2;
+	pad.add( groundMesh );
+
+	const barrierSeg = 8;
+	for ( const sign of [ 1, -1 ] ) {
+
+		for ( let p = - half; p < half; p += barrierSeg ) {
+
+			const segLen = Math.min( barrierSeg, half - p ) - 0.3; // small gaps between segments, like real jersey barrier sections
+			if ( segLen <= 0 ) continue;
+			const center = p + segLen / 2;
+
+			buildBarrierSegment( pad, null, center, sign * half, segLen, 'x' );
+			buildBarrierSegment( pad, null, sign * half, center, segLen, 'z' );
+
+		}
+
+	}
+
+	return pad;
+
+}
+
 async function startARFloatingArena( { vehicleKey, sessionPromise } ) {
 
 	const arManager = new ARManager( { renderer, scene, models } );
@@ -2721,18 +2756,15 @@ async function startARFloatingArena( { vehicleKey, sessionPromise } ) {
 
 	const placeholderCamera = new THREE.PerspectiveCamera();
 
-	// Same asphalt-loop-plus-barrier visual as the floating track (see
-	// startARFloatingTrack) — the "arena" here is that same track shape,
-	// just driven freely within its footprint instead of following the
-	// road as a path.
-	const { trackGroup: arenaGroup } = buildTrack( scene, models, null, { skipDeco: true } );
-	const bounds = computeTrackBounds( TRACK_CELLS );
+	const PAD_HALF = 30; // half-size, in the pad's own (unscaled) coordinate space
+	const arenaGroup = buildDriftPad( PAD_HALF );
 
 	// Small tabletop scale by default, positioned a short reach in front
 	// of wherever the headset happens to be when the session starts —
 	// same reasoning as the floating track.
 	arenaGroup.scale.setScalar( 0.04 );
 	arenaGroup.position.set( 0, 0.9, - 0.6 );
+	scene.add( arenaGroup );
 
 	const light = new THREE.DirectionalLight( 0xffffff, 2.5 );
 	light.position.set( 1, 2, 1 );
@@ -2743,10 +2775,10 @@ async function startARFloatingArena( { vehicleKey, sessionPromise } ) {
 
 	const carModel = ( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] ).clone();
 	carModel.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
-	carModel.position.set( bounds.centerX, 0.5, bounds.centerZ );
+	carModel.position.set( 0, 0.5, 0 );
 	arenaGroup.add( carModel ); // child of arenaGroup — inherits its transform automatically
 
-	const car = { x: bounds.centerX, z: bounds.centerZ, heading: 0, speed: 0 };
+	const car = { x: 0, z: 0, heading: 0, speed: 0 };
 	const CAR_MAX_SPEED = 8; // local units/sec, in the arena's own (unscaled) coordinate space
 	const CAR_ACCEL = 10;
 	const CAR_TURN_RATE = 2.4; // rad/sec at full speed
@@ -2786,10 +2818,11 @@ async function startARFloatingArena( { vehicleKey, sessionPromise } ) {
 					car.x += Math.sin( car.heading ) * car.speed * dt;
 					car.z += Math.cos( car.heading ) * car.speed * dt;
 
-					// Crude boundary clamp (overall track bounding box) —
-					// not real wall collision, just keeps the car inside.
-					car.x = THREE.MathUtils.clamp( car.x, bounds.centerX - bounds.halfWidth, bounds.centerX + bounds.halfWidth );
-					car.z = THREE.MathUtils.clamp( car.z, bounds.centerZ - bounds.halfDepth, bounds.centerZ + bounds.halfDepth );
+					// Crude boundary clamp (simple square pad) — not real
+					// wall collision, just keeps the car inside.
+					const margin = 2;
+					car.x = THREE.MathUtils.clamp( car.x, - PAD_HALF + margin, PAD_HALF - margin );
+					car.z = THREE.MathUtils.clamp( car.z, - PAD_HALF + margin, PAD_HALF - margin );
 
 					carModel.position.set( car.x, 0.5, car.z );
 					carModel.rotation.y = car.heading;
