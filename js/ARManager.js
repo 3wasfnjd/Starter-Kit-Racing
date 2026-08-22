@@ -41,6 +41,7 @@ export class ARManager {
 		this.world = null; // set by main.js via setWorld() before session start
 
 		this.gamepads = { left: null, right: null };
+		this.controllers = { left: null, right: null };
 		this._prevTrigger = { left: false, right: false };
 		this._prevRadioButtons = { x: false, y: false };
 		this._prevHeadlightButton = false;
@@ -121,6 +122,7 @@ export class ARManager {
 
 				const hand = event.data.handedness === 'left' ? 'left' : 'right';
 				this.gamepads[ hand ] = event.data.gamepad || null;
+				this.controllers[ hand ] = controller;
 
 			} );
 			controller.addEventListener( 'disconnected', ( event ) => {

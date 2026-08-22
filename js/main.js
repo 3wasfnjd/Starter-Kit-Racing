@@ -15,6 +15,7 @@ import { createFlag } from './Flag.js';
 import { LapTimer } from './LapTimer.js';
 import { ColorMapGLTFLoader } from './Loader.js';
 import { ARManager } from './ARManager.js';
+import { PlaceableObject } from './PlaceableObject.js';
 import { Radio } from './Radio.js';
 
 
@@ -319,12 +320,12 @@ function createModeMenu( { arAvailable } ) {
 								<div class="hw-mode-label">حر بالغرفة</div>
 								<div class="hw-mode-sub">قيادة حقيقية بمكانك</div>
 							</button>
-							<button class="hw-mode-card hw-ar-track-btn" disabled>
+							<button class="hw-mode-card hw-ar-track-btn">
 								<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
 									<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2" fill="#cfc9e0" stroke="none"/>
 								</svg>
 								<div class="hw-mode-label">مضمار عائم</div>
-								<div class="hw-mode-sub">قريبًا</div>
+								<div class="hw-mode-sub">اختبار (مرحلة 2)</div>
 							</button>
 							<button class="hw-mode-card hw-ar-arena-btn" disabled>
 								<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
@@ -467,9 +468,20 @@ function createModeMenu( { arAvailable } ) {
 
 		} );
 
-		// hw-ar-track-btn / hw-ar-arena-btn are `disabled` placeholders
-		// for now ("قريبًا") — wired up once the floating track/arena
-		// AR sub-modes are actually built in a later stage.
+		// hw-ar-arena-btn is still a `disabled` placeholder ("قريبًا") —
+		// wired up once the floating arena is built (a later stage).
+		const arTrackBtn = menu.querySelector( '.hw-ar-track-btn' );
+		arTrackBtn.addEventListener( 'click', () => {
+
+			const sessionPromise = navigator.xr.requestSession( 'immersive-ar', {
+				requiredFeatures: [ 'local-floor' ],
+				optionalFeatures: [ 'plane-detection', 'mesh-detection' ],
+			} );
+
+			menu.remove();
+			resolve( { choice: 'ar', arSubMode: 'track-test', sessionPromise } );
+
+		} );
 
 		const featuresLink = menu.querySelector( '.hw-features-link' );
 		featuresLink.addEventListener( 'click', ( e ) => {
@@ -2502,6 +2514,66 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 // ─── AR MODE (Meta Quest 3 passthrough) ────────────────────
 
+// Stage 2 test: a plain placeholder box you can grab, move, and resize
+// in AR — proving out the shared mechanic (PlaceableObject.js) before
+// it's used for the real floating track/arena. Deliberately skips
+// ARManager's own hit-test floor-placement flow entirely (no session
+// requiredFeature for it either) since this test doesn't need a floor,
+// just controller tracking + passthrough, both of which ARManager's
+// constructor/requestSession already set up.
+async function startARPlaceableTest( { sessionPromise } ) {
+
+	const arManager = new ARManager( { renderer, scene, models } );
+	await arManager.requestSession( sessionPromise );
+	arManager.previewGroup.visible = false; // not using hit-test placement here
+
+	const placeholderCamera = new THREE.PerspectiveCamera();
+
+	const box = new THREE.Mesh(
+		new THREE.BoxGeometry( 0.3, 0.15, 0.4 ),
+		new THREE.MeshStandardMaterial( { color: 0x5B8CFF, roughness: 0.4, metalness: 0.2 } )
+	);
+	// Roughly a meter in front of, and slightly below, wherever the
+	// headset happens to be when the session starts — simplest possible
+	// starting point for a grab-test; the real track placement will
+	// need proper hit-test/preview like the existing room-drive AR mode.
+	box.position.set( 0, 0.9, - 0.8 );
+	scene.add( box );
+
+	const light = new THREE.DirectionalLight( 0xffffff, 2 );
+	light.position.set( 1, 2, 1 );
+	scene.add( light );
+	scene.add( new THREE.AmbientLight( 0xffffff, 0.6 ) );
+
+	const placeable = new PlaceableObject( box, arManager );
+	placeable.onConfirm = () => {
+
+		box.material.color.set( 0x5af168 ); // turns green once locked, so it's obvious the confirm worked
+
+	};
+
+	return {
+
+		frameUpdate( dt ) {
+
+			try {
+
+				placeable.update( dt );
+
+			} catch ( e ) {
+
+				console.error( '[main] PlaceableObject test update() error:', e );
+
+			}
+
+			renderer.render( scene, placeholderCamera );
+
+		}
+
+	};
+
+}
+
 async function startARMode( { mapParam, customText, vehicleKey, flagImage, sessionPromise } ) {
 
 	const arManager = new ARManager( { renderer, scene, models } );
@@ -2746,7 +2818,7 @@ function showGenericErrorOverlay( error ) {
 
 }
 
-function showErrorOverlay( message, stack, onRetry ) {
+function showErrorOverlay( message, stack, onRetry, title = 'تعذّر تشغيل وضع الواقع المعزز' ) {
 
 	const box = document.createElement( 'div' );
 	box.dir = 'rtl';
@@ -2756,9 +2828,9 @@ function showErrorOverlay( message, stack, onRetry ) {
 		background: rgba(20,22,26,0.92); font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
 	`;
 
-	const title = document.createElement( 'div' );
-	title.textContent = 'تعذّر تشغيل وضع الواقع المعزز';
-	title.style.cssText = 'color:#fff; font-size:18px; font-weight:600;';
+	const titleEl = document.createElement( 'div' );
+	titleEl.textContent = title;
+	titleEl.style.cssText = 'color:#fff; font-size:18px; font-weight:600;';
 
 	const detail = document.createElement( 'div' );
 	detail.textContent = message;
@@ -2783,13 +2855,13 @@ function showErrorOverlay( message, stack, onRetry ) {
 
 	} );
 
-	box.appendChild( title );
+	box.appendChild( titleEl );
 	box.appendChild( detail );
 	box.appendChild( stackBox );
 	box.appendChild( retryBtn );
 	document.body.appendChild( box );
 
-	console.error( 'AR MODE failed:', message, stack );
+	console.error( title + ':', message, stack );
 
 }
 
@@ -2827,9 +2899,34 @@ async function init() {
 	// eslint-disable-next-line no-constant-condition
 	while ( true ) {
 
-		const { choice, customText, freeRoam, vehicleKey, flagImage, sessionPromise } = await createModeMenu( { arAvailable } );
+		const { choice, arSubMode, customText, freeRoam, vehicleKey, flagImage, sessionPromise } = await createModeMenu( { arAvailable } );
 
-		if ( choice === 'ar' ) {
+		if ( choice === 'ar' && arSubMode === 'track-test' ) {
+
+			try {
+
+				activeMode = await startARPlaceableTest( { sessionPromise } );
+				break;
+
+			} catch ( e ) {
+
+				activeMode = null;
+
+				await new Promise( ( resolve ) => {
+
+					showErrorOverlay(
+						( e && e.message ) ? e.message : String( e ),
+						e && e.stack ? e.stack : '',
+						resolve,
+						'تعذّر تشغيل اختبار المضمار العائم'
+					);
+
+				} );
+				continue;
+
+			}
+
+		} else if ( choice === 'ar' ) {
 
 			try {
 
