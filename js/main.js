@@ -3254,7 +3254,7 @@ async function startARMode( { mapParam, customText, vehicleKey, flagImage, sessi
 
 					if ( arManager.getHeadlightToggle() ) toggleHeadlights( gameState.vehicleLights );
 					if ( arManager.getHazardToggle() ) toggleHazards( gameState.vehicleLights );
-					setHighBeam( gameState.vehicleLights, arManager.getHighBeamHold() );
+					setHighBeam( gameState.vehicleLights, arManager.getHighBeamHold(), gameState.vehicleScale );
 					gameState.audio.setHorn( arManager.getHornHold() );
 
 					if ( gameState.vehicleLights ) {
