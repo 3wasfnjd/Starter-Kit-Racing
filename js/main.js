@@ -2758,10 +2758,24 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 	trackGroup.position.set( 0, 0.55, - 0.85 );
 	trackGroup.rotation.y = spawn.angle; // rotated 180° again from the previous +PI, back to the original
 
-	const light = new THREE.DirectionalLight( 0xffffff, 2.5 );
-	light.position.set( 1, 2, 1 );
+	const light = new THREE.DirectionalLight( 0xffffff, 3 );
+	light.position.set( 0.6, 1, 0.6 );
+	light.castShadow = true;
+	// Shadow camera frustum sized to the track's small AR footprint
+	// (span ≈ 60 × FIXED_SCALE meters) — the default frustum is tuned
+	// for NORMAL mode's much larger real-scale track and was far too
+	// wide here, making shadow resolution effectively zero.
+	const shadowExtent = 60 * FIXED_SCALE;
+	light.shadow.camera.left = - shadowExtent;
+	light.shadow.camera.right = shadowExtent;
+	light.shadow.camera.top = shadowExtent;
+	light.shadow.camera.bottom = - shadowExtent;
+	light.shadow.camera.near = 0.1;
+	light.shadow.camera.far = shadowExtent * 4;
+	light.shadow.mapSize.setScalar( 1024 );
+	light.shadow.camera.updateProjectionMatrix();
 	scene.add( light );
-	scene.add( new THREE.AmbientLight( 0xffffff, 0.7 ) );
+	scene.add( new THREE.AmbientLight( 0xffffff, 0.6 ) );
 
 	// Grab hitbox is the start gate specifically (a small range right at
 	// the finish line's position), not the whole track — grabbing from
