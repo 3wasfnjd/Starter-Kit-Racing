@@ -7,7 +7,7 @@ import { Vehicle, MAX_SPEED } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath, NPC_TRUCKS, TRACK_CELLS } from './Track.js';
-import { buildWallColliders, createSphereBody } from './Physics.js';
+import { buildWallColliders, createSphereBody, applyArTransform } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { DriftMarks } from './DriftMarks.js';
 import { GameAudio } from './Audio.js';
@@ -2691,6 +2691,19 @@ function updateKinematicTrackAI( drivers, path, dt, racing ) {
 
 }
 
+// Converts a LOCAL (pre-transform) {position:[x,y,z], angle} into WORLD
+// space via the same yaw-only arTransform convention Physics.js uses,
+// for spawning real physics bodies to match where the track visually
+// ended up after being grabbed/moved/scaled.
+function arTransformSpawn( position, angle, arTransform ) {
+
+	const localQuat = [ 0, Math.sin( angle / 2 ), 0, Math.cos( angle / 2 ) ];
+	const { position: wp, quaternion: wq } = applyArTransform( position, localQuat, arTransform );
+	const yaw = new THREE.Euler().setFromQuaternion( new THREE.Quaternion( wq[ 0 ], wq[ 1 ], wq[ 2 ], wq[ 3 ] ), 'YXZ' ).y;
+	return { position: wp, angle: yaw };
+
+}
+
 async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 
 	const arManager = new ARManager( { renderer, scene, models } );
@@ -2727,47 +2740,123 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 	const gridSlots = computeGridPositions( spawn, 4 );
 	const playerSlot = gridSlots[ 0 ];
 
-	// Player car wrapped in a container Group — matches Vehicle.js's own
-	// convention (container -> model -> body node), which is what
-	// addVehicleLights()/Radio() expect. The container is what moves;
-	// carModel itself stays static at local origin inside it.
-	const carContainer = new THREE.Group();
-	const carModel = ( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] ).clone();
-	carModel.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
-	carContainer.add( carModel );
-	carContainer.position.set( playerSlot.position[ 0 ], playerSlot.position[ 1 ], playerSlot.position[ 2 ] );
-	carContainer.rotation.y = playerSlot.angle;
-	trackGroup.add( carContainer ); // child of trackGroup — inherits its transform automatically
+	// ── Placement-phase preview: lightweight kinematic car + AI, no
+	// physics, just so the grid isn't empty while positioning the track.
+	const previewContainer = new THREE.Group();
+	const previewModel = ( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] ).clone();
+	previewModel.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
+	previewContainer.add( previewModel );
+	previewContainer.position.set( playerSlot.position[ 0 ], playerSlot.position[ 1 ], playerSlot.position[ 2 ] );
+	previewContainer.rotation.y = playerSlot.angle;
+	trackGroup.add( previewContainer );
 
-	const vehicleLights = addVehicleLights( carContainer );
-
-	const audio = new GameAudio();
-	audio.init( renderer.xr.getCamera(), carContainer );
-	// No DOM click/touchstart/keydown once inside the XR session, so the
-	// normal gesture-based unlock() would never fire — same reasoning as
-	// the existing room-drive AR mode.
-	audio.forceUnlock();
-
-	const radio = new Radio( audio.listener, carContainer );
-
-	const car = {
-		x: playerSlot.position[ 0 ], z: playerSlot.position[ 2 ], heading: playerSlot.angle,
-		speed: 0,
-	};
-	const CAR_MAX_SPEED = 8; // local units/sec, in the track's own (unscaled) coordinate space
-	const CAR_ACCEL = 10;
-	const CAR_TURN_RATE = 2.4; // rad/sec at full speed
-
-	const aiDrivers = createKinematicTrackAI(
+	const previewAI = createKinematicTrackAI(
 		NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
 		gridSlots, models, trackGroup, trackPath
 	);
 
-	let racing = false;
+	// ── Race-phase state (populated once locked in) ──────────
+	let phase = 'placing'; // 'placing' -> 'racing'
+	let raceCtx = null;
+
+	function lockInAndStartRace() {
+
+		// Track stays exactly where/how big it is from this point on —
+		// real physics colliders are built to match THIS transform once,
+		// which only works correctly as long as nothing moves afterward
+		// (crashcat's rigid bodies don't live in trackGroup's own
+		// transform space, so they'd desync from any further grab/resize).
+		const yaw = new THREE.Euler().setFromQuaternion( trackGroup.quaternion, 'YXZ' ).y;
+		const yawQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
+		const arTransform = { position: trackGroup.position.clone(), quaternion: yawQuat, scale: trackGroup.scale.x };
+
+		trackGroup.remove( previewContainer );
+		previewAI.forEach( ( d ) => trackGroup.remove( d.model ) );
+
+		const world = createPhysicsWorld();
+		buildWallColliders( world, null, null, arTransform );
+
+		const groundXf = applyArTransform( [ bounds.centerX, - 0.125, bounds.centerZ ], [ 0, 0, 0, 1 ], arTransform );
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: [ bounds.halfWidth * arTransform.scale, 0.01 * arTransform.scale, bounds.halfDepth * arTransform.scale ] } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position: groundXf.position,
+			friction: 5.0,
+			restitution: 0.0,
+		} );
+
+		// Real player Vehicle — same class NORMAL mode uses, so it gets
+		// genuine wall collision, suspension, and drift physics.
+		const playerWorld = arTransformSpawn( playerSlot.position, playerSlot.angle, arTransform );
+		const sphereBody = createSphereBody( world, [ playerWorld.position[ 0 ], playerWorld.position[ 1 ], playerWorld.position[ 2 ] ] );
+
+		const vehicle = new Vehicle();
+		vehicle.rigidBody = sphereBody;
+		vehicle.physicsWorld = world;
+		vehicle.spherePos.set( playerWorld.position[ 0 ], playerWorld.position[ 1 ], playerWorld.position[ 2 ] );
+		vehicle.prevModelPos.set( playerWorld.position[ 0 ], 0, playerWorld.position[ 2 ] );
+		vehicle.container.rotation.y = playerWorld.angle;
+
+		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
+		scene.add( vehicleGroup );
+		const vehicleLights = addVehicleLights( vehicleGroup );
+
+		const audio = new GameAudio();
+		audio.init( renderer.xr.getCamera(), vehicleGroup );
+		audio.forceUnlock();
+		const radio = new Radio( audio.listener, vehicleGroup );
+
+		const particles = new SmokeTrails( scene, Math.max( arTransform.scale * 3, 0.05 ) );
+		const driftMarks = new DriftMarks( scene, 'ar-floating-track' );
+
+		const _forward = new THREE.Vector3();
+		const contactListener = {
+			onContactAdded( bodyA, bodyB ) {
+
+				if ( bodyA !== sphereBody && bodyB !== sphereBody ) return;
+				_forward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+				_forward.y = 0;
+				_forward.normalize();
+				const impactVelocity = Math.abs( vehicle.modelVelocity.dot( _forward ) );
+				audio.playImpact( impactVelocity );
+
+			}
+		};
+
+		const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer: null, contactListener, vehicleFlag: null };
+
+		// Real AI opponents — exact same functions the web race mode
+		// uses (createAIDrivers/updateAIDrivers), just spawned at
+		// AR-transformed grid slots and steering against a
+		// world-transformed copy of the path (updateAIDrivers compares
+		// waypoints directly against the vehicle's spherePos, which is
+		// now in real WebXR world space, not the track's local space).
+		const worldGridSlots = gridSlots.map( ( slot ) => {
+
+			const w = arTransformSpawn( slot.position, slot.angle, arTransform );
+			return { position: w.position, angle: w.angle, backDist: slot.backDist };
+
+		} );
+		const worldTrackPath = trackPath.map( ( p ) => {
+
+			const w = applyArTransform( [ p.x, 0, p.z ], [ 0, 0, 0, 1 ], arTransform );
+			return { x: w.position[ 0 ], z: w.position[ 2 ] };
+
+		} );
+		const aiDrivers = createAIDrivers(
+			NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
+			worldGridSlots, models, scene, world, worldTrackPath
+		);
+
+		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, contactListener, ctx, aiDrivers, worldTrackPath };
+		phase = 'racing';
+
+	}
 
 	placeable.onConfirm = () => {
 
-		racing = true;
+		lockInAndStartRace();
 
 	};
 
@@ -2777,63 +2866,28 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 
 			try {
 
-				placeable.update( dt );
-				updateKinematicTrackAI( aiDrivers, trackPath, dt, racing );
+				if ( phase === 'placing' ) {
 
-				if ( racing ) {
+					placeable.update( dt );
+					updateKinematicTrackAI( previewAI, trackPath, dt, false );
 
-					const gp = arManager.gamepads.right;
-					const axes = gp ? gp.axes : [];
-					const steerRaw = axes.length > 2 ? axes[ 2 ] : 0;
-					const steer = Math.abs( steerRaw ) > 0.12 ? steerRaw : 0;
-					const throttle = gp && gp.buttons[ 0 ] ? gp.buttons[ 0 ].value : 0;
-					const brake = arManager.gamepads.left && arManager.gamepads.left.buttons[ 0 ]
-						? arManager.gamepads.left.buttons[ 0 ].value : 0;
+				} else if ( phase === 'racing' && raceCtx ) {
 
-					const targetSpeed = ( throttle - brake ) * CAR_MAX_SPEED;
-					car.speed += THREE.MathUtils.clamp( targetSpeed - car.speed, - CAR_ACCEL * dt, CAR_ACCEL * dt );
+					const input = arManager.getDriveInput();
+					updateVehicleAndFx( dt, input, raceCtx.ctx );
+					updateAIDrivers( raceCtx.aiDrivers, raceCtx.worldTrackPath, dt, true, 0 );
+					updateVehicleLights( raceCtx.vehicleLights, dt, 1, raceCtx.vehicle.linearSpeed < -0.01 );
 
-					const turnFactor = THREE.MathUtils.clamp( Math.abs( car.speed ) / CAR_MAX_SPEED, 0.15, 1 );
-					car.heading -= steer * CAR_TURN_RATE * turnFactor * dt * Math.sign( car.speed || 1 );
+					if ( arManager.getHeadlightToggle() ) toggleHeadlights( raceCtx.vehicleLights );
+					if ( arManager.getHazardToggle() ) toggleHazards( raceCtx.vehicleLights );
+					setHighBeam( raceCtx.vehicleLights, arManager.getHighBeamHold() );
+					raceCtx.audio.setHorn( arManager.getHornHold() );
 
-					const prevX = car.x, prevZ = car.z;
-					car.x += Math.sin( car.heading ) * car.speed * dt;
-					car.z += Math.cos( car.heading ) * car.speed * dt;
-
-					// Crude boundary clamp (overall track bounding box) —
-					// not real per-wall collision, just keeps the car from
-					// driving off into empty space indefinitely. No real
-					// rigid body here to generate a genuine contact event,
-					// so an impact sound plays whenever the clamp actually
-					// catches meaningful speed — a reasonable stand-in for
-					// "hit the wall".
-					const clampedX = THREE.MathUtils.clamp( car.x, bounds.centerX - bounds.halfWidth, bounds.centerX + bounds.halfWidth );
-					const clampedZ = THREE.MathUtils.clamp( car.z, bounds.centerZ - bounds.halfDepth, bounds.centerZ + bounds.halfDepth );
-					if ( ( clampedX !== car.x || clampedZ !== car.z ) && Math.abs( car.speed ) > 1.5 ) {
-
-						audio.playImpact( Math.abs( car.speed ) );
-						car.speed *= 0.3;
-
-					}
-					car.x = clampedX;
-					car.z = clampedZ;
-
-					carContainer.position.set( car.x, playerSlot.position[ 1 ], car.z );
-					carContainer.rotation.y = car.heading;
-
-					audio.update( dt, car.speed / CAR_MAX_SPEED, throttle - brake, 0, car.speed < -0.01 );
+					const radioBtn = arManager.getRadioButtons();
+					if ( radioBtn.next ) raceCtx.radio.next();
+					if ( radioBtn.toggle ) raceCtx.radio.togglePlayPause();
 
 				}
-
-				updateVehicleLights( vehicleLights, dt, trackGroup.scale.x, car.speed < -0.01 );
-				if ( arManager.getHeadlightToggle() ) toggleHeadlights( vehicleLights );
-				if ( arManager.getHazardToggle() ) toggleHazards( vehicleLights );
-				setHighBeam( vehicleLights, arManager.getHighBeamHold() );
-				audio.setHorn( arManager.getHornHold() );
-
-				const radioBtn = arManager.getRadioButtons();
-				if ( radioBtn.next ) radio.next();
-				if ( radioBtn.toggle ) radio.togglePlayPause();
 
 			} catch ( e ) {
 
