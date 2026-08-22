@@ -25,16 +25,18 @@ import * as THREE from 'three';
 //    whenever you want, even mid-race.
 
 const GRAB_RANGE = 0.5; // meters — generous on purpose, easier to find than to fine-tune
-const MIN_SCALE = 0.05;
-const MAX_SCALE = 1.5;
+const DEFAULT_MIN_SCALE = 0.05;
+const DEFAULT_MAX_SCALE = 1.5;
 const SCALE_SPEED = 0.8; // per second at full stick deflection
 
 export class PlaceableObject {
 
-	constructor( object, arManager ) {
+	constructor( object, arManager, { minScale = DEFAULT_MIN_SCALE, maxScale = DEFAULT_MAX_SCALE } = {} ) {
 
 		this.object = object;
 		this.arManager = arManager;
+		this.minScale = minScale;
+		this.maxScale = maxScale;
 
 		this.confirmed = false;
 		this.onConfirm = null;
@@ -160,7 +162,7 @@ export class PlaceableObject {
 				if ( Math.abs( v ) > 0.25 ) {
 
 					const factor = 1 - v * SCALE_SPEED * dt;
-					const newScale = THREE.MathUtils.clamp( this.object.scale.x * factor, MIN_SCALE, MAX_SCALE );
+					const newScale = THREE.MathUtils.clamp( this.object.scale.x * factor, this.minScale, this.maxScale );
 					this.object.scale.setScalar( newScale );
 
 				}
