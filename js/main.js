@@ -1595,10 +1595,10 @@ function setupRadioTouchUI( radio, vehicleLights ) {
 
 // ─── Shared physics world setup (used by both modes) ──────
 
-function createPhysicsWorld() {
+function createPhysicsWorld( gravityScale = 1 ) {
 
 	const worldSettings = createWorldSettings();
-	worldSettings.gravity = [ 0, - 9.81, 0 ];
+	worldSettings.gravity = [ 0, - 9.81 * gravityScale, 0 ];
 
 	const BPL_MOVING = addBroadphaseLayer( worldSettings );
 	const BPL_STATIC = addBroadphaseLayer( worldSettings );
@@ -2775,7 +2775,13 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 		trackGroup.remove( previewContainer );
 		previewAI.forEach( ( d ) => trackGroup.remove( d.model ) );
 
-		const world = createPhysicsWorld();
+		// Gravity scaled down with the track — real 9.81 m/s² acting on
+		// a sphere shrunk to AR-tabletop size is a huge force relative
+		// to its own tiny size (unlike a real toy car, which is light
+		// enough that gravity feels proportionally gentle) — that
+		// mismatch was causing violent jitter/bouncing instead of the
+		// car settling naturally onto the track.
+		const world = createPhysicsWorld( arTransform.scale );
 		buildWallColliders( world, null, null, arTransform );
 
 		// Ground thickness has a hard floor instead of scaling all the
@@ -2871,7 +2877,7 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 			worldGridSlots, models, scene, world, worldTrackPath, carRadius
 		);
 
-		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, contactListener, ctx, aiDrivers, worldTrackPath };
+		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, contactListener, ctx, aiDrivers, worldTrackPath, arScale: arTransform.scale };
 		phase = 'racing';
 
 	}
@@ -2898,7 +2904,7 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 					const input = arManager.getDriveInput();
 					updateVehicleAndFx( dt, input, raceCtx.ctx );
 					updateAIDrivers( raceCtx.aiDrivers, raceCtx.worldTrackPath, dt, true, 0 );
-					updateVehicleLights( raceCtx.vehicleLights, dt, 1, raceCtx.vehicle.linearSpeed < -0.01 );
+					updateVehicleLights( raceCtx.vehicleLights, dt, raceCtx.arScale, raceCtx.vehicle.linearSpeed < -0.01 );
 
 					if ( arManager.getHeadlightToggle() ) toggleHeadlights( raceCtx.vehicleLights );
 					if ( arManager.getHazardToggle() ) toggleHazards( raceCtx.vehicleLights );
