@@ -115,7 +115,7 @@ export const NPC_TRUCKS = [
 	[ 'vehicle-truck-red',    -1.36, -0.15, -23.80, 155.9 ],
 ];
 
-export function buildTrack( scene, models, customCells ) {
+export function buildTrack( scene, models, customCells, { compactDeco = false } = {} ) {
 
 	const trackGroup = new THREE.Group();
 	trackGroup.position.y = -0.5;
@@ -157,7 +157,7 @@ export function buildTrack( scene, models, customCells ) {
 			'decoration-tents': tentPositions,
 		};
 
-		if ( ! customCells ) {
+		if ( ! customCells && ! compactDeco ) {
 
 			for ( const [ gx, gz, key, orient ] of DECO_CELLS ) {
 
@@ -176,7 +176,7 @@ export function buildTrack( scene, models, customCells ) {
 
 		}
 
-		const pad = 3;
+		const pad = compactDeco ? 1 : 3;
 
 		// Simple hash for deterministic pseudo-random placement
 		function hash( gx, gz ) {
