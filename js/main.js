@@ -2749,14 +2749,14 @@ async function startARFloatingTrack( { vehicleKey, sessionPromise } ) {
 	const { trackGroup } = buildTrack( scene, models, null, { skipDeco: true } );
 	const spawn = computeSpawnPosition( null );
 
-	const FIXED_SCALE = 0.012;
+	const FIXED_SCALE = 0.016;
 	trackGroup.scale.setScalar( FIXED_SCALE );
 	// Closer (was 1.3m, halved to 0.65m) and lower (below eye level,
 	// tabletop-style). Rotated 180° from the finish line's own forward
 	// angle so the start gate faces back toward the viewer instead of
 	// away — best guess pending visual confirmation.
-	trackGroup.position.set( 0, 0.55, - 0.65 );
-	trackGroup.rotation.y = spawn.angle + Math.PI;
+	trackGroup.position.set( 0, 0.55, - 0.85 );
+	trackGroup.rotation.y = spawn.angle; // rotated 180° again from the previous +PI, back to the original
 
 	const light = new THREE.DirectionalLight( 0xffffff, 2.5 );
 	light.position.set( 1, 2, 1 );
