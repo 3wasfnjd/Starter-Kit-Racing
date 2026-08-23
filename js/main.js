@@ -38,6 +38,28 @@ document.body.appendChild( renderer.domElement );
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color( 0xadb2ba );
+
+// Background menu/ambient music — plays quietly from the moment the
+// person picks a mode, until they turn on the in-car radio themselves
+// (at which point it stops for good, handing off to the radio). No
+// dedicated ambient track exists to draw from, so this reuses one of
+// the existing radio tracks at low volume rather than nothing at all.
+const bgMusic = new Audio( 'audio/radio/radio-1.mp3' );
+bgMusic.loop = true;
+bgMusic.volume = 0.25;
+let bgMusicStopped = false;
+function startBgMusic() {
+
+	if ( bgMusicStopped ) return;
+	bgMusic.play().catch( ( e ) => console.warn( '[main] background music autoplay blocked:', e ) );
+
+}
+function stopBgMusic() {
+
+	bgMusicStopped = true;
+	bgMusic.pause();
+
+}
 scene.fog = new THREE.Fog( 0xadb2ba, 30, 55 );
 
 const dirLight = new THREE.DirectionalLight( 0xffffff, 3 );
@@ -382,6 +404,7 @@ function createModeMenu( { arAvailable } ) {
 		webBtn.addEventListener( 'click', () => {
 
 			requestFullscreenSafe();
+			startBgMusic();
 			menu.remove();
 			resolve( { choice: 'normal', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked, vehicleKey: selectedVehicle, flagImage: flagImageDataUrl } );
 
@@ -413,6 +436,7 @@ function createModeMenu( { arAvailable } ) {
 				requiredFeatures: [ 'local-floor', 'hit-test' ],
 				optionalFeatures: [ 'plane-detection', 'mesh-detection' ],
 			} );
+			startBgMusic();
 
 			menu.remove();
 			resolve( {
@@ -767,7 +791,7 @@ function createCrowdTexture() {
 // walls) for reasons not fully root-caused — reverted to this
 // proven-working runtime approach rather than keep chasing the asset
 // pipeline issue.
-function buildBarrierLoop( parentGroup, world, half, yOffset = 0 ) {
+function buildBarrierLoop( parentGroup, world, half, yOffset = 0, heightScale = 1 ) {
 
 	const barrierSeg = 8;
 
@@ -779,8 +803,8 @@ function buildBarrierLoop( parentGroup, world, half, yOffset = 0 ) {
 			if ( segLen <= 0 ) continue;
 			const center = p + segLen / 2;
 
-			buildBarrierSegment( parentGroup, world, center, sign * half, segLen, 'x', yOffset );
-			buildBarrierSegment( parentGroup, world, sign * half, center, segLen, 'z', yOffset );
+			buildBarrierSegment( parentGroup, world, center, sign * half, segLen, 'x', yOffset, heightScale );
+			buildBarrierSegment( parentGroup, world, sign * half, center, segLen, 'z', yOffset, heightScale );
 
 		}
 
@@ -867,9 +891,9 @@ function buildFloodlightPole( scene, x, z, aimTarget ) {
 
 // Concrete jersey barrier segment: gray base + a painted orange/white
 // hazard stripe near the top, the standard look for track-edge barriers.
-function buildBarrierSegment( scene, world, x, z, length, axis, yOffset = 0 ) {
+function buildBarrierSegment( scene, world, x, z, length, axis, yOffset = 0, heightScale = 1 ) {
 
-	const h = 0.6, w = 0.35;
+	const h = 0.6 * heightScale, w = 0.35;
 	const sizeX = axis === 'x' ? length : w;
 	const sizeZ = axis === 'x' ? w : length;
 
@@ -883,7 +907,7 @@ function buildBarrierSegment( scene, world, x, z, length, axis, yOffset = 0 ) {
 	scene.add( body );
 
 	const stripe = new THREE.Mesh(
-		new THREE.BoxGeometry( axis === 'x' ? sizeX : sizeX * 1.02, 0.12, axis === 'x' ? sizeZ * 1.02 : sizeZ ),
+		new THREE.BoxGeometry( axis === 'x' ? sizeX : sizeX * 1.02, 0.12 * heightScale, axis === 'x' ? sizeZ * 1.02 : sizeZ ),
 		new THREE.MeshStandardMaterial( { color: 0xE0621B, roughness: 0.8 } )
 	);
 	stripe.position.set( x, h * 0.72 + yOffset, z );
@@ -1528,12 +1552,14 @@ function setupRadioTouchUI( radio, vehicleLights ) {
 	nextBtn.addEventListener( 'pointerdown', ( e ) => {
 
 		e.stopPropagation();
+		stopBgMusic();
 		radio.next();
 
 	} );
 	toggleBtn.addEventListener( 'pointerdown', ( e ) => {
 
 		e.stopPropagation();
+		stopBgMusic();
 		radio.togglePlayPause();
 
 	} );
@@ -2510,8 +2536,8 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			const lKey = !! controls.keys[ 'KeyL' ];
 			const hKey = !! controls.keys[ 'KeyH' ];
 			const nKey = !! controls.keys[ 'KeyN' ];
-			if ( rKey && ! prevKeys.r ) radio.next();
-			if ( tKey && ! prevKeys.t ) radio.togglePlayPause();
+			if ( rKey && ! prevKeys.r ) { stopBgMusic(); radio.next(); }
+			if ( tKey && ! prevKeys.t ) { stopBgMusic(); radio.togglePlayPause(); }
 			if ( lKey && ! prevKeys.l ) toggleHeadlights( vehicleLights );
 			if ( hKey && ! prevKeys.h ) toggleHazards( vehicleLights );
 			setHighBeam( vehicleLights, nKey || touchState.highBeamHeld );
@@ -2948,6 +2974,46 @@ function showExitConfirm( arManager, scene ) {
 
 }
 
+// Small persistent floating icon, always available during any AR mode —
+// a genuine alternative to the physical Menu button, which turned out
+// unreachable via WebXR on the browsers tested (reserved by the system
+// for its own menu). Positioned low and off to one side so it doesn't
+// sit in the middle of the view, but still reachable by pointing at it.
+function createFloatingHomeButton( scene ) {
+
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = 200; canvas.height = 200;
+	const ctx = canvas.getContext( '2d' );
+	ctx.fillStyle = '#2a2a30';
+	ctx.beginPath();
+	ctx.arc( 100, 100, 96, 0, Math.PI * 2 );
+	ctx.fill();
+	ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+	ctx.lineWidth = 4;
+	ctx.stroke();
+	// Simple house icon
+	ctx.strokeStyle = '#fff';
+	ctx.lineWidth = 10;
+	ctx.lineJoin = 'round';
+	ctx.beginPath();
+	ctx.moveTo( 60, 105 ); ctx.lineTo( 100, 70 ); ctx.lineTo( 140, 105 );
+	ctx.stroke();
+	ctx.strokeRect( 72, 100, 56, 45 );
+
+	const texture = new THREE.CanvasTexture( canvas );
+	texture.colorSpace = THREE.SRGBColorSpace;
+
+	const button = new THREE.Mesh(
+		new THREE.CircleGeometry( 0.04, 24 ),
+		new THREE.MeshBasicMaterial( { map: texture, transparent: true, side: THREE.DoubleSide } )
+	);
+	button.position.set( - 0.35, 0.9, - 0.6 );
+	scene.add( button );
+
+	return button;
+
+}
+
 async function startARWithFloatingMenu( { mapParam, customText, vehicleKey, flagImage, sessionPromise } ) {
 
 	const arManager = new ARManager( { renderer, scene, models } );
@@ -2967,6 +3033,14 @@ async function startARWithFloatingMenu( { mapParam, customText, vehicleKey, flag
 	let subMode = null; // set once the chosen mode's own async setup resolves
 	let switching = false;
 	let exitConfirmActive = false;
+
+	// Persistent floating home button — created now but only checked for
+	// interaction once actually driving (subMode set), since the mode
+	// menu and exit-confirm already have their own dedicated flows.
+	const homeButton = createFloatingHomeButton( scene );
+	let homeButtonDwell = 0;
+	const HOME_BUTTON_RANGE = 0.06;
+	const HOME_BUTTON_DWELL_TIME = 0.6; // seconds of holding a controller near it
 
 	choicePromise.then( async ( chosenId ) => {
 
@@ -2996,32 +3070,72 @@ async function startARWithFloatingMenu( { mapParam, customText, vehicleKey, flag
 
 	} );
 
+	function openExitConfirm() {
+
+		exitConfirmActive = true;
+		showExitConfirm( arManager, scene ).then( ( action ) => {
+
+			exitConfirmActive = false;
+			if ( action === 'exit' ) {
+
+				// A full reload rather than just session.end() — the
+				// game has no existing teardown path for its internal
+				// state (physics world, vehicle, audio, etc.) once an
+				// AR mode is active, so a bare session end would leave
+				// activeMode pointing at now-defunct XR objects. This
+				// is the same "start clean" pattern every mode
+				// transition already relies on.
+				arManager.session.end().finally( () => window.location.reload() );
+
+			}
+
+		} );
+
+	}
+
 	return {
 
 		frameUpdate( dt, timestamp, frame ) {
 
 			// Menu (☰) button — see getMenuButtonPress()'s own comment on
 			// why this may simply never fire depending on the browser.
-			if ( ! exitConfirmActive && arManager.getMenuButtonPress() ) {
+			if ( ! exitConfirmActive && arManager.getMenuButtonPress() ) openExitConfirm();
 
-				exitConfirmActive = true;
-				showExitConfirm( arManager, scene ).then( ( action ) => {
+			// Floating home button — proximity + a short dwell time
+			// (no button press needed) rather than pointing+trigger,
+			// since trigger/grip are already claimed by throttle/horn
+			// during driving and would otherwise fire both at once.
+			if ( ! exitConfirmActive && subMode ) {
 
-					exitConfirmActive = false;
-					if ( action === 'exit' ) {
+				let near = false;
+				for ( const hand of [ 'left', 'right' ] ) {
 
-						// A full reload rather than just session.end() — the
-						// game has no existing teardown path for its internal
-						// state (physics world, vehicle, audio, etc.) once an
-						// AR mode is active, so a bare session end would leave
-						// activeMode pointing at now-defunct XR objects. This
-						// is the same "start clean" pattern every mode
-						// transition already relies on.
-						arManager.session.end().finally( () => window.location.reload() );
+					const controller = arManager.controllers[ hand ];
+					if ( controller && controller.position.distanceTo( homeButton.position ) <= HOME_BUTTON_RANGE ) near = true;
+
+				}
+
+				if ( near ) {
+
+					homeButtonDwell += dt;
+					const t = Math.min( 1, homeButtonDwell / HOME_BUTTON_DWELL_TIME );
+					homeButton.scale.setScalar( 1 + t * 0.3 );
+					if ( homeButton.material ) homeButton.material.opacity = 0.6 + t * 0.4;
+					if ( homeButtonDwell >= HOME_BUTTON_DWELL_TIME ) {
+
+						homeButtonDwell = 0;
+						homeButton.scale.setScalar( 1 );
+						openExitConfirm();
 
 					}
 
-				} );
+				} else {
+
+					homeButtonDwell = 0;
+					homeButton.scale.setScalar( 1 );
+					if ( homeButton.material ) homeButton.material.opacity = 0.85;
+
+				}
 
 			}
 
@@ -3145,14 +3259,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 		// to its own tiny size, causing violent jitter/bouncing instead
 		// of the car settling naturally onto the track.
 		const world = createPhysicsWorld( arTransform.scale );
-		// TEMPORARY debug aid: green wireframe boxes at the actual
-		// physics wall positions, and a blue wireframe at the ground
-		// collider — lets us directly compare against the visible
-		// track instead of guessing from code review alone. Safe to
-		// remove once confirmed correct.
-		const debugGroup = new THREE.Group();
-		scene.add( debugGroup );
-		buildWallColliders( world, debugGroup, null, arTransform );
+		buildWallColliders( world, null, null, arTransform );
 
 		const groundHalfY = Math.max( 0.01 * arTransform.scale, 0.002 );
 		const groundXf = applyArTransform( [ bounds.centerX, - 0.125, bounds.centerZ ], [ 0, 0, 0, 1 ], arTransform );
@@ -3164,20 +3271,6 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			friction: 5.0,
 			restitution: 0.0,
 		} );
-
-		// TEMPORARY debug aid: blue wireframe at the ground collider's
-		// exact computed position/size, same idea as the wall debug
-		// boxes above. Safe to remove once confirmed correct.
-		const groundDebugMesh = new THREE.Mesh(
-			new THREE.BoxGeometry(
-				bounds.halfWidth * arTransform.scale * 2,
-				groundHalfY * 2,
-				bounds.halfDepth * arTransform.scale * 2
-			),
-			new THREE.MeshBasicMaterial( { color: 0x0000ff, wireframe: true } )
-		);
-		groundDebugMesh.position.set( groundXf.position[ 0 ], groundXf.position[ 1 ], groundXf.position[ 2 ] );
-		scene.add( groundDebugMesh );
 
 		// Physics sphere scaled to match the track instead of the
 		// hardcoded real-0.5m default — otherwise it's comically
@@ -3212,11 +3305,23 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 		vehicle.container.rotation.y = playerWorld.angle;
 
 		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
-		vehicleGroup.scale.setScalar( arTransform.scale * trackCarBoost ); // matches the track's own fixed scale — Vehicle.js never touches .scale itself, so this persists safely
 		scene.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
 		const vehicleLights = addVehicleLights( vehicleGroup );
 		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+
+		// Same fix room-drive AR mode already uses: scaling vehicleGroup
+		// directly assumes its own origin sits exactly at wheel/ground
+		// level, which isn't true for this model — that mismatch is
+		// what was making the car look like it floats above the track.
+		// Scaling only the inner model child and repositioning it so
+		// its lowest point stays pinned at the container's origin fixes
+		// this regardless of scale.
+		const vehicleModel = vehicleGroup.children[ 0 ];
+		const vehicleModelMinY = new THREE.Box3().setFromObject( vehicleModel ).min.y;
+		const trackVisualScale = arTransform.scale * trackCarBoost;
+		vehicleModel.scale.setScalar( trackVisualScale );
+		vehicleModel.position.y = vehicleModelMinY * ( 1 - trackVisualScale );
 
 		const audio = new GameAudio();
 		audio.init( renderer.xr.getCamera(), vehicleGroup );
@@ -3272,8 +3377,8 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 					raceCtx.audio.setHorn( arManager.getHornHold() );
 
 					const radioBtn = arManager.getRadioButtons();
-					if ( radioBtn.next ) raceCtx.radio.next();
-					if ( radioBtn.toggle ) raceCtx.radio.togglePlayPause();
+					if ( radioBtn.next ) { stopBgMusic(); raceCtx.radio.next(); }
+					if ( radioBtn.toggle ) { stopBgMusic(); raceCtx.radio.togglePlayPause(); }
 
 				}
 
@@ -3315,7 +3420,7 @@ function buildDriftPad( half, models ) {
 	groundMesh.rotation.x = - Math.PI / 2;
 	pad.add( groundMesh );
 
-	buildBarrierLoop( pad, null, half );
+	buildBarrierLoop( pad, null, half, 0, 2.5 );
 
 	return pad;
 
@@ -3402,7 +3507,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 	const placeholderCamera = new THREE.PerspectiveCamera();
 
-	const PAD_HALF = 30; // half-size, in the pad's own (unscaled) coordinate space
+	const PAD_HALF = 45; // half-size, in the pad's own (unscaled) coordinate space — widened per feedback that it felt small
 	const arenaGroup = buildDriftPad( PAD_HALF, models );
 
 	// buildDriftPad() starts at identity transform (no internal offset
@@ -3536,11 +3641,17 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		vehicle.container.rotation.y = yaw2;
 
 		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
-		vehicleGroup.scale.setScalar( arTransform.scale * arenaCarBoost );
 		scene.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
 		const vehicleLights = addVehicleLights( vehicleGroup );
 		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+
+		// Same fix as the floating track — see its comment.
+		const vehicleModel = vehicleGroup.children[ 0 ];
+		const vehicleModelMinY = new THREE.Box3().setFromObject( vehicleModel ).min.y;
+		const arenaVisualScale = arTransform.scale * arenaCarBoost;
+		vehicleModel.scale.setScalar( arenaVisualScale );
+		vehicleModel.position.y = vehicleModelMinY * ( 1 - arenaVisualScale );
 
 		const audio = new GameAudio();
 		audio.init( renderer.xr.getCamera(), vehicleGroup );
@@ -3602,8 +3713,8 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 					raceCtx.audio.setHorn( arManager.getHornHold() );
 
 					const radioBtn = arManager.getRadioButtons();
-					if ( radioBtn.next ) raceCtx.radio.next();
-					if ( radioBtn.toggle ) raceCtx.radio.togglePlayPause();
+					if ( radioBtn.next ) { stopBgMusic(); raceCtx.radio.next(); }
+					if ( radioBtn.toggle ) { stopBgMusic(); raceCtx.radio.togglePlayPause(); }
 
 				}
 
@@ -3748,8 +3859,8 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 					}
 
 					const radioBtn = arManager.getRadioButtons();
-					if ( radioBtn.next ) gameState.radio.next();
-					if ( radioBtn.toggle ) gameState.radio.togglePlayPause();
+					if ( radioBtn.next ) { stopBgMusic(); gameState.radio.next(); }
+					if ( radioBtn.toggle ) { stopBgMusic(); gameState.radio.togglePlayPause(); }
 
 					if ( arManager.getHeadlightToggle() ) toggleHeadlights( gameState.vehicleLights );
 					if ( arManager.getHazardToggle() ) toggleHazards( gameState.vehicleLights );
