@@ -304,31 +304,50 @@ function createModeMenu( { arAvailable } ) {
 							<button type="button" class="hw-flag-clear">إزالة</button>
 						</div>
 					</div>
-					<label class="hw-checkbox-row">
-						<input type="checkbox" class="hw-freeroam-checkbox" />
-						الوضع العادي: تحكم حر بدون مضمار
-					</label>
+					<div class="hw-step hw-step-top">
+						<div class="hw-mode-row">
+							<button class="hw-mode-card primary hw-web-btn">
+								<svg viewBox="0 0 24 24" fill="none" stroke="#5B8CFF" stroke-width="1.6">
+									<rect x="2.5" y="4.5" width="19" height="13" rx="2"/>
+									<path d="M8 21h8M12 17.5v3.5"/>
+								</svg>
+								<div class="hw-mode-label">وضع الويب</div>
+								<div class="hw-mode-sub">أيفون / كمبيوتر</div>
+							</button>
+							<button class="hw-mode-card hw-ar-entry-btn" ${ arAvailable ? '' : 'disabled' }>
+								<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
+									<rect x="2.5" y="8" width="19" height="9" rx="3.5"/>
+									<circle cx="8.3" cy="12.5" r="1.9"/>
+									<circle cx="15.7" cy="12.5" r="1.9"/>
+									<path d="M9.8 12.5h4.4"/>
+									<path d="M6 8c0-2.2 1.8-4 4-4h4c2.2 0 4 1.8 4 4"/>
+								</svg>
+								<div class="hw-mode-label">وضع AR</div>
+								<div class="hw-mode-sub">${ arAvailable ? 'Meta Quest 3' : 'غير متاح على هذا الجهاز' }</div>
+							</button>
+						</div>
+					</div>
 
-					<div class="hw-mode-row">
-						<button class="hw-mode-card primary hw-web-btn">
-							<svg viewBox="0 0 24 24" fill="none" stroke="#5B8CFF" stroke-width="1.6">
-								<rect x="2.5" y="4.5" width="19" height="13" rx="2"/>
-								<path d="M8 21h8M12 17.5v3.5"/>
-							</svg>
-							<div class="hw-mode-label">وضع الويب</div>
-							<div class="hw-mode-sub">أيفون / كمبيوتر</div>
-						</button>
-						<button class="hw-mode-card hw-ar-entry-btn" ${ arAvailable ? '' : 'disabled' }>
-							<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
-								<rect x="2.5" y="8" width="19" height="9" rx="3.5"/>
-								<circle cx="8.3" cy="12.5" r="1.9"/>
-								<circle cx="15.7" cy="12.5" r="1.9"/>
-								<path d="M9.8 12.5h4.4"/>
-								<path d="M6 8c0-2.2 1.8-4 4-4h4c2.2 0 4 1.8 4 4"/>
-							</svg>
-							<div class="hw-mode-label">وضع AR</div>
-							<div class="hw-mode-sub">${ arAvailable ? 'Meta Quest 3' : 'غير متاح على هذا الجهاز' }</div>
-						</button>
+					<div class="hw-step hw-step-web hidden">
+						<div class="hw-mode-row">
+							<button class="hw-mode-card primary hw-web-track-btn">
+								<svg viewBox="0 0 24 24" fill="none" stroke="#5B8CFF" stroke-width="1.6">
+									<circle cx="12" cy="12" r="9"/>
+									<circle cx="12" cy="12" r="2.4" fill="#5B8CFF" stroke="none"/>
+									<path d="M12 5v4.6M6.2 15.5l3.6-2.2M17.8 15.5l-3.6-2.2"/>
+								</svg>
+								<div class="hw-mode-label">المضمار</div>
+								<div class="hw-mode-sub">سباق كلاسيكي</div>
+							</button>
+							<button class="hw-mode-card hw-web-free-btn">
+								<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
+									<path d="M4 20V9l8-5 8 5v11" /><path d="M9 20v-6h6v6" />
+								</svg>
+								<div class="hw-mode-label">الوضع الحر</div>
+								<div class="hw-mode-sub">تحكم حر بدون مضمار</div>
+							</button>
+						</div>
+						<a href="#" class="hw-back-link-web">‹ رجوع</a>
 					</div>
 				</div>
 				<div class="hw-footer">
@@ -397,18 +416,40 @@ function createModeMenu( { arAvailable } ) {
 		} );
 
 		const textInput = menu.querySelector( '.hw-text-input' );
-		const freeRoamCheckbox = menu.querySelector( '.hw-freeroam-checkbox' );
 		const webBtn = menu.querySelector( '.hw-web-btn' );
 		const arEntryBtn = menu.querySelector( '.hw-ar-entry-btn' );
+		const stepTop = menu.querySelector( '.hw-step-top' );
+		const stepWeb = menu.querySelector( '.hw-step-web' );
+		const webTrackBtn = menu.querySelector( '.hw-web-track-btn' );
+		const webFreeBtn = menu.querySelector( '.hw-web-free-btn' );
+		const backLinkWeb = menu.querySelector( '.hw-back-link-web' );
 
 		webBtn.addEventListener( 'click', () => {
+
+			stepTop.classList.add( 'hidden' );
+			stepWeb.classList.remove( 'hidden' );
+
+		} );
+
+		backLinkWeb.addEventListener( 'click', ( e ) => {
+
+			e.preventDefault();
+			stepWeb.classList.add( 'hidden' );
+			stepTop.classList.remove( 'hidden' );
+
+		} );
+
+		function chooseWeb( freeRoam ) {
 
 			requestFullscreenSafe();
 			startBgMusic();
 			menu.remove();
-			resolve( { choice: 'normal', customText: textInput.value.trim(), freeRoam: freeRoamCheckbox.checked, vehicleKey: selectedVehicle, flagImage: flagImageDataUrl } );
+			resolve( { choice: 'normal', customText: textInput.value.trim(), freeRoam, vehicleKey: selectedVehicle, flagImage: flagImageDataUrl } );
 
-		} );
+		}
+
+		webTrackBtn.addEventListener( 'click', () => chooseWeb( false ) );
+		webFreeBtn.addEventListener( 'click', () => chooseWeb( true ) );
 
 		// AR now goes straight into the session — which of the three AR
 		// experiences (room-drive / floating track / floating arena) is
@@ -3276,12 +3317,13 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			const yawQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
 			const arTransform = { position: arRoot.position.clone(), quaternion: yawQuat, scale: FIXED_SCALE };
 
-		// Car scale boost (also used for wall height below, so the
-		// containment walls stay taller than the car — this was a real,
-		// measured bug: at the un-boosted wall height, the boosted car's
-		// diameter (0.048) was larger than the wall's total height
-		// (0.036), letting it roll right over its own fence).
-		const trackCarBoost = 3;
+		// No boost here — verified against the original game's own
+		// car-to-track-width ratio (CELL_RAW×GRID_SCALE): boost=1
+		// matches NORMAL mode's proportions exactly. The wall height
+		// below still gets its own safety multiplier independent of
+		// this, since even an unboosted car needs a wall taller than
+		// its own diameter to stay contained.
+		const trackCarBoost = 1;
 
 	// Gravity scaled down with the track — real 9.81 m/s² acting on
 		// a sphere shrunk to AR-tabletop size is a huge force relative
@@ -3338,18 +3380,23 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 		const vehicleLights = addVehicleLights( vehicleGroup );
 		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 
-		// Same fix room-drive AR mode already uses: scaling vehicleGroup
-		// directly assumes its own origin sits exactly at wheel/ground
-		// level, which isn't true for this model — that mismatch is
-		// what was making the car look like it floats above the track.
-		// Scaling only the inner model child and repositioning it so
-		// its lowest point stays pinned at the container's origin fixes
-		// this regardless of scale.
+		// Room-drive AR mode's version of this fix assumes a FIXED
+		// physics sphere radius (always 0.5, never changes even when
+		// the car is visually resized) — so container.position.y always
+		// represents "0.5 below spherePos", and the model's natural
+		// resting point relative to container stays at vehicleModelMinY
+		// (unscaled), which is correct there because that's exactly
+		// where NORMAL mode's own wheels already sit by construction.
+		// Here carRadius itself is scaled (unlike room-drive), so
+		// container's own origin is already ground level BY
+		// CONSTRUCTION (it's computed as spherePos.y − carRadius) —
+		// the target for the model's lowest point is local Y=0, not
+		// vehicleModelMinY, which was the real remaining bug.
 		const vehicleModel = vehicleGroup.children[ 0 ];
 		const vehicleModelMinY = new THREE.Box3().setFromObject( vehicleModel ).min.y;
 		const trackVisualScale = arTransform.scale * trackCarBoost;
 		vehicleModel.scale.setScalar( trackVisualScale );
-		vehicleModel.position.y = vehicleModelMinY * ( 1 - trackVisualScale );
+		vehicleModel.position.y = - vehicleModelMinY * trackVisualScale;
 
 		const audio = new GameAudio();
 		audio.init( renderer.xr.getCamera(), vehicleGroup );
@@ -3359,7 +3406,13 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 		// NORMAL mode uses SmokeTrails at scale=1 for a full-size car —
 		// this car is `arTransform.scale` of that size, so smoke uses
 		// the same proportion directly.
-		const particles = new SmokeTrails( scene, arTransform.scale * trackCarBoost );
+		// Room-drive AR mode uses a fixed 0.12 rather than a strict
+		// proportional value — a strictly-proportional smoke scale here
+		// (arTransform.scale alone) came out roughly 7.5× smaller than
+		// that reference, likely too small to render as visible smoke
+		// at all. A generous multiplier with a floor keeps it visible
+		// regardless of how small the track itself ends up.
+		const particles = new SmokeTrails( scene, Math.max( arTransform.scale * trackCarBoost * 5, 0.02 ) );
 		const driftMarks = new DriftMarks( scene, 'ar-floating-track' );
 
 		const _forward = new THREE.Vector3();
@@ -3626,10 +3679,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		// and the car itself further down) — the physics wall's
 		// containment height must scale with the car, or a bigger boosted
 		// car can simply be taller than its own fence and roll over it.
-		// This was a real, measured bug: at the old fixed wallHalfHeight,
-		// the boosted car's diameter (0.048) was 1.5× the wall's total
-		// height (0.032).
-		const arenaCarBoost = 3;
+		const arenaCarBoost = 1.5;
 
 		// Four boundary walls matching the visual barrier loop's square
 		// footprint — same Y convention as the ground (wallHalfHeight
@@ -3699,19 +3749,19 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		const vehicleLights = addVehicleLights( vehicleGroup );
 		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 
-		// Same fix as the floating track — see its comment.
+		// Same corrected fix as the floating track — see its comment.
 		const vehicleModel = vehicleGroup.children[ 0 ];
 		const vehicleModelMinY = new THREE.Box3().setFromObject( vehicleModel ).min.y;
 		const arenaVisualScale = arTransform.scale * arenaCarBoost;
 		vehicleModel.scale.setScalar( arenaVisualScale );
-		vehicleModel.position.y = vehicleModelMinY * ( 1 - arenaVisualScale );
+		vehicleModel.position.y = - vehicleModelMinY * arenaVisualScale;
 
 		const audio = new GameAudio();
 		audio.init( renderer.xr.getCamera(), vehicleGroup );
 		audio.forceUnlock();
 		const radio = new Radio( audio.listener, vehicleGroup );
 
-		const particles = new SmokeTrails( scene, arTransform.scale * arenaCarBoost );
+		const particles = new SmokeTrails( scene, Math.max( arTransform.scale * arenaCarBoost * 5, 0.02 ) );
 		const driftMarks = new DriftMarks( scene, 'ar-floating-arena' );
 
 		const _forward = new THREE.Vector3();
