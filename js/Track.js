@@ -469,81 +469,82 @@ export function computeTrackPath( customCells ) {
 
 	}
 
-	// For corner cells, using the plain cell-center point put the
-	// waypoint off the actual curved pavement — a corner's real drivable
-	// surface sweeps around an arc pivoted at one corner of the cell,
-	// not through its middle, so the center point can land in the
-	// "cut corner" dead zone. This computes the arc's actual midpoint at
-	// a mid-track racing radius instead, matching the exact geometry
-	// Physics.js uses for the corner's own collision walls.
+	// Traces smooth waypoints following the exact pavement geometry.
+	// Corner cells sweep along the true arc radius matching Physics.js
+	// walls, and straight cells interpolate along the lane centerline.
+	const S = CELL_RAW * GRID_SCALE;
 	const CELL_HALF = CELL_RAW / 2;
 	const WALL_HALF_THICK = 0.25;
-	const ARC_SPAN = - Math.PI / 2;
 	const ARC_CENTER_X = - CELL_HALF;
 	const ARC_CENTER_Z = CELL_HALF;
 	const OUTER_R = 2 * CELL_HALF - WALL_HALF_THICK;
 	const INNER_R = WALL_HALF_THICK;
 	const RACING_R = ( INNER_R + OUTER_R ) / 2;
 
-	const coarse = ordered.map( ( c ) => {
+	const SUBDIVISIONS = 4;
+	const waypoints = [];
 
-		const cx = ( c[ 0 ] + 0.5 ) * CELL_RAW * GRID_SCALE;
-		const cz = ( c[ 1 ] + 0.5 ) * CELL_RAW * GRID_SCALE;
+	for ( let i = 0; i < ordered.length; i ++ ) {
+
+		const c = ordered[ i ];
+		const prevC = ordered[ ( i - 1 + ordered.length ) % ordered.length ];
+		const nextC = ordered[ ( i + 1 ) % ordered.length ];
+
+		const cx = ( c[ 0 ] + 0.5 ) * S;
+		const cz = ( c[ 1 ] + 0.5 ) * S;
+
+		const entryX = ( ( c[ 0 ] + 0.5 ) + ( prevC[ 0 ] + 0.5 ) ) / 2 * S;
+		const entryZ = ( ( c[ 1 ] + 0.5 ) + ( prevC[ 1 ] + 0.5 ) ) / 2 * S;
+
+		const exitX = ( ( c[ 0 ] + 0.5 ) + ( nextC[ 0 ] + 0.5 ) ) / 2 * S;
+		const exitZ = ( ( c[ 1 ] + 0.5 ) + ( nextC[ 1 ] + 0.5 ) ) / 2 * S;
 
 		if ( c[ 2 ] === 'track-corner' ) {
 
-			const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ c[ 3 ] ] || 0 );
+			const deg = ORIENT_DEG[ c[ 3 ] ] || 0;
+			const rad = THREE.MathUtils.degToRad( deg );
 			const cr = Math.cos( rad ), sr = Math.sin( rad );
+
 			const wcx = cx + ( ARC_CENTER_X * cr + ARC_CENTER_Z * sr ) * GRID_SCALE;
 			const wcz = cz + ( - ARC_CENTER_X * sr + ARC_CENTER_Z * cr ) * GRID_SCALE;
-			const arcStart = - rad;
-			const aMid = arcStart + 0.5 * ARC_SPAN;
 
-			return {
-				x: wcx + RACING_R * Math.cos( aMid ) * GRID_SCALE,
-				z: wcz + RACING_R * Math.sin( aMid ) * GRID_SCALE,
-			};
+			const aStart = Math.atan2( entryZ - wcz, entryX - wcx );
+			const aEnd = Math.atan2( exitZ - wcz, exitX - wcx );
 
-		}
+			let diff = aEnd - aStart;
+			while ( diff > Math.PI ) diff -= Math.PI * 2;
+			while ( diff < - Math.PI ) diff += Math.PI * 2;
 
-		return { x: cx, z: cz };
+			const rGrid = RACING_R * GRID_SCALE;
 
-	} );
+			for ( let s = 0; s < SUBDIVISIONS; s ++ ) {
 
-	// Only ~1 waypoint per track piece made the AI take one sharp,
-	// sudden turn per cell instead of gradually curving — subdividing
-	// with a light smoothing pass (average of each point's neighbors,
-	// applied a few times) spreads each direction change over several
-	// closer-together points, so steering corrections happen gradually.
-	const SUBDIVISIONS = 4;
-	let smooth = [];
-	for ( let i = 0; i < coarse.length; i ++ ) {
+				const t = s / SUBDIVISIONS;
+				const ang = aStart + diff * t;
+				waypoints.push( {
+					x: wcx + rGrid * Math.cos( ang ),
+					z: wcz + rGrid * Math.sin( ang ),
+				} );
 
-		const a = coarse[ i ];
-		const b = coarse[ ( i + 1 ) % coarse.length ];
-		for ( let s = 0; s < SUBDIVISIONS; s ++ ) {
+			}
 
-			const t = s / SUBDIVISIONS;
-			smooth.push( { x: a.x + ( b.x - a.x ) * t, z: a.z + ( b.z - a.z ) * t } );
+		} else {
+
+			for ( let s = 0; s < SUBDIVISIONS; s ++ ) {
+
+				const t = s / SUBDIVISIONS;
+				waypoints.push( {
+					x: entryX + ( exitX - entryX ) * t,
+					z: entryZ + ( exitZ - entryZ ) * t,
+				} );
+
+			}
 
 		}
 
 	}
 
-	for ( let pass = 0; pass < 2; pass ++ ) {
-
-		const next = smooth.map( ( p, i ) => {
-
-			const prev = smooth[ ( i - 1 + smooth.length ) % smooth.length ];
-			const nxt = smooth[ ( i + 1 ) % smooth.length ];
-			return { x: ( prev.x + p.x + nxt.x ) / 3, z: ( prev.z + p.z + nxt.z ) / 3 };
-
-		} );
-		smooth = next;
-
-	}
-
-	return smooth;
+	return waypoints;
 
 }
 
