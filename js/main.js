@@ -66,7 +66,6 @@ const modelNames = [
 	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
-	'ground-tile', 'barrier-segment',
 ];
 
 const models = {};
@@ -2729,10 +2728,10 @@ const modeCardTextures = {};
 for ( const key of [ 'room', 'track', 'arena' ] ) {
 
 	modeCardTextures[ key ] = modeCardLoader.load(
-		`models/Textures/mode-${ key }.jpg`,
+		`models/Textures/mode-${ key }.jpeg`,
 		( t ) => { t.colorSpace = THREE.SRGBColorSpace; },
 		undefined,
-		( err ) => console.error( `[main] mode card texture failed to load: mode-${ key }.jpg`, err )
+		( err ) => console.error( `[main] mode card texture failed to load: mode-${ key }.jpeg`, err )
 	);
 
 }
@@ -3263,6 +3262,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 				} else if ( raceCtx ) {
 
 					const input = arManager.getDriveInput();
+					input.handbrake = arManager.getHandbrakeHold();
 					updateVehicleAndFx( dt, input, raceCtx.ctx );
 					updateVehicleLights( raceCtx.vehicleLights, dt, raceCtx.arScale, raceCtx.vehicle.linearSpeed < -0.01 );
 
@@ -3592,6 +3592,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 				} else if ( phase === 'racing' && raceCtx ) {
 
 					const input = arManager.getDriveInput();
+					input.handbrake = arManager.getHandbrakeHold();
 					updateVehicleAndFx( dt, input, raceCtx.ctx );
 					updateVehicleLights( raceCtx.vehicleLights, dt, raceCtx.arScale, raceCtx.vehicle.linearSpeed < -0.01 );
 
