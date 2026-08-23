@@ -1962,8 +1962,8 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 
 	if ( ! path || path.length < 2 ) return;
 
-	const LOOKAHEAD = 2; // waypoints ahead to steer toward — reduced from 4, which was cutting corners wide enough to sometimes clip off-track decoration
-	const MAX_DRIFT = 4; // if further than this from the path, force a resync instead of continuing to compound the error
+	const LOOKAHEAD = 3;
+	const MAX_DRIFT = 5.0;
 
 	for ( const d of drivers ) {
 
@@ -1971,15 +1971,7 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 
 		if ( racing && ! d.finished ) {
 
-			// Stuck watchdog: if a car hasn't made real progress over
-			// several half-second samples (wedged against a wall at a
-			// bad angle, etc.), steering alone might never recover it —
-			// decorations have no collider, but the track's own
-			// boundary/corner walls do. Sampling every 0.5s (instead of
-			// checking every single frame) avoids a false reset from
-			// small physics jitter/vibration while genuinely wedged
-			// against something — a per-frame check kept getting reset
-			// by that jitter and never actually reaching the threshold.
+			// Stuck watchdog: monitor net progress over 0.5s intervals
 			d.sampleTimer += dt;
 			if ( d.sampleTimer >= 0.5 ) {
 
@@ -1990,11 +1982,11 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 				);
 				d.samplePos = { x: d.vehicle.spherePos.x, z: d.vehicle.spherePos.z };
 
-				if ( progressed < 0.4 ) d.stuckStrikes += 1; else d.stuckStrikes = 0;
+				if ( progressed < 0.25 ) d.stuckStrikes += 1; else d.stuckStrikes = 0;
 
 			}
 
-			if ( d.stuckStrikes >= 3 ) { // ~1.5s of near-zero net movement
+			if ( d.stuckStrikes >= 2 ) { // ~1.0s of near-zero progress
 
 				console.warn( '[AI] stuck-recovery triggered for a driver, resyncing to path' );
 
@@ -2027,67 +2019,92 @@ function updateAIDrivers( drivers, path, dt, racing, totalTime ) {
 
 			}
 
-			const target = path[ ( d.idx + 1 ) % path.length ];
-			const dx0 = target.x - d.vehicle.spherePos.x, dz0 = target.z - d.vehicle.spherePos.z;
-			const distToNext = Math.hypot( dx0, dz0 );
+			// Waypoint advancement: check closest waypoint in a forward window [d.idx, d.idx + 6]
+			let bestWindowIdx = d.idx;
+			let minWindowDist = Infinity;
+			for ( let step = 0; step <= 6; step ++ ) {
 
-			if ( distToNext < 1.0 ) {
+				const testIdx = ( d.idx + step ) % path.length;
+				const pt = path[ testIdx ];
+				const distSq = ( pt.x - d.vehicle.spherePos.x ) ** 2 + ( pt.z - d.vehicle.spherePos.z ) ** 2;
+				if ( distSq < minWindowDist ) {
 
-				d.idx = ( d.idx + 1 ) % path.length;
-				if ( d.idx === 0 ) {
+					minWindowDist = distSq;
+					bestWindowIdx = testIdx;
+
+				}
+
+			}
+
+			if ( bestWindowIdx !== d.idx ) {
+
+				if ( bestWindowIdx < d.idx ) {
 
 					d.lapsCompleted += 1;
 					if ( d.lapsCompleted >= TOTAL_RACE_LAPS ) { d.finished = true; d.finishTime = totalTime; }
 
 				}
+				d.idx = bestWindowIdx;
 
-			} else if ( distToNext > MAX_DRIFT ) {
+			} else {
 
-				// Drifted too far off course (e.g. clipped a decoration
-				// piece and got deflected) — instead of continuing to
-				// chase an increasingly wrong target, snap to whichever
-				// path point is actually closest right now.
-				let bestJ = d.idx, bestD = Infinity;
-				for ( let j = 0; j < path.length; j ++ ) {
+				const curPt = path[ ( d.idx + 1 ) % path.length ];
+				const dToCur = Math.hypot( curPt.x - d.vehicle.spherePos.x, curPt.z - d.vehicle.spherePos.z );
+				if ( dToCur < 1.5 ) {
 
-					const ddx = path[ j ].x - d.vehicle.spherePos.x, ddz = path[ j ].z - d.vehicle.spherePos.z;
-					const dd = ddx * ddx + ddz * ddz;
-					if ( dd < bestD ) { bestD = dd; bestJ = j; }
+					d.idx = ( d.idx + 1 ) % path.length;
+					if ( d.idx === 0 ) {
+
+						d.lapsCompleted += 1;
+						if ( d.lapsCompleted >= TOTAL_RACE_LAPS ) { d.finished = true; d.finishTime = totalTime; }
+
+					}
+
+				} else if ( dToCur > MAX_DRIFT ) {
+
+					let globalBest = d.idx, globalMinD = Infinity;
+					for ( let j = 0; j < path.length; j ++ ) {
+
+						const ddx = path[ j ].x - d.vehicle.spherePos.x, ddz = path[ j ].z - d.vehicle.spherePos.z;
+						const dd = ddx * ddx + ddz * ddz;
+						if ( dd < globalMinD ) { globalMinD = dd; globalBest = j; }
+
+					}
+					d.idx = globalBest;
 
 				}
-				d.idx = bestJ;
 
 			}
 
-			// Steer toward a point further down the path (not just the
-			// very next waypoint) so the car starts turning-in before a
-			// corner instead of reacting only once right on top of it —
-			// same idea as a real driver looking ahead through a turn.
-			const lookaheadPoint = path[ ( d.idx + LOOKAHEAD ) % path.length ];
-			const dx = lookaheadPoint.x - d.vehicle.spherePos.x, dz = lookaheadPoint.z - d.vehicle.spherePos.z;
-			const dist = Math.hypot( dx, dz );
+			const targetPt = path[ ( d.idx + LOOKAHEAD ) % path.length ];
+			const dx = targetPt.x - d.vehicle.spherePos.x, dz = targetPt.z - d.vehicle.spherePos.z;
+			const distToLookahead = Math.hypot( dx, dz );
 
-			if ( dist > 0.001 ) {
+			if ( distToLookahead > 0.001 ) {
 
 				const carAngle = d.vehicle.container.rotation.y;
 				const targetAngle = Math.atan2( dx, dz );
 				let angleDiff = targetAngle - carAngle;
 				angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
 
-				// Proper steering-wheel input (same code path the
-				// keyboard uses) instead of the touch mode's instant
-				// slerp-to-direction — that was rotating the visible
-				// model straight at the target every frame while the
-				// physics body kept its old momentum, so the car looked
-				// like it was spinning out at every turn.
-				input.x = THREE.MathUtils.clamp( angleDiff * 2, -1, 1 );
+				input.x = THREE.MathUtils.clamp( angleDiff * 2.2, -1, 1 );
 				input.touchActive = false;
 
-				// Ease off the throttle for sharp turns, like a real
-				// driver braking before a corner instead of charging in
-				// at full speed and losing grip.
-				const sharpness = THREE.MathUtils.clamp( Math.abs( angleDiff ) / ( Math.PI / 3 ), 0, 1 );
-				input.z = 1 - sharpness * 0.5;
+				// Calculate upcoming curvature over next 5 waypoints for predictive braking
+				let maxUpcomingAngle = Math.abs( angleDiff );
+				for ( let k = 1; k <= 5; k ++ ) {
+
+					const p1 = path[ ( d.idx + k ) % path.length ];
+					const p2 = path[ ( d.idx + k + 2 ) % path.length ];
+					const segAngle = Math.atan2( p2.x - p1.x, p2.z - p1.z );
+					let diff = segAngle - carAngle;
+					diff = ( ( diff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
+					if ( Math.abs( diff ) > maxUpcomingAngle ) maxUpcomingAngle = Math.abs( diff );
+
+				}
+
+				const turnSharpness = THREE.MathUtils.clamp( maxUpcomingAngle / ( Math.PI / 2.5 ), 0, 1 );
+				input.z = 1.0 - turnSharpness * 0.65;
 
 			}
 
