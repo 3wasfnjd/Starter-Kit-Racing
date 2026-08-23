@@ -2859,6 +2859,20 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 			restitution: 0.0,
 		} );
 
+		// TEMPORARY debug aid: blue wireframe at the ground collider's
+		// exact computed position/size, same idea as the wall debug
+		// boxes above. Safe to remove once confirmed correct.
+		const groundDebugMesh = new THREE.Mesh(
+			new THREE.BoxGeometry(
+				bounds.halfWidth * arTransform.scale * 2,
+				groundHalfY * 2,
+				bounds.halfDepth * arTransform.scale * 2
+			),
+			new THREE.MeshBasicMaterial( { color: 0x0000ff, wireframe: true } )
+		);
+		groundDebugMesh.position.set( groundXf.position[ 0 ], groundXf.position[ 1 ], groundXf.position[ 2 ] );
+		scene.add( groundDebugMesh );
+
 		// Physics sphere scaled to match the track instead of the
 		// hardcoded real-0.5m default — otherwise it's comically
 		// oversized relative to a tabletop-sized loop.
