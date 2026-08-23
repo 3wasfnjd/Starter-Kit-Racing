@@ -3276,12 +3276,19 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			const yawQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
 			const arTransform = { position: arRoot.position.clone(), quaternion: yawQuat, scale: FIXED_SCALE };
 
-		// Gravity scaled down with the track — real 9.81 m/s² acting on
+		// Car scale boost (also used for wall height below, so the
+		// containment walls stay taller than the car — this was a real,
+		// measured bug: at the un-boosted wall height, the boosted car's
+		// diameter (0.048) was larger than the wall's total height
+		// (0.036), letting it roll right over its own fence).
+		const trackCarBoost = 3;
+
+	// Gravity scaled down with the track — real 9.81 m/s² acting on
 		// a sphere shrunk to AR-tabletop size is a huge force relative
 		// to its own tiny size, causing violent jitter/bouncing instead
 		// of the car settling naturally onto the track.
 		const world = createPhysicsWorld( arTransform.scale );
-		buildWallColliders( world, null, null, arTransform );
+		buildWallColliders( world, null, null, arTransform, trackCarBoost * 1.5 );
 
 		const groundHalfY = Math.max( 0.01 * arTransform.scale, 0.002 );
 		const groundXf = applyArTransform( [ bounds.centerX, - 0.125, bounds.centerZ ], [ 0, 0, 0, 1 ], arTransform );
@@ -3299,7 +3306,6 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 		// oversized relative to a tabletop-sized loop. Same boost factor
 		// as the floating arena, applied here too for consistency
 		// between both AR modes.
-		const trackCarBoost = 3;
 		const carRadius = Math.max( 0.5 * arTransform.scale * trackCarBoost, 0.003 );
 
 		// Spawn slightly behind the finish line (same grid convention as
@@ -3372,7 +3378,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 		const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer: null, contactListener, vehicleFlag };
 
-		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, worldTrackPath, arScale: arTransform.scale * trackCarBoost };
+		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, arScale: arTransform.scale * trackCarBoost };
 
 		} catch ( e ) {
 
@@ -3454,7 +3460,7 @@ function buildDriftPad( half, models ) {
 	groundMesh.rotation.x = - Math.PI / 2;
 	pad.add( groundMesh );
 
-	buildBarrierLoop( pad, null, half, 0, 2.5 );
+	buildBarrierLoop( pad, null, half, 0, 4 );
 
 	return pad;
 
@@ -3616,11 +3622,22 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 			restitution: 0.0,
 		} );
 
+		// Car scale boost (declared here, used both for wall height below
+		// and the car itself further down) — the physics wall's
+		// containment height must scale with the car, or a bigger boosted
+		// car can simply be taller than its own fence and roll over it.
+		// This was a real, measured bug: at the old fixed wallHalfHeight,
+		// the boosted car's diameter (0.048) was 1.5× the wall's total
+		// height (0.032).
+		const arenaCarBoost = 3;
+
 		// Four boundary walls matching the visual barrier loop's square
 		// footprint — same Y convention as the ground (wallHalfHeight
 		// centered a bit above y=-0.125, matching NORMAL mode's own
-		// free-roam wall math) transformed the same way.
-		const wallHalfHeight = 1.0;
+		// free-roam wall math) transformed the same way. Height boosted
+		// by the same car-size factor plus extra headroom, so it stays
+		// clearly taller than the car even while bouncing/settling.
+		const wallHalfHeight = 1.0 * arenaCarBoost * 1.5;
 		const wallThickness = 0.2;
 		const wallLocalY = - 0.125 + wallHalfHeight;
 		for ( const sign of [ 1, -1 ] ) {
@@ -3641,6 +3658,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 		}
 
+
 		// The open arena's footprint is large relative to FIXED_SCALE
 		// compared to the track's compact layout — using the raw scale
 		// alone made the car look tiny by comparison, so both the
@@ -3648,7 +3666,6 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		// the same factor (keeping them matched — boosting only the
 		// visual would leave the car sticking out well beyond its own
 		// tiny collision sphere).
-		const arenaCarBoost = 3;
 		const carRadius = Math.max( 0.5 * arTransform.scale * arenaCarBoost, 0.003 );
 
 		// Spawn Y computed directly relative to the ground collider's

@@ -46,14 +46,20 @@ export function applyArTransform( position, quaternion, arTransform ) {
 
 }
 
-export function buildWallColliders( world, debugGroup, customCells, arTransform = null ) {
+export function buildWallColliders( world, debugGroup, customCells, arTransform = null, heightBoost = 1 ) {
 
 	const S = GRID_SCALE;
 	const CELL_HALF = CELL_RAW / 2;
 
 	const WALL_HALF_THICK = 0.25;
 	const WALL_X = 4.75;
-	const WALL_HALF_H = 1.5;
+	// heightBoost only affects the wall's own containment height, not
+	// its X/Z position or footprint — for AR contexts where the car's
+	// visual/physics size was independently boosted beyond arTransform's
+	// own scale (so the wall stays taller than the car that has to stay
+	// inside it, instead of the car's own diameter ending up larger
+	// than the wall meant to contain it).
+	const WALL_HALF_H = 1.5 * heightBoost;
 
 	const wallY = ( 0.5 + WALL_HALF_H ) * S - 0.5;
 	const hThick = WALL_HALF_THICK * S;
