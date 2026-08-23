@@ -6,7 +6,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle, MAX_SPEED } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath, NPC_TRUCKS, TRACK_CELLS } from './Track.js';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath, NPC_TRUCKS, TRACK_CELLS, GRID_SCALE } from './Track.js';
 import { buildWallColliders, createSphereBody, applyArTransform } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { DriftMarks } from './DriftMarks.js';
@@ -2765,7 +2765,15 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 	const bounds = computeTrackBounds( TRACK_CELLS );
 
 	const FIXED_SCALE = 0.016;
-	trackGroup.scale.setScalar( FIXED_SCALE );
+	// buildTrack() already sets trackGroup.scale to GRID_SCALE (0.75)
+	// internally — individual pieces are positioned at raw, unscaled
+	// cell coordinates and rely on this group-level scale to end up in
+	// the right place. Overwriting (not multiplying) trackGroup.scale
+	// here was silently discarding that 0.75, leaving the *visual*
+	// track about 1/0.75 ≈ 33% larger than its own physics colliders
+	// (which compute positions already including the GRID_SCALE
+	// factor) — the root cause of the visible track/wall mismatch.
+	trackGroup.scale.multiplyScalar( FIXED_SCALE );
 	// Closer (was 1.3m, halved to 0.65m) and lower (below eye level,
 	// tabletop-style). Rotated 180° from the finish line's own forward
 	// angle so the start gate faces back toward the viewer instead of
@@ -2780,7 +2788,7 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 	// (span ≈ 60 × FIXED_SCALE meters) — the default frustum is tuned
 	// for NORMAL mode's much larger real-scale track and was far too
 	// wide here, making shadow resolution effectively zero.
-	const shadowExtent = 60 * FIXED_SCALE;
+	const shadowExtent = 60 * GRID_SCALE * FIXED_SCALE;
 	light.shadow.camera.left = - shadowExtent;
 	light.shadow.camera.right = shadowExtent;
 	light.shadow.camera.top = shadowExtent;
@@ -2795,7 +2803,14 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 	// Grab hitbox is the start gate specifically (a small range right at
 	// the finish line's position), not the whole track — grabbing from
 	// anywhere near the track made accidental grabs too easy.
-	const gatePoint = new THREE.Vector3( spawn.position[ 0 ], 0, spawn.position[ 2 ] );
+	// spawn.position is in the "grid-scaled" convention (already
+	// ×GRID_SCALE, matching Physics.js/computeSpawnPosition) — but
+	// PlaceableObject's localToWorld() applies trackGroup's full matrix,
+	// which now includes GRID_SCALE as part of its own baked-in scale
+	// (see the trackGroup.scale fix above). Dividing out GRID_SCALE here
+	// converts to the "raw local" convention actual trackGroup children
+	// (the visual pieces) use, avoiding double-applying the factor.
+	const gatePoint = new THREE.Vector3( spawn.position[ 0 ] / GRID_SCALE, 0, spawn.position[ 2 ] / GRID_SCALE );
 	const placeable = new PlaceableObject( trackGroup, arManager, {
 		minScale: FIXED_SCALE, maxScale: FIXED_SCALE, // locked — resize comes back in a later stage
 		grabPoint: gatePoint, grabRange: 0.15,
@@ -2817,7 +2832,7 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 		// grab — which is why resize/move are locked at this stage).
 		const yaw = new THREE.Euler().setFromQuaternion( trackGroup.quaternion, 'YXZ' ).y;
 		const yawQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
-		const arTransform = { position: trackGroup.position.clone(), quaternion: yawQuat, scale: trackGroup.scale.x };
+		const arTransform = { position: trackGroup.position.clone(), quaternion: yawQuat, scale: FIXED_SCALE };
 
 		// Gravity scaled down with the track — real 9.81 m/s² acting on
 		// a sphere shrunk to AR-tabletop size is a huge force relative
