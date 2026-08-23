@@ -288,55 +288,26 @@ function createModeMenu( { arAvailable } ) {
 						الوضع العادي: تحكم حر بدون مضمار
 					</label>
 
-					<div class="hw-step hw-step-top">
-						<div class="hw-mode-row">
-							<button class="hw-mode-card primary hw-web-btn">
-								<svg viewBox="0 0 24 24" fill="none" stroke="#5B8CFF" stroke-width="1.6">
-									<rect x="2.5" y="4.5" width="19" height="13" rx="2"/>
-									<path d="M8 21h8M12 17.5v3.5"/>
-								</svg>
-								<div class="hw-mode-label">وضع الويب</div>
-								<div class="hw-mode-sub">أيفون / كمبيوتر</div>
-							</button>
-							<button class="hw-mode-card hw-ar-entry-btn" ${ arAvailable ? '' : 'disabled' }>
-								<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
-									<rect x="2.5" y="8" width="19" height="9" rx="3.5"/>
-									<circle cx="8.3" cy="12.5" r="1.9"/>
-									<circle cx="15.7" cy="12.5" r="1.9"/>
-									<path d="M9.8 12.5h4.4"/>
-									<path d="M6 8c0-2.2 1.8-4 4-4h4c2.2 0 4 1.8 4 4"/>
-								</svg>
-								<div class="hw-mode-label">وضع AR</div>
-								<div class="hw-mode-sub">${ arAvailable ? 'Meta Quest 3' : 'غير متاح على هذا الجهاز' }</div>
-							</button>
-						</div>
-					</div>
-
-					<div class="hw-step hw-step-ar hidden">
-						<div class="hw-mode-row">
-							<button class="hw-mode-card primary hw-ar-room-btn">
-								<svg viewBox="0 0 24 24" fill="none" stroke="#5B8CFF" stroke-width="1.6">
-									<path d="M4 20V9l8-5 8 5v11" /><path d="M9 20v-6h6v6" />
-								</svg>
-								<div class="hw-mode-label">حر بالغرفة</div>
-								<div class="hw-mode-sub">قيادة حقيقية بمكانك</div>
-							</button>
-							<button class="hw-mode-card hw-ar-track-btn">
-								<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
-									<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2" fill="#cfc9e0" stroke="none"/>
-								</svg>
-								<div class="hw-mode-label">مضمار عائم</div>
-								<div class="hw-mode-sub">مضمار مصغّر</div>
-							</button>
-							<button class="hw-mode-card hw-ar-arena-btn">
-								<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
-									<rect x="4" y="9" width="16" height="9" rx="1.5"/><path d="M4 9l8-5 8 5"/>
-								</svg>
-								<div class="hw-mode-label">حلبة عائمة</div>
-								<div class="hw-mode-sub">حلبة تفحيط مصغّرة</div>
-							</button>
-						</div>
-						<a href="#" class="hw-back-link">‹ رجوع</a>
+					<div class="hw-mode-row">
+						<button class="hw-mode-card primary hw-web-btn">
+							<svg viewBox="0 0 24 24" fill="none" stroke="#5B8CFF" stroke-width="1.6">
+								<rect x="2.5" y="4.5" width="19" height="13" rx="2"/>
+								<path d="M8 21h8M12 17.5v3.5"/>
+							</svg>
+							<div class="hw-mode-label">وضع الويب</div>
+							<div class="hw-mode-sub">أيفون / كمبيوتر</div>
+						</button>
+						<button class="hw-mode-card hw-ar-entry-btn" ${ arAvailable ? '' : 'disabled' }>
+							<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
+								<rect x="2.5" y="8" width="19" height="9" rx="3.5"/>
+								<circle cx="8.3" cy="12.5" r="1.9"/>
+								<circle cx="15.7" cy="12.5" r="1.9"/>
+								<path d="M9.8 12.5h4.4"/>
+								<path d="M6 8c0-2.2 1.8-4 4-4h4c2.2 0 4 1.8 4 4"/>
+							</svg>
+							<div class="hw-mode-label">وضع AR</div>
+							<div class="hw-mode-sub">${ arAvailable ? 'Meta Quest 3' : 'غير متاح على هذا الجهاز' }</div>
+						</button>
 					</div>
 				</div>
 				<div class="hw-footer">
@@ -406,13 +377,8 @@ function createModeMenu( { arAvailable } ) {
 
 		const textInput = menu.querySelector( '.hw-text-input' );
 		const freeRoamCheckbox = menu.querySelector( '.hw-freeroam-checkbox' );
-		const freeRoamRow = menu.querySelector( '.hw-checkbox-row' );
 		const webBtn = menu.querySelector( '.hw-web-btn' );
 		const arEntryBtn = menu.querySelector( '.hw-ar-entry-btn' );
-		const stepTop = menu.querySelector( '.hw-step-top' );
-		const stepAr = menu.querySelector( '.hw-step-ar' );
-		const arRoomBtn = menu.querySelector( '.hw-ar-room-btn' );
-		const backLink = menu.querySelector( '.hw-back-link' );
 
 		webBtn.addEventListener( 'click', () => {
 
@@ -422,29 +388,17 @@ function createModeMenu( { arAvailable } ) {
 
 		} );
 
-		// Entering AR is now a two-step pick: which AR experience, not
-		// just "AR yes/no" — the free-roam checkbox above only means
-		// anything for the web mode, so it's hidden once inside the AR
-		// step to avoid implying it affects the AR sub-choice below it.
+		// AR now goes straight into the session — which of the three AR
+		// experiences (room-drive / floating track / floating arena) is
+		// chosen from a floating 3D menu inside the headset itself
+		// instead of a flat pre-session screen. hit-test is requested
+		// up front for all three even though only room-drive currently
+		// uses it, since the person hasn't picked a mode yet at this
+		// point and re-requesting a session with different features
+		// after the fact isn't practical.
 		arEntryBtn.addEventListener( 'click', () => {
 
 			if ( arEntryBtn.disabled ) return;
-			stepTop.classList.add( 'hidden' );
-			stepAr.classList.remove( 'hidden' );
-			freeRoamRow.classList.add( 'hidden' );
-
-		} );
-
-		backLink.addEventListener( 'click', ( e ) => {
-
-			e.preventDefault();
-			stepAr.classList.add( 'hidden' );
-			stepTop.classList.remove( 'hidden' );
-			freeRoamRow.classList.remove( 'hidden' );
-
-		} );
-
-		arRoomBtn.addEventListener( 'click', () => {
 
 			// No requestFullscreenSafe() here on purpose: it would consume
 			// the click's transient user-activation, and requestSession()
@@ -452,10 +406,10 @@ function createModeMenu( { arAvailable } ) {
 			// whole display anyway, so it's moot.
 			//
 			// requestSession() itself is also started HERE, synchronously,
-			// rather than later inside startARMode() — some browsers only
-			// honor user-activation for a call made directly in the event
-			// handler, not after several chained await hops. The resulting
-			// promise is handed off and awaited downstream.
+			// rather than later inside startARWithFloatingMenu() — some
+			// browsers only honor user-activation for a call made directly
+			// in the event handler, not after several chained await hops.
+			// The resulting promise is handed off and awaited downstream.
 			const sessionPromise = navigator.xr.requestSession( 'immersive-ar', {
 				requiredFeatures: [ 'local-floor', 'hit-test' ],
 				optionalFeatures: [ 'plane-detection', 'mesh-detection' ],
@@ -463,37 +417,9 @@ function createModeMenu( { arAvailable } ) {
 
 			menu.remove();
 			resolve( {
-				choice: 'ar', arSubMode: 'room', customText: textInput.value.trim(),
+				choice: 'ar', customText: textInput.value.trim(),
 				vehicleKey: selectedVehicle, flagImage: flagImageDataUrl, sessionPromise,
 			} );
-
-		} );
-
-		// hw-ar-arena-btn is still a `disabled` placeholder ("قريبًا") —
-		// wired up once the floating arena is built (a later stage).
-		const arTrackBtn = menu.querySelector( '.hw-ar-track-btn' );
-		arTrackBtn.addEventListener( 'click', () => {
-
-			const sessionPromise = navigator.xr.requestSession( 'immersive-ar', {
-				requiredFeatures: [ 'local-floor' ],
-				optionalFeatures: [ 'plane-detection', 'mesh-detection' ],
-			} );
-
-			menu.remove();
-			resolve( { choice: 'ar', arSubMode: 'track', vehicleKey: selectedVehicle, customText: textInput.value.trim(), flagImage: flagImageDataUrl, sessionPromise } );
-
-		} );
-
-		const arArenaBtn = menu.querySelector( '.hw-ar-arena-btn' );
-		arArenaBtn.addEventListener( 'click', () => {
-
-			const sessionPromise = navigator.xr.requestSession( 'immersive-ar', {
-				requiredFeatures: [ 'local-floor' ],
-				optionalFeatures: [ 'plane-detection', 'mesh-detection' ],
-			} );
-
-			menu.remove();
-			resolve( { choice: 'ar', arSubMode: 'arena', vehicleKey: selectedVehicle, sessionPromise } );
 
 		} );
 
@@ -2739,25 +2665,222 @@ function arTransformSpawn( position, angle, arTransform ) {
 
 }
 
-async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessionPromise } ) {
+// ─── AR floating 3D mode menu ───────────────────────────────
+// Shown immediately on entering AR — three pointable/selectable cards
+// (room-drive / floating track / floating arena), replacing the old
+// flat pre-session sub-screen. Selection uses controller pointing
+// (raycasting, the natural VR/AR menu interaction) + trigger to
+// confirm, rather than the grab mechanic PlaceableObject uses
+// elsewhere (grabbing implies "pick this up", which doesn't fit
+// "choose one of these options").
+function createModeCard( label, color ) {
+
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = 512; canvas.height = 256;
+	const ctx = canvas.getContext( '2d' );
+	ctx.fillStyle = color;
+	ctx.fillRect( 0, 0, 512, 256 );
+	ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+	ctx.lineWidth = 8;
+	ctx.strokeRect( 4, 4, 504, 248 );
+	ctx.fillStyle = '#ffffff';
+	ctx.font = 'bold 56px "Segoe UI", Tahoma, Arial, sans-serif';
+	ctx.textAlign = 'center';
+	ctx.textBaseline = 'middle';
+	ctx.direction = 'rtl';
+	ctx.fillText( label, 256, 128 );
+
+	const texture = new THREE.CanvasTexture( canvas );
+	texture.colorSpace = THREE.SRGBColorSpace;
+
+	const mesh = new THREE.Mesh(
+		new THREE.PlaneGeometry( 0.32, 0.16 ),
+		new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide, transparent: true } )
+	);
+
+	return mesh;
+
+}
+
+// Returns a Promise resolving to 'room' | 'track' | 'arena'.
+function showFloatingModeMenu( arManager, scene ) {
+
+	return new Promise( ( resolve ) => {
+
+		const options = [
+			{ id: 'room', label: 'حر بالغرفة', color: '#5B8CFF' },
+			{ id: 'track', label: 'مضمار عائم', color: '#8B5FBF' },
+			{ id: 'arena', label: 'حلبة عائمة', color: '#E0621B' },
+		];
+
+		const menuGroup = new THREE.Group();
+		menuGroup.position.set( 0, 1.2, - 0.8 );
+		scene.add( menuGroup );
+
+		const cards = options.map( ( opt, i ) => {
+
+			const card = createModeCard( opt.label, opt.color );
+			card.position.set( ( i - 1 ) * 0.36, 0, 0 );
+			card.userData.optionId = opt.id;
+			card.userData.baseScale = 1;
+			menuGroup.add( card );
+			return card;
+
+		} );
+
+		const light = new THREE.PointLight( 0xffffff, 2, 3 );
+		light.position.set( 0, 1.2, - 0.5 );
+		scene.add( light );
+
+		const raycaster = new THREE.Raycaster();
+		const tmpDir = new THREE.Vector3();
+		const prevTrigger = { left: false, right: false };
+		let resolved = false;
+
+		function cleanup() {
+
+			scene.remove( menuGroup );
+			scene.remove( light );
+
+		}
+
+		this._floatingMenuUpdate = ( dt ) => {
+
+			if ( resolved ) return;
+
+			let hoveredCard = null;
+
+			for ( const hand of [ 'left', 'right' ] ) {
+
+				const controller = arManager.controllers[ hand ];
+				const gp = arManager.gamepads[ hand ];
+				if ( ! controller || ! gp ) continue;
+
+				tmpDir.set( 0, 0, - 1 ).applyQuaternion( controller.quaternion );
+				raycaster.set( controller.position, tmpDir );
+				const hits = raycaster.intersectObjects( cards );
+
+				const trig = gp.buttons[ 0 ] ? gp.buttons[ 0 ].pressed : false;
+				const trigEdge = trig && ! prevTrigger[ hand ];
+				prevTrigger[ hand ] = trig;
+
+				if ( hits.length > 0 ) {
+
+					hoveredCard = hits[ 0 ].object;
+					if ( trigEdge ) {
+
+						resolved = true;
+						cleanup();
+						resolve( hoveredCard.userData.optionId );
+						return;
+
+					}
+
+				}
+
+			}
+
+			cards.forEach( ( c ) => {
+
+				const targetScale = ( c === hoveredCard ) ? 1.15 : 1;
+				c.scale.setScalar( THREE.MathUtils.lerp( c.scale.x, targetScale, Math.min( 1, dt * 10 ) ) );
+
+			} );
+
+		};
+
+	} );
+
+}
+
+// ─── AR entry orchestrator ──────────────────────────────────
+// One session is requested here (with hit-test available for all three
+// modes, even though only room-drive currently uses it — simpler than
+// branching the session's requiredFeatures before the person has even
+// picked a mode). The floating 3D menu runs first; once they choose,
+// control hands off to whichever mode's own start function, reusing
+// this same connected arManager instead of each opening its own session.
+//
+// Returns its frameUpdate wrapper immediately (not after the person has
+// chosen) — the main loop only calls frameUpdate on whatever this
+// function already returned, so waiting on the menu's choice here
+// first would mean nothing ever drives the menu's own per-frame
+// update, and the choice would never come.
+async function startARWithFloatingMenu( { mapParam, customText, vehicleKey, flagImage, sessionPromise } ) {
+
+	const arManager = new ARManager( { renderer, scene, models } );
+	await arManager.requestSession( sessionPromise );
+
+	// Bloom is authored for a single flat camera and doesn't handle
+	// WebXR's per-eye stereo rendering correctly — also directly
+	// responsible for bright lights blowing out into an overwhelming
+	// glow, since bloom amplifies bright pixels heavily.
+	renderer.setEffects( [] );
+	arManager.session.addEventListener( 'end', () => { renderer.setEffects( [ bloomPass ] ); } );
+
+	const placeholderCamera = new THREE.PerspectiveCamera();
+	const menuCtx = {};
+	const choicePromise = showFloatingModeMenu.call( menuCtx, arManager, scene );
+
+	let subMode = null; // set once the chosen mode's own async setup resolves
+	let switching = false;
+
+	choicePromise.then( async ( chosenId ) => {
+
+		switching = true;
+
+		try {
+
+			if ( chosenId === 'track' ) {
+
+				subMode = await startARFloatingTrack( { arManager, vehicleKey, customText, flagImage } );
+
+			} else if ( chosenId === 'arena' ) {
+
+				subMode = await startARFloatingArena( { arManager, vehicleKey } );
+
+			} else {
+
+				subMode = await startARMode( { arManager, mapParam, customText, vehicleKey, flagImage } );
+
+			}
+
+		} catch ( e ) {
+
+			console.error( '[main] AR mode setup after floating menu failed:', e );
+
+		}
+
+	} );
+
+	return {
+
+		frameUpdate( dt, timestamp, frame ) {
+
+			if ( subMode ) {
+
+				subMode.frameUpdate( dt, timestamp, frame );
+				return;
+
+			}
+
+			if ( ! switching && menuCtx._floatingMenuUpdate ) menuCtx._floatingMenuUpdate( dt );
+			renderer.render( scene, placeholderCamera );
+
+		}
+
+	};
+
+}
+
+async function startARFloatingTrack( { arManager, vehicleKey, customText, flagImage } ) {
 
 	// STAGE 1 (placement) + STAGE 2 (rebuild): place + lock the track,
 	// then spawn a full-featured real-physics car on it — same feature
 	// set as room-drive AR mode (lights, flag, text, smoke, drift marks,
 	// audio, radio, horn), just at the track's fixed AR scale instead of
 	// a user-resizable one.
-	const arManager = new ARManager( { renderer, scene, models } );
-	await arManager.requestSession( sessionPromise );
 	arManager.previewGroup.visible = false; // not using hit-test placement here
-
-	// Custom post-processing (bloom) is authored for a single flat camera
-	// and isn't guaranteed to handle WebXR's per-eye stereo rendering
-	// correctly — also the direct cause of lights blowing out into an
-	// overwhelming glow, since bloom amplifies bright pixels heavily.
-	// Room-drive AR mode already disables this; this mode was missing
-	// the same fix.
-	renderer.setEffects( [] );
-	arManager.session.addEventListener( 'end', () => { renderer.setEffects( [ bloomPass ] ); } );
 
 	const placeholderCamera = new THREE.PerspectiveCamera();
 	const { trackGroup } = buildTrack( scene, models, null, { skipDeco: true } );
@@ -2765,21 +2888,31 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 	const bounds = computeTrackBounds( TRACK_CELLS );
 
 	const FIXED_SCALE = 0.016;
-	// buildTrack() already sets trackGroup.scale to GRID_SCALE (0.75)
-	// internally — individual pieces are positioned at raw, unscaled
-	// cell coordinates and rely on this group-level scale to end up in
-	// the right place. Overwriting (not multiplying) trackGroup.scale
-	// here was silently discarding that 0.75, leaving the *visual*
-	// track about 1/0.75 ≈ 33% larger than its own physics colliders
-	// (which compute positions already including the GRID_SCALE
-	// factor) — the root cause of the visible track/wall mismatch.
-	trackGroup.scale.multiplyScalar( FIXED_SCALE );
+
+	// arRoot carries the AR placement (position/rotation/scale) as one
+	// clean transform. trackGroup goes underneath it UNCHANGED — still
+	// carrying buildTrack()'s own internal position.y=-0.5 and
+	// scale=GRID_SCALE(0.75), which is what aligns its child pieces
+	// with the wall/ground physics formulas in the first place (those
+	// formulas already bake in that same -0.5/0.75 as absolute NORMAL-
+	// mode coordinates). Overwriting trackGroup's own transform instead
+	// of wrapping it was fighting that baseline on two fronts at once —
+	// scale (fixed previously) and Y-position (this fix): mixing MY
+	// arbitrary AR position into the same transform as that internal
+	// -0.5 pushed the visual track's Y out of sync with where the wall/
+	// ground colliders (which assume that -0.5 stays exactly as-authored)
+	// actually ended up.
+	const arRoot = new THREE.Group();
+	scene.add( arRoot );
+	arRoot.add( trackGroup );
+
 	// Closer (was 1.3m, halved to 0.65m) and lower (below eye level,
 	// tabletop-style). Rotated 180° from the finish line's own forward
 	// angle so the start gate faces back toward the viewer instead of
 	// away — best guess pending visual confirmation.
-	trackGroup.position.set( 0, 0.55, - 0.85 );
-	trackGroup.rotation.y = spawn.angle; // rotated 180° again from the previous +PI, back to the original
+	arRoot.scale.setScalar( FIXED_SCALE );
+	arRoot.position.set( 0, 0.55, - 0.85 );
+	arRoot.rotation.y = spawn.angle; // rotated 180° again from the previous +PI, back to the original
 
 	const light = new THREE.DirectionalLight( 0xffffff, 3 );
 	light.position.set( 0.6, 1, 0.6 );
@@ -2803,15 +2936,12 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 	// Grab hitbox is the start gate specifically (a small range right at
 	// the finish line's position), not the whole track — grabbing from
 	// anywhere near the track made accidental grabs too easy.
-	// spawn.position is in the "grid-scaled" convention (already
-	// ×GRID_SCALE, matching Physics.js/computeSpawnPosition) — but
-	// PlaceableObject's localToWorld() applies trackGroup's full matrix,
-	// which now includes GRID_SCALE as part of its own baked-in scale
-	// (see the trackGroup.scale fix above). Dividing out GRID_SCALE here
-	// converts to the "raw local" convention actual trackGroup children
-	// (the visual pieces) use, avoiding double-applying the factor.
-	const gatePoint = new THREE.Vector3( spawn.position[ 0 ] / GRID_SCALE, 0, spawn.position[ 2 ] / GRID_SCALE );
-	const placeable = new PlaceableObject( trackGroup, arManager, {
+	// spawn.position is already in the same "NORMAL-mode absolute"
+	// convention arRoot's transform expects directly (matching how the
+	// wall/ground formulas work) — no further conversion needed now
+	// that PlaceableObject targets arRoot instead of trackGroup.
+	const gatePoint = new THREE.Vector3( spawn.position[ 0 ], 0, spawn.position[ 2 ] );
+	const placeable = new PlaceableObject( arRoot, arManager, {
 		minScale: FIXED_SCALE, maxScale: FIXED_SCALE, // locked — resize comes back in a later stage
 		grabPoint: gatePoint, grabRange: 0.15,
 	} );
@@ -2828,11 +2958,11 @@ async function startARFloatingTrack( { vehicleKey, customText, flagImage, sessio
 		// Track stays exactly where/how big it is from this point on —
 		// real physics colliders are built to match THIS transform once
 		// (crashcat's rigid bodies live in absolute world space, not
-		// trackGroup's own transform, so they'd desync from any further
+		// arRoot's own transform, so they'd desync from any further
 		// grab — which is why resize/move are locked at this stage).
-		const yaw = new THREE.Euler().setFromQuaternion( trackGroup.quaternion, 'YXZ' ).y;
+		const yaw = new THREE.Euler().setFromQuaternion( arRoot.quaternion, 'YXZ' ).y;
 		const yawQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
-		const arTransform = { position: trackGroup.position.clone(), quaternion: yawQuat, scale: FIXED_SCALE };
+		const arTransform = { position: arRoot.position.clone(), quaternion: yawQuat, scale: FIXED_SCALE };
 
 		// Gravity scaled down with the track — real 9.81 m/s² acting on
 		// a sphere shrunk to AR-tabletop size is a huge force relative
@@ -3126,15 +3256,9 @@ function updateKinematicArenaAI( drivers, dt, racing, padHalf ) {
 
 }
 
-async function startARFloatingArena( { vehicleKey, sessionPromise } ) {
+async function startARFloatingArena( { arManager, vehicleKey } ) {
 
-	const arManager = new ARManager( { renderer, scene, models } );
-	await arManager.requestSession( sessionPromise );
 	arManager.previewGroup.visible = false; // not using hit-test placement here
-
-	// Same bloom fix as the floating track — see its comment.
-	renderer.setEffects( [] );
-	arManager.session.addEventListener( 'end', () => { renderer.setEffects( [ bloomPass ] ); } );
 
 	const placeholderCamera = new THREE.PerspectiveCamera();
 
@@ -3269,9 +3393,8 @@ async function startARFloatingArena( { vehicleKey, sessionPromise } ) {
 
 }
 
-async function startARMode( { mapParam, customText, vehicleKey, flagImage, sessionPromise } ) {
+async function startARMode( { arManager, mapParam, customText, vehicleKey, flagImage } ) {
 
-	const arManager = new ARManager( { renderer, scene, models } );
 	const world = createPhysicsWorld();
 	arManager.setWorld( world );
 
@@ -3352,19 +3475,6 @@ async function startARMode( { mapParam, customText, vehicleKey, flagImage, sessi
 		};
 
 	};
-
-	const xrSession = await arManager.requestSession( sessionPromise );
-
-	// Custom post-processing (bloom) is authored for a single flat camera
-	// and is not guaranteed to handle WebXR's per-eye ArrayCamera stereo
-	// rendering correctly — a mismatch here is a known cause of content
-	// appearing to lag/swim with head movement. Disable while presenting.
-	renderer.setEffects( [] );
-	xrSession.addEventListener( 'end', () => {
-
-		renderer.setEffects( [ bloomPass ] );
-
-	} );
 
 	return {
 
@@ -3594,63 +3704,13 @@ async function init() {
 	// eslint-disable-next-line no-constant-condition
 	while ( true ) {
 
-		const { choice, arSubMode, customText, freeRoam, vehicleKey, flagImage, sessionPromise } = await createModeMenu( { arAvailable } );
+		const { choice, customText, freeRoam, vehicleKey, flagImage, sessionPromise } = await createModeMenu( { arAvailable } );
 
-		if ( choice === 'ar' && arSubMode === 'track' ) {
-
-			try {
-
-				activeMode = await startARFloatingTrack( { vehicleKey, customText, flagImage, sessionPromise } );
-				break;
-
-			} catch ( e ) {
-
-				activeMode = null;
-
-				await new Promise( ( resolve ) => {
-
-					showErrorOverlay(
-						( e && e.message ) ? e.message : String( e ),
-						e && e.stack ? e.stack : '',
-						resolve,
-						'تعذّر تشغيل المضمار العائم'
-					);
-
-				} );
-				continue;
-
-			}
-
-		} else if ( choice === 'ar' && arSubMode === 'arena' ) {
+		if ( choice === 'ar' ) {
 
 			try {
 
-				activeMode = await startARFloatingArena( { vehicleKey, sessionPromise } );
-				break;
-
-			} catch ( e ) {
-
-				activeMode = null;
-
-				await new Promise( ( resolve ) => {
-
-					showErrorOverlay(
-						( e && e.message ) ? e.message : String( e ),
-						e && e.stack ? e.stack : '',
-						resolve,
-						'تعذّر تشغيل الحلبة العائمة'
-					);
-
-				} );
-				continue;
-
-			}
-
-		} else if ( choice === 'ar' ) {
-
-			try {
-
-				activeMode = await startARMode( { mapParam, customText, vehicleKey, flagImage, sessionPromise } );
+				activeMode = await startARWithFloatingMenu( { mapParam, customText, vehicleKey, flagImage, sessionPromise } );
 				break;
 
 			} catch ( e ) {
