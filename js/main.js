@@ -456,6 +456,13 @@ function createModeMenu( { arAvailable } ) {
 
 		document.body.appendChild( menu );
 
+		// Background music starts on the very first interaction with the
+		// menu page itself (not just after picking a mode) — browsers
+		// block audio autoplay without a genuine user gesture, so this
+		// is the earliest point it can reliably start.
+		menu.addEventListener( 'pointerdown', startBgMusic, { once: true } );
+		menu.addEventListener( 'keydown', startBgMusic, { once: true } );
+
 	} );
 
 }
@@ -3004,7 +3011,7 @@ function createFloatingHomeButton( scene ) {
 	texture.colorSpace = THREE.SRGBColorSpace;
 
 	const button = new THREE.Mesh(
-		new THREE.CircleGeometry( 0.04, 24 ),
+		new THREE.CircleGeometry( 0.055, 24 ),
 		new THREE.MeshBasicMaterial( { map: texture, transparent: true, side: THREE.DoubleSide } )
 	);
 	button.position.set( - 0.35, 0.9, - 0.6 );
@@ -3039,8 +3046,8 @@ async function startARWithFloatingMenu( { mapParam, customText, vehicleKey, flag
 	// menu and exit-confirm already have their own dedicated flows.
 	const homeButton = createFloatingHomeButton( scene );
 	let homeButtonDwell = 0;
-	const HOME_BUTTON_RANGE = 0.06;
-	const HOME_BUTTON_DWELL_TIME = 0.6; // seconds of holding a controller near it
+	const HOME_BUTTON_RANGE = 0.1;
+	const HOME_BUTTON_DWELL_TIME = 0.4; // seconds of holding a controller near it
 
 	choicePromise.then( async ( chosenId ) => {
 
@@ -3105,7 +3112,20 @@ async function startARWithFloatingMenu( { mapParam, customText, vehicleKey, flag
 			// (no button press needed) rather than pointing+trigger,
 			// since trigger/grip are already claimed by throttle/horn
 			// during driving and would otherwise fire both at once.
+			// Repositioned every frame relative to the headset (like a
+			// HUD element) — a fixed world position could end up out of
+			// comfortable reach if the person moved around the room
+			// after it was first placed.
 			if ( ! exitConfirmActive && subMode ) {
+
+				const cam = renderer.xr.getCamera();
+				const camPos = new THREE.Vector3();
+				const camQuat = new THREE.Quaternion();
+				cam.getWorldPosition( camPos );
+				cam.getWorldQuaternion( camQuat );
+				const offset = new THREE.Vector3( -0.25, -0.15, -0.5 ).applyQuaternion( camQuat );
+				homeButton.position.copy( camPos ).add( offset );
+				homeButton.quaternion.copy( camQuat );
 
 				let near = false;
 				for ( const hand of [ 'left', 'right' ] ) {
@@ -3240,19 +3260,21 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 	placeable.onConfirm = () => {
 
-		// The grab-highlight glow was staying on forever after lock —
-		// explicitly clear it back to normal now that it's done being
-		// held.
-		placeable._setHighlight( 'none' );
+		try {
 
-		// Track stays exactly where/how big it is from this point on —
-		// real physics colliders are built to match THIS transform once
-		// (crashcat's rigid bodies live in absolute world space, not
-		// arRoot's own transform, so they'd desync from any further
-		// grab — which is why resize/move are locked at this stage).
-		const yaw = new THREE.Euler().setFromQuaternion( arRoot.quaternion, 'YXZ' ).y;
-		const yawQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
-		const arTransform = { position: arRoot.position.clone(), quaternion: yawQuat, scale: FIXED_SCALE };
+			// The grab-highlight glow was staying on forever after lock —
+			// explicitly clear it back to normal now that it's done being
+			// held.
+			placeable._setHighlight( 'none' );
+
+			// Track stays exactly where/how big it is from this point on —
+			// real physics colliders are built to match THIS transform once
+			// (crashcat's rigid bodies live in absolute world space, not
+			// arRoot's own transform, so they'd desync from any further
+			// grab — which is why resize/move are locked at this stage).
+			const yaw = new THREE.Euler().setFromQuaternion( arRoot.quaternion, 'YXZ' ).y;
+			const yawQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
+			const arTransform = { position: arRoot.position.clone(), quaternion: yawQuat, scale: FIXED_SCALE };
 
 		// Gravity scaled down with the track — real 9.81 m/s² acting on
 		// a sphere shrunk to AR-tabletop size is a huge force relative
@@ -3351,6 +3373,18 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 		const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer: null, contactListener, vehicleFlag };
 
 		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, worldTrackPath, arScale: arTransform.scale * trackCarBoost };
+
+		} catch ( e ) {
+
+			console.error( '[main] floating-track lock-in failed:', e );
+			showErrorOverlay(
+				( e && e.message ) ? e.message : String( e ),
+				e && e.stack ? e.stack : '',
+				() => window.location.reload(),
+				'تعذّر تثبيت المضمار — السيارة لم تُنشأ'
+			);
+
+		}
 
 	};
 
@@ -3557,6 +3591,8 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 	function lockInAndStart() {
 
+		try {
+
 		const yaw = new THREE.Euler().setFromQuaternion( arenaGroup.quaternion, 'YXZ' ).y;
 		const yawQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
 		const arTransform = { position: arenaGroup.position.clone(), quaternion: yawQuat, scale: FIXED_SCALE };
@@ -3679,6 +3715,18 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, arScale: arTransform.scale * arenaCarBoost };
 		phase = 'racing';
+
+		} catch ( e ) {
+
+			console.error( '[main] floating-arena lock-in failed:', e );
+			showErrorOverlay(
+				( e && e.message ) ? e.message : String( e ),
+				e && e.stack ? e.stack : '',
+				() => window.location.reload(),
+				'تعذّر تثبيت الحلبة — السيارة لم تُنشأ'
+			);
+
+		}
 
 	}
 
