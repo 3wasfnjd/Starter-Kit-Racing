@@ -870,7 +870,7 @@ function buildFloodlightPole( scene, x, z, aimTarget ) {
 
 	}
 
-	const light = new THREE.SpotLight( 0xf5f7ff, 25, 45, THREE.MathUtils.degToRad( 38 ), 0.4, 1.2 );
+	const light = new THREE.SpotLight( 0xf5f7ff, 45, 70, THREE.MathUtils.degToRad( 42 ), 0.4, 1.0 );
 	light.position.set( x, poleHeight - 0.1, z );
 	light.target.position.set( aimTarget.x, 0, aimTarget.z );
 	light.castShadow = false; // 4 shadow-casting spotlights would be very expensive; dirLight still casts the car's shadow
@@ -2153,9 +2153,21 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		// flat daylight). Scoped to free-roam only; the classic track
 		// mode keeps its normal daylight scene.
 		scene.background = new THREE.Color( 0x05060a );
+
+		// A visible moon — otherwise the night sky was just a flat dark
+		// color with no light source anyone could actually see, which
+		// read as pure darkness rather than "night arena lit by
+		// floodlights". Positioned far away and high up, unlit itself
+		// (MeshBasicMaterial) so it reads as a glowing disc.
+		const moon = new THREE.Mesh(
+			new THREE.SphereGeometry( 6, 24, 24 ),
+			new THREE.MeshBasicMaterial( { color: 0xe8ecf7 } )
+		);
+		moon.position.set( - groundSize * 0.6, groundSize * 0.5, - groundSize * 0.7 );
+		scene.add( moon );
 		scene.fog.color.set( 0x05060a );
-		dirLight.intensity = 0.4; // faint moonlight fill, floodlights carry the scene
-		hemiLight.intensity = 0.35;
+		dirLight.intensity = 0.7; // moonlight fill, floodlights carry most of the scene
+		hemiLight.intensity = 0.55;
 
 		const roadHalf = groundSize / 2;
 
