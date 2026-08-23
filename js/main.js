@@ -3182,8 +3182,11 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 		// Physics sphere scaled to match the track instead of the
 		// hardcoded real-0.5m default — otherwise it's comically
-		// oversized relative to a tabletop-sized loop.
-		const carRadius = Math.max( 0.5 * arTransform.scale, 0.003 );
+		// oversized relative to a tabletop-sized loop. Same boost factor
+		// as the floating arena, applied here too for consistency
+		// between both AR modes.
+		const trackCarBoost = 3;
+		const carRadius = Math.max( 0.5 * arTransform.scale * trackCarBoost, 0.003 );
 
 		// Spawn slightly behind the finish line (same grid convention as
 		// the web race mode) instead of exactly on top of it — spawning
@@ -3210,7 +3213,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 		vehicle.container.rotation.y = playerWorld.angle;
 
 		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
-		vehicleGroup.scale.setScalar( arTransform.scale ); // matches the track's own fixed scale — Vehicle.js never touches .scale itself, so this persists safely
+		vehicleGroup.scale.setScalar( arTransform.scale * trackCarBoost ); // matches the track's own fixed scale — Vehicle.js never touches .scale itself, so this persists safely
 		scene.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
 		const vehicleLights = addVehicleLights( vehicleGroup );
@@ -3224,7 +3227,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 		// NORMAL mode uses SmokeTrails at scale=1 for a full-size car —
 		// this car is `arTransform.scale` of that size, so smoke uses
 		// the same proportion directly.
-		const particles = new SmokeTrails( scene, arTransform.scale );
+		const particles = new SmokeTrails( scene, arTransform.scale * trackCarBoost );
 		const driftMarks = new DriftMarks( scene, 'ar-floating-track' );
 
 		const _forward = new THREE.Vector3();
@@ -3243,7 +3246,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 		const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer: null, contactListener, vehicleFlag };
 
-		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, arScale: arTransform.scale };
+		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, worldTrackPath, arScale: arTransform.scale * trackCarBoost };
 
 	};
 
@@ -3504,7 +3507,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		// the same factor (keeping them matched — boosting only the
 		// visual would leave the car sticking out well beyond its own
 		// tiny collision sphere).
-		const arenaCarBoost = 8;
+		const arenaCarBoost = 3;
 		const carRadius = Math.max( 0.5 * arTransform.scale * arenaCarBoost, 0.003 );
 
 		// Spawn Y computed directly relative to the ground collider's
