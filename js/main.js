@@ -3192,9 +3192,13 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 		// backward on the very first physics step.
 		const gridSlot = computeGridPositions( spawn, 1 )[ 0 ];
 		const playerWorld = arTransformSpawn( gridSlot.position, gridSlot.angle, arTransform );
-		// Same zero-clearance fix as the floating arena — see its
-		// comment. Real absolute-world margin, not scaled to near-zero.
-		playerWorld.position[ 1 ] += 0.02;
+		// Spawn Y computed relative to the actual ground top plus this
+		// radius (not a fixed margin) — same reasoning as the floating
+		// arena's identical fix: a fixed margin doesn't generalize if
+		// the radius ever changes, and this is provably correct instead
+		// of numerically hoping the margin is big enough.
+		const groundTopY = groundXf.position[ 1 ] + groundHalfY;
+		playerWorld.position[ 1 ] = groundTopY + carRadius + 0.01;
 		const sphereBody = createSphereBody( world, playerWorld.position, carRadius );
 
 		const vehicle = new Vehicle();
@@ -3493,18 +3497,25 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 		}
 
-		const carRadius = Math.max( 0.5 * arTransform.scale, 0.003 );
-		// Zero-clearance spawn bug: at this scale, the local Y=0.5 spawn
-		// height and the ground collider's top surface computed to
-		// EXACTLY the same world Y (both ≈0.55) — the sphere spawned
-		// touching the ground with no gap at all, so the physics engine
-		// fought a knife-edge/borderline penetration every single frame
-		// instead of ever settling — matching "stuck in mud" and
-		// unpredictable movement exactly. A real absolute-world margin
-		// (not scaled down to near-nothing like the rest of this
-		// transform) guarantees actual clearance regardless of scale.
+		// The open arena's footprint is large relative to FIXED_SCALE
+		// compared to the track's compact layout — using the raw scale
+		// alone made the car look tiny by comparison, so both the
+		// physics sphere and the visual model are boosted together by
+		// the same factor (keeping them matched — boosting only the
+		// visual would leave the car sticking out well beyond its own
+		// tiny collision sphere).
+		const arenaCarBoost = 8;
+		const carRadius = Math.max( 0.5 * arTransform.scale * arenaCarBoost, 0.003 );
+
+		// Spawn Y computed directly relative to the ground collider's
+		// actual top surface plus this (now-boosted) radius, rather
+		// than a fixed small margin — a fixed margin sized for the
+		// original tiny radius would leave the bigger boosted sphere
+		// still overlapping the ground, right back into the same
+		// knife-edge-penetration "stuck in mud" problem.
+		const groundTopY = groundXf.position[ 1 ] + groundHalfY;
 		const playerWorld = applyArTransform( [ 0, 0.5, 0 ], [ 0, 0, 0, 1 ], arTransform );
-		playerWorld.position[ 1 ] += 0.02;
+		playerWorld.position[ 1 ] = groundTopY + carRadius + 0.01;
 		const sphereBody = createSphereBody( world, playerWorld.position, carRadius );
 
 		// Face the same direction the arena itself was rotated to when
@@ -3522,7 +3533,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		vehicle.container.rotation.y = yaw2;
 
 		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
-		vehicleGroup.scale.setScalar( arTransform.scale );
+		vehicleGroup.scale.setScalar( arTransform.scale * arenaCarBoost );
 		scene.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
 		const vehicleLights = addVehicleLights( vehicleGroup );
@@ -3533,7 +3544,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		audio.forceUnlock();
 		const radio = new Radio( audio.listener, vehicleGroup );
 
-		const particles = new SmokeTrails( scene, arTransform.scale );
+		const particles = new SmokeTrails( scene, arTransform.scale * arenaCarBoost );
 		const driftMarks = new DriftMarks( scene, 'ar-floating-arena' );
 
 		const _forward = new THREE.Vector3();
@@ -3552,7 +3563,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 		const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer: null, contactListener, vehicleFlag };
 
-		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, arScale: arTransform.scale };
+		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, arScale: arTransform.scale * arenaCarBoost };
 		phase = 'racing';
 
 	}
