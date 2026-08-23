@@ -666,6 +666,23 @@ export class ARManager {
 	// Left grip (xr-standard index 1) — completely unused elsewhere during
 	// driving, repurposed for the horn. Held not toggled, like a real
 	// horn button. Returns the raw pressed state every frame.
+	// Left controller's physical Menu (☰) button — NOT part of the
+	// standard xr-standard 0-5 button set, and most browsers reserve it
+	// entirely for the system-level Quest menu, never exposing a press
+	// to web content at all. This checks index 6 as a best-effort guess
+	// in case a given browser does pass it through; if not, this simply
+	// never returns true and the feature silently does nothing, rather
+	// than breaking anything. Rising-edge only.
+	getMenuButtonPress() {
+
+		const left = this.gamepads.left;
+		const pressed = left && left.buttons[ 6 ] ? left.buttons[ 6 ].pressed : false;
+		const edge = pressed && ! this._prevMenuButton;
+		this._prevMenuButton = pressed;
+		return edge;
+
+	}
+
 	getHornHold() {
 
 		const left = this.gamepads.left;

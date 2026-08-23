@@ -2795,6 +2795,104 @@ function showFloatingModeMenu( arManager, scene ) {
 // function already returned, so waiting on the menu's choice here
 // first would mean nothing ever drives the menu's own per-frame
 // update, and the choice would never come.
+// Simple two-card confirm shown when the Menu button is pressed —
+// "خروج للرئيسية" ends the AR session entirely (back to the flat
+// pre-AR page); "إلغاء" just dismisses. Reuses the same
+// pointing+trigger interaction as the mode-selection menu.
+function showExitConfirm( arManager, scene ) {
+
+	return new Promise( ( resolve ) => {
+
+		const group = new THREE.Group();
+		group.position.set( 0, 1.2, - 0.6 );
+		scene.add( group );
+
+		function makeCard( text, color ) {
+
+			const canvas = document.createElement( 'canvas' );
+			canvas.width = 512; canvas.height = 200;
+			const ctx = canvas.getContext( '2d' );
+			ctx.fillStyle = color;
+			ctx.fillRect( 0, 0, 512, 200 );
+			ctx.fillStyle = '#fff';
+			ctx.font = 'bold 44px "Segoe UI", Tahoma, Arial, sans-serif';
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.direction = 'rtl';
+			ctx.fillText( text, 256, 100 );
+			const texture = new THREE.CanvasTexture( canvas );
+			texture.colorSpace = THREE.SRGBColorSpace;
+			return new THREE.Mesh(
+				new THREE.PlaneGeometry( 0.26, 0.1 ),
+				new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide } )
+			);
+
+		}
+
+		const exitCard = makeCard( 'خروج للرئيسية', '#C0392B' );
+		exitCard.position.set( - 0.15, 0, 0 );
+		exitCard.userData.action = 'exit';
+		const cancelCard = makeCard( 'إلغاء', '#3A3A40' );
+		cancelCard.position.set( 0.15, 0, 0 );
+		cancelCard.userData.action = 'cancel';
+		group.add( exitCard, cancelCard );
+
+		const cards = [ exitCard, cancelCard ];
+		const raycaster = new THREE.Raycaster();
+		const tmpDir = new THREE.Vector3();
+		const prevTrigger = { left: false, right: false };
+		let resolved = false;
+
+		function update( dt ) {
+
+			if ( resolved ) return;
+			let hovered = null;
+
+			for ( const hand of [ 'left', 'right' ] ) {
+
+				const controller = arManager.controllers[ hand ];
+				const gp = arManager.gamepads[ hand ];
+				if ( ! controller || ! gp ) continue;
+
+				tmpDir.set( 0, 0, - 1 ).applyQuaternion( controller.quaternion );
+				raycaster.set( controller.position, tmpDir );
+				const hits = raycaster.intersectObjects( cards );
+
+				const trig = gp.buttons[ 0 ] ? gp.buttons[ 0 ].pressed : false;
+				const trigEdge = trig && ! prevTrigger[ hand ];
+				prevTrigger[ hand ] = trig;
+
+				if ( hits.length > 0 ) {
+
+					hovered = hits[ 0 ].object;
+					if ( trigEdge ) {
+
+						resolved = true;
+						scene.remove( group );
+						resolve( hovered.userData.action );
+						return;
+
+					}
+
+				}
+
+			}
+
+			cards.forEach( ( c ) => {
+
+				const target = ( c === hovered ) ? 1.15 : 1;
+				c.scale.setScalar( THREE.MathUtils.lerp( c.scale.x, target, Math.min( 1, dt * 10 ) ) );
+
+			} );
+
+		}
+
+		showExitConfirm._update = update;
+
+	} );
+
+}
+
 async function startARWithFloatingMenu( { mapParam, customText, vehicleKey, flagImage, sessionPromise } ) {
 
 	const arManager = new ARManager( { renderer, scene, models } );
@@ -2813,6 +2911,7 @@ async function startARWithFloatingMenu( { mapParam, customText, vehicleKey, flag
 
 	let subMode = null; // set once the chosen mode's own async setup resolves
 	let switching = false;
+	let exitConfirmActive = false;
 
 	choicePromise.then( async ( chosenId ) => {
 
@@ -2845,6 +2944,39 @@ async function startARWithFloatingMenu( { mapParam, customText, vehicleKey, flag
 	return {
 
 		frameUpdate( dt, timestamp, frame ) {
+
+			// Menu (☰) button — see getMenuButtonPress()'s own comment on
+			// why this may simply never fire depending on the browser.
+			if ( ! exitConfirmActive && arManager.getMenuButtonPress() ) {
+
+				exitConfirmActive = true;
+				showExitConfirm( arManager, scene ).then( ( action ) => {
+
+					exitConfirmActive = false;
+					if ( action === 'exit' ) {
+
+						// A full reload rather than just session.end() — the
+						// game has no existing teardown path for its internal
+						// state (physics world, vehicle, audio, etc.) once an
+						// AR mode is active, so a bare session end would leave
+						// activeMode pointing at now-defunct XR objects. This
+						// is the same "start clean" pattern every mode
+						// transition already relies on.
+						arManager.session.end().finally( () => window.location.reload() );
+
+					}
+
+				} );
+
+			}
+
+			if ( exitConfirmActive ) {
+
+				if ( showExitConfirm._update ) showExitConfirm._update( dt );
+				renderer.render( scene, placeholderCamera );
+				return;
+
+			}
 
 			if ( subMode ) {
 
