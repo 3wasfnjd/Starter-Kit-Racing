@@ -758,34 +758,19 @@ function createCrowdTexture() {
 // pad and (now) the web free-roam arena, so both use the same visual
 // barrier style as the actual race track instead of a separate
 // grandstand design.
-function buildBarrierLoop( parentGroup, models, half, y = 0 ) {
+// Same red/white striped barrier the actual race track uses
+// (buildBarrierSegment, runtime-built geometry) placed in a closed loop
+// around a square footprint — shared between the web free-roam arena
+// and the AR drift pad. Previously used custom-exported GLB assets
+// (ground-tile.glb/barrier-segment.glb) instead, but those were
+// rendering incorrectly (wrong/washed-out color, barrier segments
+// appearing as small disconnected posts instead of continuous barrier
+// walls) for reasons not fully root-caused — reverted to this
+// proven-working runtime approach rather than keep chasing the asset
+// pipeline issue.
+function buildBarrierLoop( parentGroup, world, half, yOffset = 0 ) {
 
-	const barrierSrc = models[ 'barrier-segment' ];
-	if ( ! barrierSrc ) return;
 	const barrierSeg = 8;
-
-	function placeBarrier( center, fixedCoord, segLen, axis ) {
-
-		const instance = barrierSrc.clone();
-		instance.scale.x = segLen / barrierSeg;
-
-		const wrapper = new THREE.Group();
-		wrapper.add( instance );
-
-		if ( axis === 'x' ) {
-
-			wrapper.position.set( center, y, fixedCoord );
-
-		} else {
-
-			wrapper.rotation.y = Math.PI / 2;
-			wrapper.position.set( fixedCoord, y, center );
-
-		}
-
-		parentGroup.add( wrapper );
-
-	}
 
 	for ( const sign of [ 1, -1 ] ) {
 
@@ -795,8 +780,8 @@ function buildBarrierLoop( parentGroup, models, half, y = 0 ) {
 			if ( segLen <= 0 ) continue;
 			const center = p + segLen / 2;
 
-			placeBarrier( center, sign * half, segLen, 'x' );
-			placeBarrier( sign * half, center, segLen, 'z' );
+			buildBarrierSegment( parentGroup, world, center, sign * half, segLen, 'x', yOffset );
+			buildBarrierSegment( parentGroup, world, sign * half, center, segLen, 'z', yOffset );
 
 		}
 
@@ -883,7 +868,7 @@ function buildFloodlightPole( scene, x, z, aimTarget ) {
 
 // Concrete jersey barrier segment: gray base + a painted orange/white
 // hazard stripe near the top, the standard look for track-edge barriers.
-function buildBarrierSegment( scene, world, x, z, length, axis ) {
+function buildBarrierSegment( scene, world, x, z, length, axis, yOffset = 0 ) {
 
 	const h = 0.6, w = 0.35;
 	const sizeX = axis === 'x' ? length : w;
@@ -893,7 +878,7 @@ function buildBarrierSegment( scene, world, x, z, length, axis ) {
 		new THREE.BoxGeometry( sizeX, h, sizeZ ),
 		new THREE.MeshStandardMaterial( { color: 0x9a9a92, roughness: 0.95, metalness: 0 } )
 	);
-	body.position.set( x, h / 2, z );
+	body.position.set( x, h / 2 + yOffset, z );
 	body.castShadow = true;
 	body.receiveShadow = true;
 	scene.add( body );
@@ -902,7 +887,7 @@ function buildBarrierSegment( scene, world, x, z, length, axis ) {
 		new THREE.BoxGeometry( axis === 'x' ? sizeX : sizeX * 1.02, 0.12, axis === 'x' ? sizeZ * 1.02 : sizeZ ),
 		new THREE.MeshStandardMaterial( { color: 0xE0621B, roughness: 0.8 } )
 	);
-	stripe.position.set( x, h * 0.72, z );
+	stripe.position.set( x, h * 0.72 + yOffset, z );
 	scene.add( stripe );
 
 	if ( world ) {
@@ -911,7 +896,7 @@ function buildBarrierSegment( scene, world, x, z, length, axis ) {
 			shape: box.create( { halfExtents: [ sizeX / 2, h / 2, sizeZ / 2 ] } ),
 			motionType: MotionType.STATIC,
 			objectLayer: world._OL_STATIC,
-			position: [ x, h / 2 - 0.125, z ],
+			position: [ x, h / 2 - 0.125 + yOffset, z ],
 			friction: 0.3,
 			restitution: 0.25,
 		} );
@@ -2235,7 +2220,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		// Same red/white barrier style as the actual race track (and the
 		// AR floating arena) instead of grandstands — keeps the visual
 		// language consistent across web/AR and both arena variants.
-		buildBarrierLoop( scene, models, roadHalf, - 0.125 );
+		buildBarrierLoop( scene, null, roadHalf, - 0.125 );
 
 		// Floodlight poles at the four corners, all aimed back at center —
 		// the actual light source for the night-stadium look set above.
@@ -2739,12 +2724,18 @@ function arTransformSpawn( position, angle, arTransform ) {
 // elsewhere (grabbing implies "pick this up", which doesn't fit
 // "choose one of these options").
 const modeCardLoader = new THREE.TextureLoader();
-const modeCardTextures = {
-	room: modeCardLoader.load( 'models/Textures/mode-room.jpg' ),
-	track: modeCardLoader.load( 'models/Textures/mode-track.jpg' ),
-	arena: modeCardLoader.load( 'models/Textures/mode-arena.jpg' ),
-};
-Object.values( modeCardTextures ).forEach( ( t ) => { t.colorSpace = THREE.SRGBColorSpace; } );
+const modeCardFallbackColors = { room: '#5B8CFF', track: '#8B5FBF', arena: '#E0621B' };
+const modeCardTextures = {};
+for ( const key of [ 'room', 'track', 'arena' ] ) {
+
+	modeCardTextures[ key ] = modeCardLoader.load(
+		`models/Textures/mode-${ key }.jpg`,
+		( t ) => { t.colorSpace = THREE.SRGBColorSpace; },
+		undefined,
+		( err ) => console.error( `[main] mode card texture failed to load: mode-${ key }.jpg`, err )
+	);
+
+}
 
 function createModeCard( textureKey ) {
 
@@ -3301,21 +3292,20 @@ function buildDriftPad( half, models ) {
 
 	const pad = new THREE.Group();
 
-	// Real asset (models/ground-tile.glb) instead of a runtime
-	// PlaneGeometry — same color, now an actual game asset like every
-	// other piece in the project. The source tile is 10×0.1×10, so it's
-	// scaled non-uniformly to cover the full pad footprint.
-	const groundSrc = models[ 'ground-tile' ];
-	if ( groundSrc ) {
+	// Solid color sampled directly from the track's own shared palette
+	// texture (models/Textures/colormap.png) — reverted from a custom
+	// GLB asset (ground-tile.glb) back to a plain runtime-built plane,
+	// since the GLB version was rendering as washed-out white instead
+	// of the intended dark asphalt gray for reasons not fully
+	// root-caused.
+	const groundMesh = new THREE.Mesh(
+		new THREE.PlaneGeometry( half * 2, half * 2 ),
+		new THREE.MeshStandardMaterial( { color: 0x3a3a40, roughness: 1, metalness: 0 } )
+	);
+	groundMesh.rotation.x = - Math.PI / 2;
+	pad.add( groundMesh );
 
-		const groundMesh = groundSrc.clone();
-		groundMesh.scale.set( ( half * 2 ) / 10, 1, ( half * 2 ) / 10 );
-		groundMesh.position.y = - 0.05; // top face flush with y=0, matching the tile's own 0.1 thickness
-		pad.add( groundMesh );
-
-	}
-
-	buildBarrierLoop( pad, models, half );
+	buildBarrierLoop( pad, null, half );
 
 	return pad;
 
