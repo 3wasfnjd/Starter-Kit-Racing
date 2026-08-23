@@ -2673,29 +2673,22 @@ function arTransformSpawn( position, angle, arTransform ) {
 // confirm, rather than the grab mechanic PlaceableObject uses
 // elsewhere (grabbing implies "pick this up", which doesn't fit
 // "choose one of these options").
-function createModeCard( label, color ) {
+const modeCardLoader = new THREE.TextureLoader();
+const modeCardTextures = {
+	room: modeCardLoader.load( 'models/Textures/mode-room.jpg' ),
+	track: modeCardLoader.load( 'models/Textures/mode-track.jpg' ),
+	arena: modeCardLoader.load( 'models/Textures/mode-arena.jpg' ),
+};
+Object.values( modeCardTextures ).forEach( ( t ) => { t.colorSpace = THREE.SRGBColorSpace; } );
 
-	const canvas = document.createElement( 'canvas' );
-	canvas.width = 512; canvas.height = 256;
-	const ctx = canvas.getContext( '2d' );
-	ctx.fillStyle = color;
-	ctx.fillRect( 0, 0, 512, 256 );
-	ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-	ctx.lineWidth = 8;
-	ctx.strokeRect( 4, 4, 504, 248 );
-	ctx.fillStyle = '#ffffff';
-	ctx.font = 'bold 56px "Segoe UI", Tahoma, Arial, sans-serif';
-	ctx.textAlign = 'center';
-	ctx.textBaseline = 'middle';
-	ctx.direction = 'rtl';
-	ctx.fillText( label, 256, 128 );
+function createModeCard( textureKey ) {
 
-	const texture = new THREE.CanvasTexture( canvas );
-	texture.colorSpace = THREE.SRGBColorSpace;
-
+	// Portrait aspect ratio matching the source images (≈469:768) —
+	// title text is already baked into the image itself, so no canvas
+	// text overlay needed here.
 	const mesh = new THREE.Mesh(
-		new THREE.PlaneGeometry( 0.32, 0.16 ),
-		new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide, transparent: true } )
+		new THREE.PlaneGeometry( 0.22, 0.36 ),
+		new THREE.MeshBasicMaterial( { map: modeCardTextures[ textureKey ], side: THREE.DoubleSide } )
 	);
 
 	return mesh;
@@ -2707,21 +2700,17 @@ function showFloatingModeMenu( arManager, scene ) {
 
 	return new Promise( ( resolve ) => {
 
-		const options = [
-			{ id: 'room', label: 'حر بالغرفة', color: '#5B8CFF' },
-			{ id: 'track', label: 'مضمار عائم', color: '#8B5FBF' },
-			{ id: 'arena', label: 'حلبة عائمة', color: '#E0621B' },
-		];
+		const options = [ 'room', 'track', 'arena' ];
 
 		const menuGroup = new THREE.Group();
 		menuGroup.position.set( 0, 1.2, - 0.8 );
 		scene.add( menuGroup );
 
-		const cards = options.map( ( opt, i ) => {
+		const cards = options.map( ( id, i ) => {
 
-			const card = createModeCard( opt.label, opt.color );
-			card.position.set( ( i - 1 ) * 0.36, 0, 0 );
-			card.userData.optionId = opt.id;
+			const card = createModeCard( id );
+			card.position.set( ( i - 1 ) * 0.26, 0, 0 );
+			card.userData.optionId = id;
 			card.userData.baseScale = 1;
 			menuGroup.add( card );
 			return card;
