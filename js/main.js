@@ -2981,7 +2981,7 @@ async function startARWithFloatingMenu( { mapParam, customText, vehicleKey, flag
 
 			} else if ( chosenId === 'arena' ) {
 
-				subMode = await startARFloatingArena( { arManager, vehicleKey } );
+				subMode = await startARFloatingArena( { arManager, vehicleKey, customText, flagImage } );
 
 			} else {
 
@@ -3386,7 +3386,7 @@ function updateKinematicArenaAI( drivers, dt, racing, padHalf ) {
 
 }
 
-async function startARFloatingArena( { arManager, vehicleKey } ) {
+async function startARFloatingArena( { arManager, vehicleKey, customText, flagImage } ) {
 
 	arManager.previewGroup.visible = false; // not using hit-test placement here
 
@@ -3395,50 +3395,152 @@ async function startARFloatingArena( { arManager, vehicleKey } ) {
 	const PAD_HALF = 30; // half-size, in the pad's own (unscaled) coordinate space
 	const arenaGroup = buildDriftPad( PAD_HALF, models );
 
-	// Small tabletop scale by default, positioned a short reach in front
-	// of wherever the headset happens to be when the session starts —
-	// same reasoning as the floating track.
-	arenaGroup.scale.setScalar( 0.04 );
-	arenaGroup.position.set( 0, 0.9, - 0.6 );
+	// buildDriftPad() starts at identity transform (no internal offset
+	// baked in, unlike buildTrack()'s trackGroup) — so unlike the
+	// floating track, arenaGroup's own scale/position can be set
+	// directly here without needing an extra wrapper group.
+	const FIXED_SCALE = 0.016;
+	arenaGroup.scale.setScalar( FIXED_SCALE );
+	arenaGroup.position.set( 0, 0.55, - 0.85 );
 	scene.add( arenaGroup );
 
-	const light = new THREE.DirectionalLight( 0xffffff, 2.5 );
-	light.position.set( 1, 2, 1 );
+	const light = new THREE.DirectionalLight( 0xffffff, 3 );
+	light.position.set( 0.6, 1, 0.6 );
+	light.castShadow = true;
+	const shadowExtent = PAD_HALF * 2 * FIXED_SCALE;
+	light.shadow.camera.left = - shadowExtent;
+	light.shadow.camera.right = shadowExtent;
+	light.shadow.camera.top = shadowExtent;
+	light.shadow.camera.bottom = - shadowExtent;
+	light.shadow.camera.near = 0.1;
+	light.shadow.camera.far = shadowExtent * 4;
+	light.shadow.mapSize.setScalar( 1024 );
+	light.shadow.camera.updateProjectionMatrix();
 	scene.add( light );
-	scene.add( new THREE.AmbientLight( 0xffffff, 0.7 ) );
+	scene.add( new THREE.AmbientLight( 0xffffff, 0.6 ) );
 
-	const placeable = new PlaceableObject( arenaGroup, arManager, { minScale: 0.005, maxScale: 0.1 } );
+	const placeable = new PlaceableObject( arenaGroup, arManager, {
+		minScale: FIXED_SCALE, maxScale: FIXED_SCALE, // locked — resize comes back in a later stage
+		grabPoint: new THREE.Vector3( 0, 0, 0 ), grabRange: 0.2,
+	} );
 
-	const carContainer = new THREE.Group();
-	const carModel = ( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] ).clone();
-	carModel.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
-	carContainer.add( carModel );
-	carContainer.position.set( 0, 0.5, 0 );
-	arenaGroup.add( carContainer ); // child of arenaGroup — inherits its transform automatically
+	// ── Placement-phase preview: lightweight kinematic car + AI ──
+	const previewContainer = new THREE.Group();
+	const previewModel = ( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] ).clone();
+	previewModel.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
+	previewContainer.add( previewModel );
+	previewContainer.position.set( 0, 0.5, 0 );
+	arenaGroup.add( previewContainer );
 
-	const vehicleLights = addVehicleLights( carContainer );
-
-	const audio = new GameAudio();
-	audio.init( renderer.xr.getCamera(), carContainer );
-	audio.forceUnlock();
-
-	const radio = new Radio( audio.listener, carContainer );
-
-	const car = { x: 0, z: 0, heading: 0, speed: 0 };
-	const CAR_MAX_SPEED = 8; // local units/sec, in the arena's own (unscaled) coordinate space
-	const CAR_ACCEL = 10;
-	const CAR_TURN_RATE = 2.4; // rad/sec at full speed
-
-	const aiDrivers = createKinematicArenaAI(
+	const previewAI = createKinematicArenaAI(
 		NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
 		models, arenaGroup, PAD_HALF
 	);
 
-	let racing = false;
+	let phase = 'placing'; // 'placing' -> 'racing'
+	let raceCtx = null;
+
+	function lockInAndStart() {
+
+		const yaw = new THREE.Euler().setFromQuaternion( arenaGroup.quaternion, 'YXZ' ).y;
+		const yawQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
+		const arTransform = { position: arenaGroup.position.clone(), quaternion: yawQuat, scale: FIXED_SCALE };
+
+		arenaGroup.remove( previewContainer );
+		previewAI.forEach( ( d ) => arenaGroup.remove( d.model ) );
+
+		// Gravity scaled down with the arena — see the floating track's
+		// own comment on why (real 9.81 m/s² on a tiny sphere causes
+		// violent jitter instead of the car settling naturally).
+		const world = createPhysicsWorld( arTransform.scale );
+
+		const groundHalfY = Math.max( 0.01 * arTransform.scale, 0.002 );
+		const groundXf = applyArTransform( [ 0, - 0.125, 0 ], [ 0, 0, 0, 1 ], arTransform );
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: [ PAD_HALF * arTransform.scale, groundHalfY, PAD_HALF * arTransform.scale ] } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position: groundXf.position,
+			friction: 5.0,
+			restitution: 0.0,
+		} );
+
+		// Four boundary walls matching the visual barrier loop's square
+		// footprint — same Y convention as the ground (wallHalfHeight
+		// centered a bit above y=-0.125, matching NORMAL mode's own
+		// free-roam wall math) transformed the same way.
+		const wallHalfHeight = 1.0;
+		const wallThickness = 0.2;
+		const wallLocalY = - 0.125 + wallHalfHeight;
+		for ( const sign of [ 1, -1 ] ) {
+
+			const nsXf = applyArTransform( [ 0, wallLocalY, sign * PAD_HALF ], [ 0, 0, 0, 1 ], arTransform );
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents: [ PAD_HALF * arTransform.scale, wallHalfHeight * arTransform.scale, wallThickness * arTransform.scale ] } ),
+				motionType: MotionType.STATIC, objectLayer: world._OL_STATIC,
+				position: nsXf.position, friction: 0.2, restitution: 0.3,
+			} );
+
+			const ewXf = applyArTransform( [ sign * PAD_HALF, wallLocalY, 0 ], [ 0, 0, 0, 1 ], arTransform );
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents: [ wallThickness * arTransform.scale, wallHalfHeight * arTransform.scale, PAD_HALF * arTransform.scale ] } ),
+				motionType: MotionType.STATIC, objectLayer: world._OL_STATIC,
+				position: ewXf.position, friction: 0.2, restitution: 0.3,
+			} );
+
+		}
+
+		const carRadius = Math.max( 0.5 * arTransform.scale, 0.003 );
+		const playerWorld = applyArTransform( [ 0, 0.5, 0 ], [ 0, 0, 0, 1 ], arTransform );
+		const sphereBody = createSphereBody( world, playerWorld.position, carRadius );
+
+		const vehicle = new Vehicle();
+		vehicle.sphereRadius = carRadius;
+		vehicle.rigidBody = sphereBody;
+		vehicle.physicsWorld = world;
+		vehicle.spherePos.set( playerWorld.position[ 0 ], playerWorld.position[ 1 ], playerWorld.position[ 2 ] );
+		vehicle.prevModelPos.set( playerWorld.position[ 0 ], 0, playerWorld.position[ 2 ] );
+
+		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
+		vehicleGroup.scale.setScalar( arTransform.scale );
+		scene.add( vehicleGroup );
+		addCustomTextDecals( vehicleGroup, customText );
+		const vehicleLights = addVehicleLights( vehicleGroup );
+		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+
+		const audio = new GameAudio();
+		audio.init( renderer.xr.getCamera(), vehicleGroup );
+		audio.forceUnlock();
+		const radio = new Radio( audio.listener, vehicleGroup );
+
+		const particles = new SmokeTrails( scene, arTransform.scale );
+		const driftMarks = new DriftMarks( scene, 'ar-floating-arena' );
+
+		const _forward = new THREE.Vector3();
+		const contactListener = {
+			onContactAdded( bodyA, bodyB ) {
+
+				if ( bodyA !== sphereBody && bodyB !== sphereBody ) return;
+				_forward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+				_forward.y = 0;
+				_forward.normalize();
+				const impactVelocity = Math.abs( vehicle.modelVelocity.dot( _forward ) );
+				audio.playImpact( impactVelocity );
+
+			}
+		};
+
+		const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer: null, contactListener, vehicleFlag };
+
+		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, arScale: arTransform.scale };
+		phase = 'racing';
+
+	}
 
 	placeable.onConfirm = () => {
 
-		racing = true;
+		placeable._setHighlight( 'none' );
+		lockInAndStart();
 
 	};
 
@@ -3448,66 +3550,27 @@ async function startARFloatingArena( { arManager, vehicleKey } ) {
 
 			try {
 
-				placeable.update( dt );
-				updateKinematicArenaAI( aiDrivers, dt, racing, PAD_HALF );
+				if ( phase === 'placing' ) {
 
-				if ( racing ) {
+					placeable.update( dt );
+					updateKinematicArenaAI( previewAI, dt, false, PAD_HALF );
 
-					const gp = arManager.gamepads.right;
-					const axes = gp ? gp.axes : [];
-					const steerRaw = axes.length > 2 ? axes[ 2 ] : 0;
-					const steer = Math.abs( steerRaw ) > 0.12 ? steerRaw : 0;
-					const throttle = gp && gp.buttons[ 0 ] ? gp.buttons[ 0 ].value : 0;
-					const brake = arManager.gamepads.left && arManager.gamepads.left.buttons[ 0 ]
-						? arManager.gamepads.left.buttons[ 0 ].value : 0;
+				} else if ( phase === 'racing' && raceCtx ) {
 
-					const targetSpeed = ( throttle - brake ) * CAR_MAX_SPEED;
-					car.speed += THREE.MathUtils.clamp( targetSpeed - car.speed, - CAR_ACCEL * dt, CAR_ACCEL * dt );
+					const input = arManager.getDriveInput();
+					updateVehicleAndFx( dt, input, raceCtx.ctx );
+					updateVehicleLights( raceCtx.vehicleLights, dt, raceCtx.arScale, raceCtx.vehicle.linearSpeed < -0.01 );
 
-					const turnFactor = THREE.MathUtils.clamp( Math.abs( car.speed ) / CAR_MAX_SPEED, 0.15, 1 );
-					car.heading -= steer * CAR_TURN_RATE * turnFactor * dt * Math.sign( car.speed || 1 );
+					if ( arManager.getHeadlightToggle() ) toggleHeadlights( raceCtx.vehicleLights );
+					if ( arManager.getHazardToggle() ) toggleHazards( raceCtx.vehicleLights );
+					setHighBeam( raceCtx.vehicleLights, arManager.getHighBeamHold(), raceCtx.arScale );
+					raceCtx.audio.setHorn( arManager.getHornHold() );
 
-					car.x += Math.sin( car.heading ) * car.speed * dt;
-					car.z += Math.cos( car.heading ) * car.speed * dt;
-
-					// Crude boundary clamp (simple square pad) — not real
-					// wall collision, just keeps the car inside. No real
-					// rigid body here for a genuine contact event, so an
-					// impact sound plays whenever the clamp actually
-					// catches meaningful speed — a stand-in for "hit the
-					// barrier".
-					const margin = 2;
-					const clampedX = THREE.MathUtils.clamp( car.x, - PAD_HALF + margin, PAD_HALF - margin );
-					const clampedZ = THREE.MathUtils.clamp( car.z, - PAD_HALF + margin, PAD_HALF - margin );
-					if ( ( clampedX !== car.x || clampedZ !== car.z ) && Math.abs( car.speed ) > 1.5 ) {
-
-						audio.playImpact( Math.abs( car.speed ) );
-						car.speed *= 0.3;
-
-					}
-					car.x = clampedX;
-					car.z = clampedZ;
-
-					carContainer.position.set( car.x, 0.5, car.z );
-					carContainer.rotation.y = car.heading;
-
-					// Rough drift-intensity stand-in: sharper steering at
-					// higher speed reads as more sideways slide, matching
-					// this mode's always-full-throttle drift-show feel.
-					const driftEstimate = THREE.MathUtils.clamp( Math.abs( steer ) * ( Math.abs( car.speed ) / CAR_MAX_SPEED ), 0, 1 );
-					audio.update( dt, car.speed / CAR_MAX_SPEED, throttle - brake, driftEstimate, car.speed < -0.01 );
+					const radioBtn = arManager.getRadioButtons();
+					if ( radioBtn.next ) raceCtx.radio.next();
+					if ( radioBtn.toggle ) raceCtx.radio.togglePlayPause();
 
 				}
-
-				updateVehicleLights( vehicleLights, dt, arenaGroup.scale.x, car.speed < -0.01 );
-				if ( arManager.getHeadlightToggle() ) toggleHeadlights( vehicleLights );
-				if ( arManager.getHazardToggle() ) toggleHazards( vehicleLights );
-				setHighBeam( vehicleLights, arManager.getHighBeamHold() );
-				audio.setHorn( arManager.getHornHold() );
-
-				const radioBtn = arManager.getRadioButtons();
-				if ( radioBtn.next ) radio.next();
-				if ( radioBtn.toggle ) radio.togglePlayPause();
 
 			} catch ( e ) {
 
