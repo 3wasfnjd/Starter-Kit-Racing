@@ -3192,6 +3192,9 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 		// backward on the very first physics step.
 		const gridSlot = computeGridPositions( spawn, 1 )[ 0 ];
 		const playerWorld = arTransformSpawn( gridSlot.position, gridSlot.angle, arTransform );
+		// Same zero-clearance fix as the floating arena — see its
+		// comment. Real absolute-world margin, not scaled to near-zero.
+		playerWorld.position[ 1 ] += 0.02;
 		const sphereBody = createSphereBody( world, playerWorld.position, carRadius );
 
 		const vehicle = new Vehicle();
@@ -3491,8 +3494,24 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		}
 
 		const carRadius = Math.max( 0.5 * arTransform.scale, 0.003 );
+		// Zero-clearance spawn bug: at this scale, the local Y=0.5 spawn
+		// height and the ground collider's top surface computed to
+		// EXACTLY the same world Y (both ≈0.55) — the sphere spawned
+		// touching the ground with no gap at all, so the physics engine
+		// fought a knife-edge/borderline penetration every single frame
+		// instead of ever settling — matching "stuck in mud" and
+		// unpredictable movement exactly. A real absolute-world margin
+		// (not scaled down to near-nothing like the rest of this
+		// transform) guarantees actual clearance regardless of scale.
 		const playerWorld = applyArTransform( [ 0, 0.5, 0 ], [ 0, 0, 0, 1 ], arTransform );
+		playerWorld.position[ 1 ] += 0.02;
 		const sphereBody = createSphereBody( world, playerWorld.position, carRadius );
+
+		// Face the same direction the arena itself was rotated to when
+		// placed — was previously left at the default angle 0 entirely,
+		// which is arbitrary and unrelated to how the arena visually
+		// ended up oriented.
+		const yaw2 = new THREE.Euler().setFromQuaternion( new THREE.Quaternion( arTransform.quaternion[ 0 ], arTransform.quaternion[ 1 ], arTransform.quaternion[ 2 ], arTransform.quaternion[ 3 ] ), 'YXZ' ).y;
 
 		const vehicle = new Vehicle();
 		vehicle.sphereRadius = carRadius;
@@ -3500,6 +3519,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		vehicle.physicsWorld = world;
 		vehicle.spherePos.set( playerWorld.position[ 0 ], playerWorld.position[ 1 ], playerWorld.position[ 2 ] );
 		vehicle.prevModelPos.set( playerWorld.position[ 0 ], 0, playerWorld.position[ 2 ] );
+		vehicle.container.rotation.y = yaw2;
 
 		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
 		vehicleGroup.scale.setScalar( arTransform.scale );
