@@ -753,6 +753,57 @@ function createCrowdTexture() {
 // fixedCoord is their Z); axis 'z' = wall runs along Z (east/west walls,
 // fixedCoord is their X). direction (+1/-1) is which way it extends
 // away from the track.
+// Real asset (models/barrier-segment.glb, 8 units long) placed in a
+// closed loop around a square footprint — shared between the AR drift
+// pad and (now) the web free-roam arena, so both use the same visual
+// barrier style as the actual race track instead of a separate
+// grandstand design.
+function buildBarrierLoop( parentGroup, models, half, y = 0 ) {
+
+	const barrierSrc = models[ 'barrier-segment' ];
+	if ( ! barrierSrc ) return;
+	const barrierSeg = 8;
+
+	function placeBarrier( center, fixedCoord, segLen, axis ) {
+
+		const instance = barrierSrc.clone();
+		instance.scale.x = segLen / barrierSeg;
+
+		const wrapper = new THREE.Group();
+		wrapper.add( instance );
+
+		if ( axis === 'x' ) {
+
+			wrapper.position.set( center, y, fixedCoord );
+
+		} else {
+
+			wrapper.rotation.y = Math.PI / 2;
+			wrapper.position.set( fixedCoord, y, center );
+
+		}
+
+		parentGroup.add( wrapper );
+
+	}
+
+	for ( const sign of [ 1, -1 ] ) {
+
+		for ( let p = - half; p < half; p += barrierSeg ) {
+
+			const segLen = Math.min( barrierSeg, half - p ) - 0.3; // small gaps between segments, like real jersey barrier sections
+			if ( segLen <= 0 ) continue;
+			const center = p + segLen / 2;
+
+			placeBarrier( center, sign * half, segLen, 'x' );
+			placeBarrier( sign * half, center, segLen, 'z' );
+
+		}
+
+	}
+
+}
+
 function buildGrandstandWall( scene, axis, length, fixedCoord, baseDistance, direction ) {
 
 	// Many small rows (realistic stadium riser height, ~0.45m per step)
@@ -2167,10 +2218,12 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 				restitution: 0.3,
 			} );
 
-			buildGrandstandWall( scene, 'x', roadHalf * 2, sign * roadHalf, wallThickness, sign );
-			buildGrandstandWall( scene, 'z', roadHalf * 2, sign * roadHalf, wallThickness, sign );
-
 		}
+
+		// Same red/white barrier style as the actual race track (and the
+		// AR floating arena) instead of grandstands — keeps the visual
+		// language consistent across web/AR and both arena variants.
+		buildBarrierLoop( scene, models, roadHalf, - 0.125 );
 
 		// Floodlight poles at the four corners, all aimed back at center —
 		// the actual light source for the night-stadium look set above.
@@ -3250,53 +3303,7 @@ function buildDriftPad( half, models ) {
 
 	}
 
-	// Real asset (models/barrier-segment.glb, 8 units long) instead of
-	// runtime-built boxes — each instance is a small wrapper group so
-	// the segment can be length-scaled in its own local space before
-	// the group applies the 90°-per-axis rotation, since scale and
-	// rotation don't commute otherwise.
-	const barrierSrc = models[ 'barrier-segment' ];
-	const barrierSeg = 8;
-
-	function placeBarrier( center, fixedCoord, segLen, axis ) {
-
-		if ( ! barrierSrc ) return;
-
-		const instance = barrierSrc.clone();
-		instance.scale.x = segLen / barrierSeg;
-
-		const wrapper = new THREE.Group();
-		wrapper.add( instance );
-
-		if ( axis === 'x' ) {
-
-			wrapper.position.set( center, 0, fixedCoord );
-
-		} else {
-
-			wrapper.rotation.y = Math.PI / 2;
-			wrapper.position.set( fixedCoord, 0, center );
-
-		}
-
-		pad.add( wrapper );
-
-	}
-
-	for ( const sign of [ 1, -1 ] ) {
-
-		for ( let p = - half; p < half; p += barrierSeg ) {
-
-			const segLen = Math.min( barrierSeg, half - p ) - 0.3; // small gaps between segments, like real jersey barrier sections
-			if ( segLen <= 0 ) continue;
-			const center = p + segLen / 2;
-
-			placeBarrier( center, sign * half, segLen, 'x' );
-			placeBarrier( center, sign * half, segLen, 'z' );
-
-		}
-
-	}
+	buildBarrierLoop( pad, models, half );
 
 	return pad;
 
