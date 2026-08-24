@@ -18,12 +18,17 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 	if ( ! path || path.length < 2 ) return;
 
 	const LOOKAHEAD_BASE = 3;
+	const MIN_PATH_DISTANCE = 1.0; // Minimum distance before advancing to next waypoint
 
 	drivers.forEach( ( d, driverIdx ) => {
 
 		const input = { x: 0, z: 0, touchActive: false, handbrake: false };
 
 		if ( racing && ! d.finished ) {
+
+			// Initialize driver tracking variables
+			if ( ! d.idx ) d.idx = 0;
+			if ( ! d.lapsCompleted ) d.lapsCompleted = 0;
 
 			// 1. Stuck Recovery Watchdog
 			d.sampleTimer = ( d.sampleTimer || 0 ) + dt;
@@ -90,26 +95,15 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 
 			}
 
-			// 2. Waypoint Progression Search
-			let bestWindowIdx = d.idx;
-			let minWindowDist = Infinity;
-			for ( let step = 0; step <= 8; step ++ ) {
+			// 2. Waypoint Progression - Always advance when close enough
+			const curPt = path[ d.idx ];
+			const dToCur = Math.hypot( curPt.x - d.vehicle.spherePos.x, curPt.z - d.vehicle.spherePos.z );
+			
+			if ( dToCur < MIN_PATH_DISTANCE ) {
 
-				const testIdx = ( d.idx + step ) % path.length;
-				const pt = path[ testIdx ];
-				const distSq = ( pt.x - d.vehicle.spherePos.x ) ** 2 + ( pt.z - d.vehicle.spherePos.z ) ** 2;
-				if ( distSq < minWindowDist ) {
-
-					minWindowDist = distSq;
-					bestWindowIdx = testIdx;
-
-				}
-
-			}
-
-			if ( bestWindowIdx !== d.idx ) {
-
-				if ( bestWindowIdx < d.idx ) {
+				// Successfully reached current waypoint
+				d.idx = ( d.idx + 1 ) % path.length;
+				if ( d.idx === 0 ) {
 
 					d.lapsCompleted = ( d.lapsCompleted || 0 ) + 1;
 					if ( d.lapsCompleted >= TOTAL_RACE_LAPS ) {
@@ -120,17 +114,33 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 					}
 
 				}
-				d.idx = bestWindowIdx;
 
 			} else {
 
-				const curPt = path[ ( d.idx + 1 ) % path.length ];
-				const dToCur = Math.hypot( curPt.x - d.vehicle.spherePos.x, curPt.z - d.vehicle.spherePos.z );
-				if ( dToCur < 2.0 ) {
+				// Look ahead to find best waypoint in window
+				let bestWindowIdx = d.idx;
+				let minWindowDist = dToCur;
+				
+				for ( let step = 1; step <= 6; step ++ ) {
 
-					d.idx = ( d.idx + 1 ) % path.length;
-					if ( d.idx === 0 ) {
+					const testIdx = ( d.idx + step ) % path.length;
+					const pt = path[ testIdx ];
+					const distSq = ( pt.x - d.vehicle.spherePos.x ) ** 2 + ( pt.z - d.vehicle.spherePos.z ) ** 2;
+					if ( distSq < minWindowDist * minWindowDist ) {
 
+						minWindowDist = Math.sqrt( distSq );
+						bestWindowIdx = testIdx;
+
+					}
+
+				}
+
+				// Update position if we skipped waypoints (e.g., due to high speed)
+				if ( bestWindowIdx !== d.idx ) {
+
+					if ( bestWindowIdx < d.idx ) {
+
+						// Wrapped around - completed a lap
 						d.lapsCompleted = ( d.lapsCompleted || 0 ) + 1;
 						if ( d.lapsCompleted >= TOTAL_RACE_LAPS ) {
 
@@ -140,6 +150,7 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 						}
 
 					}
+					d.idx = bestWindowIdx;
 
 				}
 
