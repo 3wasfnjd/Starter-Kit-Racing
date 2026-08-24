@@ -3214,9 +3214,11 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	arManager.previewGroup.visible = false; // not using hit-test placement here
 
 	const placeholderCamera = new THREE.PerspectiveCamera();
-	const { trackGroup } = buildTrack( scene, models, null, { skipDeco: true } );
+	const { trackGroup, npcConfigs } = buildTrack( scene, models, null, { skipDeco: true } );
 	const spawn = computeSpawnPosition( null );
 	const bounds = computeTrackBounds( TRACK_CELLS );
+	const trackPath = computeTrackPath( null );
+	let totalTime = 0;
 
 	// ✏️ EASY RETUNING KNOBS — both purely visual/cosmetic, safe to
 	// tweak freely without touching physics stability:
@@ -3350,8 +3352,10 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			} );
 
 			// Real 0.5m car radius — createSphereBody's own NORMAL-mode
-			// default, no AR-specific scaling.
-			const gridSlot = computeGridPositions( spawn, 1 )[ 0 ];
+			// default, no AR-specific scaling. Full grid (player + AI
+			// opponents), same layout NORMAL mode's own track branch uses.
+			const gridSlots = computeGridPositions( spawn, 1 + npcConfigs.length );
+			const gridSlot = gridSlots[ 0 ];
 			const sphereBody = createSphereBody( world, gridSlot.position );
 
 			const vehicle = new Vehicle();
@@ -3416,7 +3420,28 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 			const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer: null, contactListener, vehicleFlag };
 
-			raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, arScale: FIXED_SCALE };
+			// AI opponents — the exact same real Vehicle physics as the
+			// player (createAIDrivers is NORMAL mode's own function,
+			// reused unchanged), parented under arRoot (passed in place of
+			// `scene`) so they shrink/place in sync automatically exactly
+			// like the player. Visual size boosted the same way as
+			// CAR_VISUAL_BOOST — createAIDrivers already scales the whole
+			// car by radius/0.5, and 0.5×1.4=0.7 is still a completely
+			// normal, stable size for crashcat (nowhere near the
+			// millimeter-scale territory that caused the original AR
+			// instability), so this stays safe.
+			const aiDrivers = createAIDrivers( npcConfigs, gridSlots, models, arRoot, world, trackPath, 0.5 * CAR_VISUAL_BOOST );
+			const aiExtras = aiDrivers.map( ( d, i ) => {
+
+				const group = d.vehicle.container;
+				const lights = addVehicleLights( group );
+				addVehicleFlag( group, flagImage );
+				const marks = new DriftMarks( scene, 'ar-floating-track-ai-' + i );
+				return { lights, driftMarks: marks };
+
+			} );
+
+			raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, arScale: FIXED_SCALE };
 
 		} catch ( e ) {
 
@@ -3465,6 +3490,24 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 					const radioBtn = arManager.getRadioButtons();
 					if ( radioBtn.next ) { stopBgMusic(); raceCtx.radio.next(); }
 					if ( radioBtn.toggle ) { stopBgMusic(); raceCtx.radio.togglePlayPause(); }
+
+					// AI opponents: same real pure-pursuit driving as
+					// NORMAL mode's own race AI, plus the same lights/
+					// flag/smoke/drift-marks the player gets. Smoke reuses
+					// the player's own SmokeTrails instance (one shared
+					// particle pool/draw call for everyone, cheaper than a
+					// separate instance per car) — drift marks stay
+					// per-car since each needs its own continuous trail.
+					totalTime += dt;
+					updateRaceAIDrivers( raceCtx.aiDrivers, trackPath, dt, true, totalTime, raceCtx.vehicle );
+					raceCtx.aiDrivers.forEach( ( d, i ) => {
+
+						const extra = raceCtx.aiExtras[ i ];
+						raceCtx.ctx.particles.update( dt, d.vehicle );
+						extra.driftMarks.update( dt, d.vehicle );
+						updateVehicleLights( extra.lights, dt, raceCtx.arScale, d.vehicle.linearSpeed < -0.01 );
+
+					} );
 
 				}
 
@@ -3805,7 +3848,30 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 		const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer: null, contactListener, vehicleFlag };
 
-		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, arScale: FIXED_SCALE };
+		// AI opponents — same wandering "تفحيط" free-roam AI as NORMAL
+		// mode's own free-roam arena (createFreeRoamAI, reused unchanged),
+		// parented under arenaGroup (passed in place of `scene`) so they
+		// shrink/place in sync automatically. createFreeRoamAI itself has
+		// no built-in visual-boost knob (unlike createAIDrivers), so the
+		// same CAR_VISUAL_BOOST is applied directly to each car's own
+		// container afterward — purely visual, physics sphere stays real/
+		// stable at 0.5m.
+		const aiDrivers = createFreeRoamAI(
+			NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
+			models, arenaGroup, world, PAD_HALF
+		);
+		const aiExtras = aiDrivers.map( ( d, i ) => {
+
+			const group = d.vehicle.container;
+			group.scale.setScalar( CAR_VISUAL_BOOST );
+			const lights = addVehicleLights( group );
+			addVehicleFlag( group, flagImage );
+			const marks = new DriftMarks( scene, 'ar-floating-arena-ai-' + i );
+			return { lights, driftMarks: marks };
+
+		} );
+
+		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, arScale: FIXED_SCALE };
 		phase = 'racing';
 
 		} catch ( e ) {
@@ -3863,6 +3929,21 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 					const radioBtn = arManager.getRadioButtons();
 					if ( radioBtn.next ) { stopBgMusic(); raceCtx.radio.next(); }
 					if ( radioBtn.toggle ) { stopBgMusic(); raceCtx.radio.togglePlayPause(); }
+
+					// AI opponents: same wandering/drifting free-roam AI as
+					// NORMAL mode, plus the same lights/flag/smoke/drift-
+					// marks the player gets. Smoke reuses the player's own
+					// shared SmokeTrails instance (see the identical note
+					// in startARFloatingTrack).
+					updateFreeRoamAIDrivers( raceCtx.aiDrivers, dt, PAD_HALF );
+					raceCtx.aiDrivers.forEach( ( d, i ) => {
+
+						const extra = raceCtx.aiExtras[ i ];
+						raceCtx.ctx.particles.update( dt, d.vehicle );
+						extra.driftMarks.update( dt, d.vehicle );
+						updateVehicleLights( extra.lights, dt, raceCtx.arScale, d.vehicle.linearSpeed < -0.01 );
+
+					} );
 
 				}
 
