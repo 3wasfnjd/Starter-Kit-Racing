@@ -3119,8 +3119,15 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 		// arena's identical fix: a fixed margin doesn't generalize if
 		// the radius ever changes, and this is provably correct instead
 		// of numerically hoping the margin is big enough.
+		// The tiny clearance gap above the ground must scale with
+		// arTransform.scale too — it used to be a flat 0.01m, which at
+		// FIXED_SCALE (0.016) is *bigger* than the whole car (carRadius
+		// ≈ 0.008m here), so the car visibly hovered above the track and
+		// then (under the equally scaled-down, very weak AR gravity)
+		// drifted/settled unevenly — read as "floating or sunk" rather
+		// than sitting flush on the track surface.
 		const groundTopY = groundXf.position[ 1 ] + groundHalfY;
-		playerWorld.position[ 1 ] = groundTopY + carRadius + 0.01;
+		playerWorld.position[ 1 ] = groundTopY + carRadius + 0.01 * arTransform.scale;
 		const sphereBody = createSphereBody( world, playerWorld.position, carRadius );
 
 		const vehicle = new Vehicle();
@@ -3493,7 +3500,11 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		// knife-edge-penetration "stuck in mud" problem.
 		const groundTopY = groundXf.position[ 1 ] + groundHalfY;
 		const playerWorld = applyArTransform( [ 0, 0.5, 0 ], [ 0, 0, 0, 1 ], arTransform );
-		playerWorld.position[ 1 ] = groundTopY + carRadius + 0.01;
+		// Same fix as the floating track: this clearance gap must scale
+		// with arTransform.scale, or it dwarfs the tiny AR carRadius and
+		// the car spawns visibly floating above (then unevenly settling
+		// into) the arena floor instead of sitting flush on it.
+		playerWorld.position[ 1 ] = groundTopY + carRadius + 0.01 * arTransform.scale;
 		const sphereBody = createSphereBody( world, playerWorld.position, carRadius );
 
 		// Face the same direction the arena itself was rotated to when
