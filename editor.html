@@ -802,10 +802,24 @@
 
 		ghostNeighborBackups.length = 0;
 
-		// Remove all ghost preview meshes
+		// Remove all ghost preview meshes — and dispose the per-mesh
+		// material addGhostPiece() clones for each one (needed so every
+		// ghost piece can carry its own independent opacity). Without this,
+		// every single pointer-move while hovering the grid leaked up to 5
+		// GPU materials (the hovered cell + up to 4 neighbor previews) —
+		// clearGhost() runs on every hover update while editing a track, so
+		// that adds up fast into a full WebGL context loss (the page going
+		// blank / reloading itself), which matches the "sometimes the page
+		// disconnects and reopens while editing a track" report. Only the
+		// material is disposed here, not the geometry — the geometry is the
+		// same shared reference from the models[type] template used
+		// everywhere else, not a per-ghost copy, so disposing it would
+		// break every other placed piece using that template.
 		while ( ghostGroup.children.length > 0 ) {
 
-			ghostGroup.remove( ghostGroup.children[ 0 ] );
+			const mesh = ghostGroup.children[ 0 ];
+			mesh.traverse( ( c ) => { if ( c.isMesh ) c.material.dispose(); } );
+			ghostGroup.remove( mesh );
 
 		}
 
