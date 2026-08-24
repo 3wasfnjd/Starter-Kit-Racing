@@ -4,7 +4,7 @@ import { LightProbeGrid } from 'three/addons/lighting/LightProbeGrid.js';
 import { LightProbeGridHelper } from 'three/addons/helpers/LightProbeGridHelper.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
 import { Vehicle, MAX_SPEED } from './Vehicle.js';
-import { Camera, createCockpitProps } from './Camera.js';
+import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath, NPC_TRUCKS, TRACK_CELLS, GRID_SCALE } from './Track.js';
 import { updateRaceAIDrivers, updateFreeRoamAIDrivers } from './AIController.js';
@@ -1752,7 +1752,7 @@ function createCountdownUI() {
 // Controls.js already covers a full-screen invisible steering zone for
 // touch, so these buttons need a higher z-index to receive taps first.
 
-function setupRadioTouchUI( radio, vehicleLights, cam ) {
+function setupRadioTouchUI( radio, vehicleLights ) {
 
 	if ( ! ( 'ontouchstart' in window ) ) return { highBeamHeld: false };
 
@@ -1796,7 +1796,6 @@ function setupRadioTouchUI( radio, vehicleLights, cam ) {
 	const headlightBtn = makeTapButton( '💡' );
 	const hazardBtn = makeTapButton( '⚠️' );
 	const highBeamBtn = makeTapButton( '🔆' );
-	const cameraBtn = makeTapButton( '📷' );
 
 	// pointerdown (not click) for lower latency and to match the steering
 	// zone's own event type; stopPropagation so the tap doesn't also get
@@ -1827,13 +1826,6 @@ function setupRadioTouchUI( radio, vehicleLights, cam ) {
 		toggleHazards( vehicleLights );
 
 	} );
-	cameraBtn.addEventListener( 'pointerdown', ( e ) => {
-
-		e.stopPropagation();
-		cam.toggleView();
-
-	} );
-
 	// High beam is a hold, not a tap — on while pressed, off on release.
 	// Sets a flag rather than calling setHighBeam() directly: the
 	// keyboard's own per-frame check (N key) was calling setHighBeam()
@@ -1865,7 +1857,6 @@ function setupRadioTouchUI( radio, vehicleLights, cam ) {
 	wrap.appendChild( headlightBtn );
 	wrap.appendChild( hazardBtn );
 	wrap.appendChild( highBeamBtn );
-	wrap.appendChild( cameraBtn );
 	document.body.appendChild( wrap );
 
 	return touchState;
@@ -2491,10 +2482,6 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const cam = new Camera();
 	scene.add( cam.debug );
 
-	// Procedural steering wheel + dashboard hint — web-mode cockpit view
-	// only (see Camera.js for why it's positioned where it is).
-	vehicleGroup.add( createCockpitProps() );
-
 	const controls = new Controls();
 
 	const particles = new SmokeTrails( scene );
@@ -2504,7 +2491,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	audio.init( cam.camera, vehicleGroup );
 
 	const radio = new Radio( audio.listener, vehicleGroup );
-	const touchState = setupRadioTouchUI( radio, vehicleLights, cam );
+	const touchState = setupRadioTouchUI( radio, vehicleLights );
 
 	const _forward = new THREE.Vector3();
 	const _camLead = new THREE.Vector3();
@@ -2529,7 +2516,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	// Radio controls for NORMAL mode (no VR controllers here, so keyboard
 	// instead): R = next track, T = play/pause. L = headlights, H =
 	// hazards. Edge-detected so holding a key doesn't rapid-fire.
-	let prevKeys = { r: false, t: false, l: false, h: false, c: false };
+	let prevKeys = { r: false, t: false, l: false, h: false };
 
 	// Race start countdown — only for an actual track with a finish line
 	// (not free-roam). Controls stay locked until it reaches zero.
@@ -2637,15 +2624,13 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			const lKey = !! controls.keys[ 'KeyL' ];
 			const hKey = !! controls.keys[ 'KeyH' ];
 			const nKey = !! controls.keys[ 'KeyN' ];
-			const cKey = !! controls.keys[ 'KeyC' ];
 			if ( rKey && ! prevKeys.r ) { stopBgMusic(); radio.next(); }
 			if ( tKey && ! prevKeys.t ) { stopBgMusic(); radio.togglePlayPause(); }
 			if ( lKey && ! prevKeys.l ) toggleHeadlights( vehicleLights );
 			if ( hKey && ! prevKeys.h ) toggleHazards( vehicleLights );
-			if ( cKey && ! prevKeys.c ) cam.toggleView(); // cockpit/chase camera toggle — same key pattern as the touch-dock 📷 button
 			setHighBeam( vehicleLights, nKey || touchState.highBeamHeld );
 			audio.setHorn( !! controls.keys[ 'Space' ] );
-			prevKeys = { r: rKey, t: tKey, l: lKey, h: hKey, c: cKey };
+			prevKeys = { r: rKey, t: tKey, l: lKey, h: hKey };
 
 			dirLight.position.set(
 				vehicle.spherePos.x + 11.4,
@@ -2653,21 +2638,9 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 				vehicle.spherePos.z - 5.3
 			);
 
-			if ( cam.view === 'cockpit' ) {
-
-				// vehicle.container's own position/quaternion are true
-				// world-space here — NORMAL mode never nests it under any
-				// scaled/placed wrapper group (unlike the AR modes) — so
-				// this needs no extra transform work.
-				cam.updateCockpit( vehicle.container );
-
-			} else {
-
-				const mv = vehicle.modelVelocity;
-				_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
-				cam.update( dt, vehicle.spherePos, _camLead );
-
-			}
+			const mv = vehicle.modelVelocity;
+			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
+			cam.update( dt, vehicle.spherePos, _camLead );
 
 			renderer.render( scene, cam.camera );
 
