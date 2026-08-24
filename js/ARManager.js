@@ -198,21 +198,7 @@ export class ARManager {
 		try {
 
 			const refSpace = this.renderer.xr.getReferenceSpace();
-
-			if ( ! this.hitTestSourceRequested ) {
-
-				this.hitTestSourceRequested = true;
-				this.session.requestReferenceSpace( 'viewer' ).then( ( viewerSpace ) => {
-
-					this.session.requestHitTestSource( { space: viewerSpace } ).then( ( source ) => {
-
-						this.hitTestSource = source;
-
-					} ).catch( ( e ) => console.warn( '[ARManager] requestHitTestSource failed:', e ) );
-
-				} ).catch( ( e ) => console.warn( '[ARManager] requestReferenceSpace(viewer) failed:', e ) );
-
-			}
+			this._ensureHitTestSource();
 
 			if ( ! this.placed ) {
 
@@ -228,7 +214,51 @@ export class ARManager {
 
 	}
 
+	// Requests the hit-test source exactly once per session — split out of
+	// update() so updateExternalPlacement() (used by the floating track/
+	// arena — see below) can share the same request instead of duplicating
+	// it.
+	_ensureHitTestSource() {
+
+		if ( this.hitTestSourceRequested ) return;
+		this.hitTestSourceRequested = true;
+
+		this.session.requestReferenceSpace( 'viewer' ).then( ( viewerSpace ) => {
+
+			this.session.requestHitTestSource( { space: viewerSpace } ).then( ( source ) => {
+
+				this.hitTestSource = source;
+
+			} ).catch( ( e ) => console.warn( '[ARManager] requestHitTestSource failed:', e ) );
+
+		} ).catch( ( e ) => console.warn( '[ARManager] requestReferenceSpace(viewer) failed:', e ) );
+
+	}
+
 	_updatePlacement( frame, refSpace, dt ) {
+
+		this._updateHitTestPose( frame, refSpace, dt );
+
+		this.previewGroup.position.copy( this.arPosition );
+		this.previewGroup.quaternion.copy( this.arQuaternion );
+		this.previewGroup.visible = this.hasHit;
+
+		// Confirm / lock
+		if ( this.hasHit && this._triggerPressedEdge() ) {
+
+			this._confirmPlacement( frame, refSpace );
+
+		}
+
+	}
+
+	// Surface search + manual thumbstick adjustment only — split out of
+	// _updatePlacement() so updateExternalPlacement() below can drive a
+	// caller's OWN object (the floating track/arena) with the exact same
+	// "snap to the detected real surface, nudge with thumbsticks" behavior
+	// the room-drive preview ring uses above, without also touching
+	// previewGroup, this.placed, or onPlaced (all room-mode-specific).
+	_updateHitTestPose( frame, refSpace, dt ) {
 
 		// 1) Surface search: while no manual adjustment has happened yet,
 		// keep the spawn marker snapped to the latest hit-test result.
@@ -271,16 +301,33 @@ export class ARManager {
 
 		}
 
-		this.previewGroup.position.copy( this.arPosition );
-		this.previewGroup.quaternion.copy( this.arQuaternion );
-		this.previewGroup.visible = this.hasHit;
+	}
 
-		// 3) Confirm / lock
-		if ( this.hasHit && this._triggerPressedEdge() ) {
+	// Public: hit-test-based placement for a caller with its OWN object to
+	// position (the floating track/arena), instead of the generic ring/
+	// arrow preview + this.placed/onPlaced flow used above for room-drive
+	// mode. Call every frame while the caller's own "placing" phase is
+	// active, and copy this.arPosition/this.arQuaternion onto the
+	// caller's object each time (the same values _updatePlacement would
+	// otherwise apply to previewGroup) — this keeps the track/arena glued
+	// to whatever real surface was detected (a table, the floor, …)
+	// instead of always spawning at a fixed distance in front of the
+	// camera. Returns { hasHit, confirmEdge } — confirmEdge is true on the
+	// exact frame a trigger press is detected while a surface is locked,
+	// letting the caller decide what "confirm" means for it (here:
+	// freeze the transform and build real physics), independent of
+	// this.placed/onPlaced which stay room-mode-only.
+	updateExternalPlacement( frame, dt ) {
 
-			this._confirmPlacement( frame, refSpace );
+		if ( ! this.session || ! frame ) return { hasHit: this.hasHit, confirmEdge: false };
 
-		}
+		const refSpace = this.renderer.xr.getReferenceSpace();
+		this._ensureHitTestSource();
+		this._updateHitTestPose( frame, refSpace, dt );
+
+		const confirmEdge = this.hasHit && this._triggerPressedEdge();
+
+		return { hasHit: this.hasHit, confirmEdge };
 
 	}
 

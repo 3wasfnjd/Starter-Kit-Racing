@@ -494,8 +494,15 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
  */
 export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 
-	const wanderRadius = roadHalf * 0.45;
-	const wallLimitRadius = roadHalf * 0.65;
+	// Widened after feedback that the AI stayed clustered in the middle of
+	// the arena instead of using the whole floor — wanderRadius is the
+	// radius random targets are picked within (was 0.45, leaving over
+	// half the arena's radius, and nearly all 4 corners, completely
+	// unused); wallLimitRadius is where the AVOIDANCE safety state kicks
+	// in (was 0.65) and needs to stay comfortably above wanderRadius so
+	// normal wandering doesn't constantly trip the wall-avoidance check.
+	const wanderRadius = roadHalf * 0.8;
+	const wallLimitRadius = roadHalf * 0.92;
 
 	drivers.forEach( ( d ) => {
 

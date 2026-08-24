@@ -2007,12 +2007,16 @@ function createAIDrivers( npcConfigs, gridSlots, models, scene, world, path, rad
 
 function createFreeRoamAI( npcConfigs, models, scene, world, roadHalf ) {
 
-	const spawnMargin = roadHalf * 0.5; // keep starting points away from the walls
+	// Widened alongside updateFreeRoamAIDrivers' own wanderRadius (see
+	// AIController.js) — these AI cars now spread across most of the
+	// arena's radius from the start instead of clustering near its
+	// center.
+	const spawnMargin = roadHalf * 0.85; // keep starting points away from the walls
 
 	return npcConfigs.map( ( cfg, i ) => {
 
 		const angle = ( i / npcConfigs.length ) * Math.PI * 2;
-		const dist = spawnMargin * ( 0.4 + Math.random() * 0.5 );
+		const dist = spawnMargin * ( 0.3 + Math.random() * 0.65 );
 		const x = Math.cos( angle ) * dist;
 		const z = Math.sin( angle ) * dist;
 		const heading = Math.random() * Math.PI * 2;
@@ -2905,8 +2909,10 @@ function showFloatingModeMenu( arManager, scene ) {
 // first would mean nothing ever drives the menu's own per-frame
 // update, and the choice would never come.
 // Simple two-card confirm shown when the Menu button is pressed —
-// "خروج للرئيسية" ends the AR session entirely (back to the flat
-// pre-AR page); "إلغاء" just dismisses. Reuses the same
+// "رجوع لأوضاع AR" ends the current AR sub-mode (track/arena/room) and
+// returns to the AR track/arena/room picker, NOT the game's main
+// pre-AR menu (see openExitConfirm's hwReturnToArMenu stash in
+// startARWithFloatingMenu); "إلغاء" just dismisses. Reuses the same
 // pointing+trigger interaction as the mode-selection menu.
 function showExitConfirm( arManager, scene ) {
 
@@ -2938,7 +2944,7 @@ function showExitConfirm( arManager, scene ) {
 
 		}
 
-		const exitCard = makeCard( 'خروج للرئيسية', '#C0392B' );
+		const exitCard = makeCard( 'رجوع لأوضاع AR', '#C0392B' );
 		exitCard.position.set( - 0.15, 0, 0 );
 		exitCard.userData.action = 'exit';
 		const cancelCard = makeCard( 'إلغاء', '#3A3A40' );
@@ -3113,6 +3119,22 @@ async function startARWithFloatingMenu( { mapParam, customText, vehicleKey, flag
 				// activeMode pointing at now-defunct XR objects. This
 				// is the same "start clean" pattern every mode
 				// transition already relies on.
+				//
+				// Stashed here (same sessionStorage-handoff pattern as
+				// "إعادة السباق") so init() can skip the FULL main menu
+				// after reload and land back on the AR track/arena/room
+				// picker instead — this button is "back to the AR modes",
+				// not "back to the game's very first screen". A fresh
+				// user gesture is still required to re-request a WebXR
+				// session (browsers won't allow that automatically after
+				// a reload), so init() shows one small "re-enter AR"
+				// button rather than skipping straight back in.
+				try {
+
+					sessionStorage.setItem( 'hwReturnToArMenu', JSON.stringify( { customText, vehicleKey, flagImage } ) );
+
+				} catch ( e ) { /* ignore */ }
+
 				arManager.session.end().finally( () => window.location.reload() );
 
 			}
@@ -3211,7 +3233,11 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	// set as room-drive AR mode (lights, flag, text, smoke, drift marks,
 	// audio, radio, horn), just at the track's fixed AR scale instead of
 	// a user-resizable one.
-	arManager.previewGroup.visible = false; // not using hit-test placement here
+	// Hit-test IS used (see the placing phase in frameUpdate below, via
+	// arManager.updateExternalPlacement()) — just not ARManager's own
+	// generic ring/arrow previewGroup, since the actual track itself
+	// (arRoot) is the preview here.
+	arManager.previewGroup.visible = false;
 
 	const placeholderCamera = new THREE.PerspectiveCamera();
 	const { trackGroup, npcConfigs } = buildTrack( scene, models, null, { skipDeco: true } );
@@ -3276,13 +3302,14 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	scene.add( arRoot );
 	arRoot.add( trackGroup );
 
-	// Closer (was 1.3m, halved to 0.65m) and lower (below eye level,
-	// tabletop-style). Rotated 180° from the finish line's own forward
-	// angle so the start gate faces back toward the viewer instead of
-	// away — best guess pending visual confirmation.
+	// Position/rotation are no longer a fixed guess — see the placing-
+	// phase in frameUpdate below, which drives arRoot from the same
+	// real-surface hit-test the room-drive AR mode uses (ARManager's
+	// updateExternalPlacement()), so the track lands on an actual
+	// detected table/floor instead of floating at a hardcoded distance.
+	// Hidden until the first surface hit lands.
 	arRoot.scale.setScalar( FIXED_SCALE );
-	arRoot.position.set( 0, 0.55, - 0.85 );
-	arRoot.rotation.y = spawn.angle; // rotated 180° again from the previous +PI, back to the original
+	arRoot.visible = false;
 
 	const light = new THREE.DirectionalLight( 0xffffff, 3 );
 	light.position.set( 0.6, 1, 0.6 );
@@ -3303,29 +3330,12 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	scene.add( light );
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.6 ) );
 
-	// Grab hitbox is the start gate specifically (a small range right at
-	// the finish line's position), not the whole track — grabbing from
-	// anywhere near the track made accidental grabs too easy.
-	// spawn.position is already in the same "NORMAL-mode absolute"
-	// convention arRoot's transform expects directly (matching how the
-	// wall/ground formulas work) — no further conversion needed now
-	// that PlaceableObject targets arRoot instead of trackGroup.
-	const gatePoint = new THREE.Vector3( spawn.position[ 0 ], 0, spawn.position[ 2 ] );
-	const placeable = new PlaceableObject( arRoot, arManager, {
-		minScale: FIXED_SCALE, maxScale: FIXED_SCALE, // locked — resize comes back in a later stage
-		grabPoint: gatePoint, grabRange: 0.15,
-	} );
-
 	let raceCtx = null;
+	let confirmed = false;
 
-	placeable.onConfirm = () => {
+	function lockInTrack() {
 
 		try {
-
-			// The grab-highlight glow was staying on forever after lock —
-			// explicitly clear it back to normal now that it's done being
-			// held.
-			placeable._setHighlight( 'none' );
 
 			// Track stays exactly where/how big it is from this point on —
 			// real physics colliders are built to match THIS transform once
@@ -3476,19 +3486,51 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 		}
 
-	};
+	}
 
 	const controls = new Controls();
 
 	return {
 
-		frameUpdate( dt ) {
+		frameUpdate( dt, timestamp, frame ) {
 
 			try {
 
-				if ( ! placeable.confirmed ) {
+				if ( ! confirmed ) {
 
-					placeable.update( dt );
+					// Same hit-test surface search + thumbstick nudge + trigger
+					// confirm as the room-drive AR mode's own placement screen
+					// (ARManager.updateExternalPlacement — see its comment) —
+					// the track stays hidden and glued to the camera's search
+					// until a real surface (table, floor, …) is found, then
+					// follows that surface (with thumbstick fine-adjustment)
+					// until the trigger is pulled.
+					const { hasHit, confirmEdge } = arManager.updateExternalPlacement( frame, dt );
+
+					arRoot.visible = hasHit;
+
+					if ( hasHit ) {
+
+						// hit-test gives "which way is away from the player, on
+						// the detected surface" as arQuaternion — spawn.angle is
+						// then composed on top (a further LOCAL yaw) so the
+						// track's own start gate still faces the same relative
+						// direction it always has, exactly like the previous
+						// fixed `rotation.y = spawn.angle` did, just now applied
+						// on top of a real detected surface pose instead of a
+						// guessed fixed one.
+						arRoot.position.copy( arManager.arPosition );
+						arRoot.quaternion.copy( arManager.arQuaternion );
+						arRoot.rotateY( spawn.angle );
+
+					}
+
+					if ( confirmEdge ) {
+
+						confirmed = true;
+						lockInTrack();
+
+					}
 
 				} else if ( raceCtx ) {
 
@@ -3599,7 +3641,14 @@ function buildDriftPad( half, models ) {
 	edgeOverlay.position.y = 0.001;
 	pad.add( edgeOverlay );
 
-	buildBarrierLoop( pad, null, half, 0, 4 );
+	// heightScale left at its real default (1, same as the web free-roam
+	// arena's own barrier at line ~2241) — a previous 4x here made the
+	// barrier read as unrealistically tall next to the car (nearly 2.4m,
+	// taller than the car itself) once CAR_VISUAL_BOOST was removed and
+	// everything else went back to true 1:1 proportions. The barrier is a
+	// low real-world jersey barrier (0.6m), meant to sit well below car
+	// height, exactly like it does in web mode.
+	buildBarrierLoop( pad, null, half );
 
 	// Floodlight poles + scattered tire stacks/parked decoration cars at
 	// the 4 corners, same dressing as the web free-roam arena — added to
@@ -3709,13 +3758,18 @@ function updateKinematicArenaAI( drivers, dt, racing, padHalf ) {
 
 async function startARFloatingArena( { arManager, vehicleKey, customText, flagImage } ) {
 
-	arManager.previewGroup.visible = false; // not using hit-test placement here
+	// Hit-test IS used (see the placing phase in frameUpdate below, via
+	// arManager.updateExternalPlacement()) — just not ARManager's own
+	// generic ring/arrow previewGroup, since the actual arena itself
+	// (arenaGroup) is the preview here.
+	arManager.previewGroup.visible = false;
 
 	const placeholderCamera = new THREE.PerspectiveCamera();
 
-	// Halved per feedback that the arena felt too big relative to the
-	// car (was 45 — widened once before that, now reverted back down).
-	const PAD_HALF = 22.5;
+	// Halved AGAIN per feedback that the arena still felt too big
+	// relative to the car (was 45, then 22.5 — widened once before that,
+	// now reverted further down).
+	const PAD_HALF = 11.25;
 	const arenaGroup = buildDriftPad( PAD_HALF, models );
 
 	// buildDriftPad() starts at identity transform (no internal offset
@@ -3728,11 +3782,22 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	// used below via simDt, and why CAR_VISUAL_BOOST was removed in favor
 	// of FIXED_SCALE being the one, consistent size knob) and why they're
 	// all safe to change freely (purely cosmetic/pacing, no
-	// physics-stability impact).
-	const FIXED_SCALE = 0.02;
+	// physics-stability impact). Bumped up from 0.02 alongside the
+	// PAD_HALF halving above — since PAD_HALF and FIXED_SCALE both scale
+	// the WHOLE group (arena, barrier, car, decoration cars) together,
+	// this keeps the tabletop footprint a comfortable size while the
+	// smaller PAD_HALF is what actually grows the car-to-arena ratio, not
+	// a car-only boost (see the size-consistency note above).
+	const FIXED_SCALE = 0.03;
 	const TIME_SCALE = 2.5;
 	arenaGroup.scale.setScalar( FIXED_SCALE );
-	arenaGroup.position.set( 0, 0.55, - 0.85 );
+	// Position/rotation are no longer a fixed guess — see the placing-
+	// phase in frameUpdate below, which drives arenaGroup from the same
+	// real-surface hit-test the room-drive AR mode uses (ARManager's
+	// updateExternalPlacement()), so the arena lands on an actual
+	// detected table/floor instead of floating at a hardcoded distance.
+	// Hidden until the first surface hit lands.
+	arenaGroup.visible = false;
 	scene.add( arenaGroup );
 
 	const light = new THREE.DirectionalLight( 0xffffff, 3 );
@@ -3749,11 +3814,6 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	light.shadow.camera.updateProjectionMatrix();
 	scene.add( light );
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.6 ) );
-
-	const placeable = new PlaceableObject( arenaGroup, arManager, {
-		minScale: FIXED_SCALE, maxScale: FIXED_SCALE, // locked — resize comes back in a later stage
-		grabPoint: new THREE.Vector3( 0, 0, 0 ), grabRange: 0.2,
-	} );
 
 	// ── Placement-phase preview: lightweight kinematic car + AI ──
 	const previewContainer = new THREE.Group();
@@ -3786,9 +3846,10 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		// real-world-tuned driving-feel constants, which is what caused
 		// the reported "car behaves oddly" symptom. `arenaGroup` itself
 		// already carries the only thing actually needed for the AR
-		// "tabletop" look — a pure VISUAL scale+placement transform (set
-		// once above, frozen from this point on since placeable.update()
-		// stops being called once confirmed) — so simulating underneath
+		// "tabletop" look — a pure VISUAL scale+placement transform (frozen
+		// from this point on since frameUpdate stops calling
+		// arManager.updateExternalPlacement() once phase leaves 'placing')
+		// — so simulating underneath
 		// it at full scale and parenting the car directly under
 		// `arenaGroup` (see vehicleGroup below) lets three.js handle the
 		// shrink automatically.
@@ -3927,25 +3988,42 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 	}
 
-	placeable.onConfirm = () => {
-
-		placeable._setHighlight( 'none' );
-		lockInAndStart();
-
-	};
-
 	const controls = new Controls();
 
 	return {
 
-		frameUpdate( dt ) {
+		frameUpdate( dt, timestamp, frame ) {
 
 			try {
 
 				if ( phase === 'placing' ) {
 
-					placeable.update( dt );
+					// Same hit-test surface search + thumbstick nudge + trigger
+					// confirm as the room-drive AR mode's own placement screen
+					// (ARManager.updateExternalPlacement — see its comment, and
+					// the identical setup in startARFloatingTrack) — the arena
+					// stays hidden and glued to the camera's search until a real
+					// surface (table, floor, …) is found, then follows that
+					// surface (with thumbstick fine-adjustment) until the
+					// trigger is pulled.
+					const { hasHit, confirmEdge } = arManager.updateExternalPlacement( frame, dt );
+
+					arenaGroup.visible = hasHit;
+
+					if ( hasHit ) {
+
+						arenaGroup.position.copy( arManager.arPosition );
+						arenaGroup.quaternion.copy( arManager.arQuaternion );
+
+					}
+
 					updateKinematicArenaAI( previewAI, dt, false, PAD_HALF );
+
+					if ( confirmEdge ) {
+
+						lockInAndStart();
+
+					}
 
 				} else if ( phase === 'racing' && raceCtx ) {
 
@@ -4287,6 +4365,79 @@ function showErrorOverlay( message, stack, onRetry, title = 'تعذّر تشغي
 
 }
 
+// Shown by init() right after a reload triggered by the in-AR "رجوع
+// لأوضاع AR" button (see openExitConfirm's hwReturnToArMenu stash) —
+// a minimal single-tap re-entry into AR instead of the full main menu.
+// WebXR requires a fresh user gesture to (re-)request a session, so this
+// can't be skipped even though the vehicle/text/flag choice already
+// carried over from before the reload. Resolves { sessionPromise } once
+// tapped (same shape createModeMenu()'s own AR button resolves with);
+// rejects if the person instead taps through to the full main menu.
+function showArResumeOverlay() {
+
+	return new Promise( ( resolve, reject ) => {
+
+		const box = document.createElement( 'div' );
+		box.dir = 'rtl';
+		box.style.cssText = `
+			position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column;
+			align-items: center; justify-content: center; gap: 18px; padding: 24px; text-align: center;
+			background: rgba(20,22,26,0.95); font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+		`;
+
+		const title = document.createElement( 'div' );
+		title.textContent = 'الرجوع للواقع المعزز';
+		title.style.cssText = 'color:#fff; font-size:19px; font-weight:700;';
+
+		const msg = document.createElement( 'div' );
+		msg.textContent = 'اضغط للمتابعة واختيار المضمار أو الحلبة أو وضع الغرفة الحرة.';
+		msg.style.cssText = 'color:#ccc; font-size:14px; max-width:420px;';
+
+		const enterBtn = document.createElement( 'button' );
+		enterBtn.textContent = 'الدخول للواقع المعزز';
+		enterBtn.style.cssText = `
+			padding: 14px 32px; font-size: 16px; border-radius: 999px; border: none;
+			cursor: pointer; background: #15A249; color: #fff; font-weight:600;
+		`;
+		enterBtn.addEventListener( 'click', () => {
+
+			// requestSession() started synchronously inside this click
+			// handler, same reasoning as createModeMenu()'s own AR button —
+			// some browsers only honor user-activation for a call made
+			// directly in the event handler, not after any await hops.
+			const sessionPromise = navigator.xr.requestSession( 'immersive-ar', {
+				requiredFeatures: [ 'local-floor', 'hit-test' ],
+				optionalFeatures: [ 'plane-detection', 'mesh-detection' ],
+			} );
+			startBgMusic();
+			box.remove();
+			resolve( { sessionPromise } );
+
+		} );
+
+		const homeBtn = document.createElement( 'button' );
+		homeBtn.textContent = 'الرجوع للقائمة الرئيسية';
+		homeBtn.style.cssText = `
+			padding: 10px 24px; font-size: 13px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.3);
+			cursor: pointer; background: transparent; color: #ccc;
+		`;
+		homeBtn.addEventListener( 'click', () => {
+
+			box.remove();
+			reject( new Error( 'user chose the main menu instead' ) );
+
+		} );
+
+		box.appendChild( title );
+		box.appendChild( msg );
+		box.appendChild( enterBtn );
+		box.appendChild( homeBtn );
+		document.body.appendChild( box );
+
+	} );
+
+}
+
 async function init() {
 
 	registerAll();
@@ -4349,7 +4500,50 @@ async function init() {
 
 	}
 
+	// "رجوع لأوضاع AR" (the in-AR home button/exit-confirm) reloads the
+	// page the same "start clean" way "إعادة السباق" above does, but
+	// should land back on the AR track/arena/room picker specifically —
+	// not the game's full main menu. openExitConfirm() (inside
+	// startARWithFloatingMenu) stashes the vehicle/text/flag choice here
+	// before reloading; if present, skip the main menu and show one small
+	// "re-enter AR" button instead (a fresh user gesture is required to
+	// re-request a WebXR session — browsers won't allow that
+	// automatically right after a reload, so this can't jump straight
+	// back in without SOME tap).
+	let returnToArMenu = null;
+	try {
+		const rawAr = sessionStorage.getItem( 'hwReturnToArMenu' );
+		if ( rawAr ) returnToArMenu = JSON.parse( rawAr );
+	} catch ( e ) {
+		returnToArMenu = null;
+	}
+	try {
+		sessionStorage.removeItem( 'hwReturnToArMenu' );
+	} catch ( e ) { /* ignore */ }
+
 	const arAvailable = await ARManager.isSupported();
+
+	if ( returnToArMenu && arAvailable ) {
+
+		try {
+
+			const { sessionPromise } = await showArResumeOverlay();
+			activeMode = await startARWithFloatingMenu( {
+				mapParam,
+				customText: returnToArMenu.customText,
+				vehicleKey: returnToArMenu.vehicleKey,
+				flagImage: returnToArMenu.flagImage,
+				sessionPromise,
+			} );
+			return;
+
+		} catch ( e ) {
+
+			activeMode = null; // fall through to the normal menu flow below
+
+		}
+
+	}
 
 	// eslint-disable-next-line no-constant-condition
 	while ( true ) {
