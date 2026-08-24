@@ -231,7 +231,22 @@ export class Vehicle {
 			dt
 		);
 
-		const respawnYLimit = ( this.spawnPos ? this.spawnPos[ 1 ] - 2.0 : - 10 );
+		// How far below spawn counts as "fell off" before the safety-net
+		// respawn below kicks in. The flat "2.0" this used to be is a
+		// real-world-meters constant — fine at NORMAL mode's radius-0.5
+		// scale, but at AR's shrunk sphereRadius (e.g. ~0.008 for the
+		// floating track/arena) it demanded falling a full 2 REAL
+		// meters below a tabletop-sized track before ever triggering.
+		// If the tiny AR physics sphere ever tunnels through the floor
+		// (a real risk at that scale — see Physics.js/createSphereBody),
+		// it would just fall forever, invisible, with this recovery
+		// never firing: exactly what reads as the car "getting stuck"
+		// (it didn't freeze, it fell out of the world and never came
+		// back). Scaling the drop distance by the same sphereRadius/0.5
+		// ratio used elsewhere for AR proportions keeps this trigger
+		// meaningful at any scale — unchanged (2.0) at radius 0.5.
+		const respawnDropDistance = Math.max( 2.0 * ( this.sphereRadius / 0.5 ), 0.05 );
+		const respawnYLimit = ( this.spawnPos ? this.spawnPos[ 1 ] - respawnDropDistance : - 10 );
 		if ( this.spherePos.y < respawnYLimit ) {
 
 			const rx = this.spawnPos ? this.spawnPos[ 0 ] : 3.5;
