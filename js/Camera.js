@@ -5,25 +5,31 @@ const _delta = new THREE.Vector3();
 const _lookPoint = new THREE.Vector3();
 
 // ─── Cockpit (driver's-seat) view ───────────────────────────
-// Approximate driver eye position, local to the vehicle's own container
-// coordinate frame: left side (Saudi Arabia is left-hand-drive, matching
-// the same side=-1 convention already used for the flag/taillights in
-// main.js), roughly seated eye height. +Z is the model's forward
-// direction (matches the headlight/flag/decal coordinates in main.js —
-// windshield decal sits at +z ~0.42-0.55, tailgate at -z).
-// Pulled further back (z: 0.1 → -0.25) and down (y: 0.85 → 0.78) from an
-// earlier version that sat almost AT the windshield glass — too close to
-// it to actually show any car (dash/hood/glass) in frame, just the open
-// world beyond. Sitting back inside the cabin proper means the dash and
-// windshield frame now fall inside the view. LOOK_PITCH_DOWN tilts the
-// view down slightly (a real driver's eyeline naturally angles down a
-// bit, not dead level) so the hood is visible in the lower part of the
-// frame instead of only sky/horizon.
-// Still an estimate, not measured from the GLB directly (no way to
-// inspect the model visually from here) — nudge further if the hood/
-// dash/glass still don't read right in an actual browser look.
-const COCKPIT_EYE_OFFSET = new THREE.Vector3( -0.32, 0.78, -0.25 );
-const LOOK_PITCH_DOWN = 0.12;
+// Every previous eye position here was a guess, and guessing is what
+// kept getting this wrong (embedded in the dashboard, "outside" the
+// cabin, etc.) — so this round the actual GLB (vehicle-truck-*.glb) was
+// inspected directly instead: its "body" node is ONE SOLID mesh, no
+// separate glass/interior/steering-wheel geometry at all, with local
+// bounds x:[-0.75,0.75] y:[-0.1,0.9] z:[-1.4,1.4] (1.5m wide, 1m tall,
+// 2.8m long). There is no hollow cabin and no steering wheel to look
+// at — the "windshield" is just a painted/textured area on that solid
+// surface, not an opening. Any eye position inside that box sits INSIDE
+// solid triangles, which is exactly the giant-blown-up-yellow-polygon
+// clipping mess reported from the last version (z=-0.02 was inside the
+// mesh, not "outside the cabin" as first guessed).
+// Converting to container-local space (body sits at container-y≈0.3):
+// the solid mesh spans y:[0.2,1.2], z:[-1.4,1.4] — so ANY collision-free
+// forward-facing eye position has to sit above y≈1.2 (there's no way to
+// dodge it sideways or lengthwise and still face forward through where
+// the "windshield" reads visually). That's the same height band the
+// existing headlight bar already safely uses ("clear above the roof,
+// open air" — body-local y=1.05 there converts to this same ~1.3
+// container-space height), so this reuses that already-validated clear
+// zone: a roof/hood-mounted camera, not a literal seated-inside view
+// (which this model has no geometry to support). Shows the hood and the
+// windshield's painted area from just above/behind them, tilted down.
+const COCKPIT_EYE_OFFSET = new THREE.Vector3( -0.2, 1.3, 0.4 );
+const LOOK_PITCH_DOWN = 0.55;
 const _cockpitEyeWorld = new THREE.Vector3();
 const _cockpitLookTarget = new THREE.Vector3();
 
@@ -54,10 +60,14 @@ export class Camera {
 		this.initialized = false;
 
 		// 'chase' = the existing Godot-style trailing camera (update()).
-		// 'cockpit' = seated driver's-seat view (updateCockpit()).
+		// 'cockpit' = roof/hood-mounted forward view (updateCockpit()) —
+		// see COCKPIT_EYE_OFFSET's comment above for why it's mounted
+		// there rather than literally "inside" the car.
 		this.view = 'chase';
 		this.chaseFov = 40;
-		this.cockpitFov = 68; // wider — sitting close to the windshield needs a bigger FOV to still see around
+		this.cockpitFov = 68; // wider — sitting this close to the car needs a bigger FOV to still see around
+		this.chaseNear = 0.1; // the constructor's original default — chase sits ~16m out, irrelevant there
+		this.cockpitNear = 0.05; // hood/roof surface sits fairly close below/ahead of this camera
 
 		const segments = 64;
 		const points = [];
@@ -88,6 +98,7 @@ export class Camera {
 
 		this.view = this.view === 'chase' ? 'cockpit' : 'chase';
 		this.camera.fov = this.view === 'cockpit' ? this.cockpitFov : this.chaseFov;
+		this.camera.near = this.view === 'cockpit' ? this.cockpitNear : this.chaseNear;
 		this.camera.updateProjectionMatrix();
 
 	}
@@ -96,8 +107,8 @@ export class Camera {
 	// are only true WORLD position/rotation when its parent is `scene`
 	// itself at identity transform, which is the case in NORMAL/web mode
 	// (the only mode this class is used in — AR modes render through the
-	// headset's own head-tracked camera instead, see the separate AR
-	// "dash-cam" cockpit viewport in main.js for the AR equivalent).
+	// headset's own head-tracked camera instead, with no equivalent
+	// currently; an earlier AR "dash-cam" viewport attempt was removed).
 	updateCockpit( vehicleContainer ) {
 
 		_cockpitEyeWorld.copy( COCKPIT_EYE_OFFSET ).applyQuaternion( vehicleContainer.quaternion ).add( vehicleContainer.position );
