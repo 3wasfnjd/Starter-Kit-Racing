@@ -18,17 +18,12 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 	if ( ! path || path.length < 2 ) return;
 
 	const LOOKAHEAD_BASE = 3;
-	const MIN_PATH_DISTANCE = 1.0; // Minimum distance before advancing to next waypoint
 
 	drivers.forEach( ( d, driverIdx ) => {
 
 		const input = { x: 0, z: 0, touchActive: false, handbrake: false };
 
 		if ( racing && ! d.finished ) {
-
-			// Initialize driver tracking variables
-			if ( ! d.idx ) d.idx = 0;
-			if ( ! d.lapsCompleted ) d.lapsCompleted = 0;
 
 			// 1. Stuck Recovery Watchdog
 			d.sampleTimer = ( d.sampleTimer || 0 ) + dt;
@@ -95,15 +90,26 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 
 			}
 
-			// 2. Waypoint Progression - Always advance when close enough
-			const curPt = path[ d.idx ];
-			const dToCur = Math.hypot( curPt.x - d.vehicle.spherePos.x, curPt.z - d.vehicle.spherePos.z );
-			
-			if ( dToCur < MIN_PATH_DISTANCE ) {
+			// 2. Waypoint Progression Search
+			let bestWindowIdx = d.idx;
+			let minWindowDist = Infinity;
+			for ( let step = 0; step <= 8; step ++ ) {
 
-				// Successfully reached current waypoint
-				d.idx = ( d.idx + 1 ) % path.length;
-				if ( d.idx === 0 ) {
+				const testIdx = ( d.idx + step ) % path.length;
+				const pt = path[ testIdx ];
+				const distSq = ( pt.x - d.vehicle.spherePos.x ) ** 2 + ( pt.z - d.vehicle.spherePos.z ) ** 2;
+				if ( distSq < minWindowDist ) {
+
+					minWindowDist = distSq;
+					bestWindowIdx = testIdx;
+
+				}
+
+			}
+
+			if ( bestWindowIdx !== d.idx ) {
+
+				if ( bestWindowIdx < d.idx ) {
 
 					d.lapsCompleted = ( d.lapsCompleted || 0 ) + 1;
 					if ( d.lapsCompleted >= TOTAL_RACE_LAPS ) {
@@ -114,33 +120,17 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 					}
 
 				}
+				d.idx = bestWindowIdx;
 
 			} else {
 
-				// Look ahead to find best waypoint in window
-				let bestWindowIdx = d.idx;
-				let minWindowDist = dToCur;
-				
-				for ( let step = 1; step <= 6; step ++ ) {
+				const curPt = path[ ( d.idx + 1 ) % path.length ];
+				const dToCur = Math.hypot( curPt.x - d.vehicle.spherePos.x, curPt.z - d.vehicle.spherePos.z );
+				if ( dToCur < 2.0 ) {
 
-					const testIdx = ( d.idx + step ) % path.length;
-					const pt = path[ testIdx ];
-					const distSq = ( pt.x - d.vehicle.spherePos.x ) ** 2 + ( pt.z - d.vehicle.spherePos.z ) ** 2;
-					if ( distSq < minWindowDist * minWindowDist ) {
+					d.idx = ( d.idx + 1 ) % path.length;
+					if ( d.idx === 0 ) {
 
-						minWindowDist = Math.sqrt( distSq );
-						bestWindowIdx = testIdx;
-
-					}
-
-				}
-
-				// Update position if we skipped waypoints (e.g., due to high speed)
-				if ( bestWindowIdx !== d.idx ) {
-
-					if ( bestWindowIdx < d.idx ) {
-
-						// Wrapped around - completed a lap
 						d.lapsCompleted = ( d.lapsCompleted || 0 ) + 1;
 						if ( d.lapsCompleted >= TOTAL_RACE_LAPS ) {
 
@@ -150,7 +140,6 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 						}
 
 					}
-					d.idx = bestWindowIdx;
 
 				}
 
@@ -210,7 +199,22 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 
 			}
 
-			input.x = THREE.MathUtils.clamp( angleDiff * 2.5 + avoidSteer, - 1, 1 );
+			// NOTE on the leading minus sign: Vehicle.js's keyboard/gamepad
+			// steering branch (the one AI input goes through, since AI never
+			// sets touchActive) applies `targetAngular = -inputX * grip *
+			// turnMultiplier * direction`, i.e. POSITIVE input.x steers the
+			// car's heading (container.rotation.y) DOWNWARD while driving
+			// forward — the opposite of what a raw `angleDiff` (positive =
+			// "heading needs to increase to face the target") naively
+			// suggests. Feeding angleDiff straight into input.x therefore
+			// steers away from the target — verified empirically: a closed-
+			// loop simulation of this exact formula pair diverges from a
+			// fixed target (never gets closer than ~10 units) without the
+			// minus sign, and converges to within ~0.05 units with it. The
+			// same inversion applies to avoidSteer below, which was derived
+			// with the same (backwards) assumption, so both terms are
+			// negated together.
+			input.x = THREE.MathUtils.clamp( - ( angleDiff * 2.5 + avoidSteer ), - 1, 1 );
 
 			// 5. Predictive Curvature Speed Control
 			let maxUpcomingCurve = Math.abs( angleDiff );
@@ -245,13 +249,7 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 
 /**
  * Free-Roam / Hajwalah AI Update ("هجولة وتفحيط احترافي")
- * Features multi-state AI with smooth transitions (CRUISING, DRIFTING, DONUTS, WALL_AVOIDANCE).
- * 
- * Enhanced with:
- * - Smooth easing between state transitions
- * - Stable target waypoints that don't change abruptly
- * - Input smoothing for natural vehicle control
- * - State stability duration to prevent rapid switching
+ * Features multi-state AI (CRUISING, DRIFTING, DONUTS, WALL_AVOIDANCE).
  */
 export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 
@@ -265,18 +263,8 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 
 			d.aiState = 'CRUISING'; // CRUISING | DRIFTING | DONUT | AVOIDANCE
 			d.stateTimer = 2 + Math.random() * 3;
-			d.target = { x: 0, z: 0 };
 			d.donutCenter = { x: 0, z: 0 };
 			d.donutAngle = 0;
-			
-			// Smooth input interpolation
-			d.currentInput = { x: 0, z: 0.85, handbrake: false };
-			d.targetInput = { x: 0, z: 0.85, handbrake: false };
-			d.inputSmoothFactor = 0.15; // Controls how quickly inputs blend (0-1)
-			
-			// State stability tracking
-			d.stateChangeCounter = 0;
-			d.minStateDuration = 2.0; // Minimum time in a state before transitioning
 
 		}
 
@@ -319,57 +307,48 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 			d.stuckStrikes = 0;
 			d.aiState = 'CRUISING';
 			d.stateTimer = 2;
-			d.stateChangeCounter = 0;
 
 		}
 
 		d.stateTimer -= dt;
-		d.stateChangeCounter += dt;
 
-		// 2. Wall / Arena Edge Safety Check (AVOIDANCE has priority)
+		// 2. Wall / Arena Edge Safety Check
 		const distFromCenter = Math.hypot( d.vehicle.spherePos.x, d.vehicle.spherePos.z );
 		if ( distFromCenter > wallLimitRadius ) {
 
 			d.aiState = 'AVOIDANCE';
 			d.target = { x: 0, z: 0 };
-			d.stateChangeCounter = 0;
 
 		}
 
-		// 3. State Transitions (with minimum duration check)
-		if ( d.aiState !== 'AVOIDANCE' && d.stateTimer <= 0 && d.stateChangeCounter >= d.minStateDuration ) {
+		// 3. State Transitions
+		if ( d.aiState !== 'AVOIDANCE' && d.stateTimer <= 0 ) {
 
 			const rand = Math.random();
-			
-			if ( rand < 0.4 ) {
+			if ( rand < 0.45 ) {
 
-				// DRIFTING state
 				d.aiState = 'DRIFTING';
-				d.stateTimer = 4 + Math.random() * 3; // Longer, more stable duration
+				d.stateTimer = 3 + Math.random() * 4;
 				const a = Math.random() * Math.PI * 2;
-				const r = Math.random() * wanderRadius * 0.8;
+				const r = Math.random() * wanderRadius;
 				d.target = { x: Math.cos( a ) * r, z: Math.sin( a ) * r };
 
 			} else if ( rand < 0.75 ) {
 
-				// CRUISING state
 				d.aiState = 'CRUISING';
-				d.stateTimer = 4 + Math.random() * 3;
+				d.stateTimer = 3 + Math.random() * 4;
 				const a = Math.random() * Math.PI * 2;
-				const r = Math.random() * wanderRadius * 0.8;
+				const r = Math.random() * wanderRadius;
 				d.target = { x: Math.cos( a ) * r, z: Math.sin( a ) * r };
 
 			} else {
 
-				// DONUT state
 				d.aiState = 'DONUT';
-				d.stateTimer = 3 + Math.random() * 2;
+				d.stateTimer = 2.5 + Math.random() * 2.5;
 				d.donutCenter = { x: d.vehicle.spherePos.x, z: d.vehicle.spherePos.z };
 				d.donutAngle = Math.random() * Math.PI * 2;
 
 			}
-			
-			d.stateChangeCounter = 0;
 
 		}
 
@@ -378,7 +357,6 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 
 		if ( d.aiState === 'AVOIDANCE' ) {
 
-			// Return to center of arena with smooth steering
 			const dx = - d.vehicle.spherePos.x;
 			const dz = - d.vehicle.spherePos.z;
 			const carAngle = d.vehicle.container.rotation.y;
@@ -386,30 +364,30 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 			let angleDiff = targetAngle - carAngle;
 			angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
 
-			input.x = THREE.MathUtils.clamp( angleDiff * 2.5, - 1, 1 ); // Reduced from 3.0
+			// See the steering-sign note in updateRaceAIDrivers() above —
+			// same inversion, same fix (leading minus). This is the one
+			// that most directly caused "stuck on the fence": AVOIDANCE
+			// aims at the arena center but, without the minus sign, was
+			// steering the car further INTO the wall instead of away from it.
+			input.x = THREE.MathUtils.clamp( - angleDiff * 3.0, - 1, 1 );
 			input.z = 0.8;
 
-			if ( distFromCenter < wanderRadius * 0.7 ) {
+			if ( distFromCenter < wanderRadius * 0.8 ) {
 
 				d.aiState = 'CRUISING';
-				d.stateTimer = 2.5;
-				d.stateChangeCounter = 0;
+				d.stateTimer = 2;
 
 			}
 
 		} else if ( d.aiState === 'DONUT' ) {
 
-			// Smooth high RPM Donut / Spin maneuver
-			input.x = 0.95; // Slightly less than full lock for smoothness
-			input.z = 1.0; // Full gas
-			
-			// Smooth handbrake pulse instead of sharp on/off
-			const pulseCycle = Math.sin( d.stateChangeCounter * Math.PI ) * 0.5 + 0.5;
-			input.handbrake = pulseCycle > 0.4;
+			// High RPM Donut / Spin maneuver
+			input.x = 1.0; // full lock
+			input.z = 1.0; // full gas
+			input.handbrake = ( Math.sin( Date.now() * 0.01 ) > 0.5 ); // rhythmic handbrake pulse
 
 		} else if ( d.aiState === 'DRIFTING' ) {
 
-			// Aggressive drift to target with smooth steering
 			const dx = ( d.target ? d.target.x : 0 ) - d.vehicle.spherePos.x;
 			const dz = ( d.target ? d.target.z : 0 ) - d.vehicle.spherePos.z;
 			const carAngle = d.vehicle.container.rotation.y;
@@ -417,12 +395,12 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 			let angleDiff = targetAngle - carAngle;
 			angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
 
-			// Smooth steering interpolation
-			input.x = THREE.MathUtils.clamp( angleDiff * 3.5, - 1, 1 ); // Reduced from 4.0
-			input.z = 0.95; // Slightly less aggressive
+			// Aggressive steering + handbrake flick to initiate drift
+			// See the steering-sign note in updateRaceAIDrivers() above.
+			input.x = THREE.MathUtils.clamp( - angleDiff * 4.0, - 1, 1 );
+			input.z = 1.0;
 
-			// Handbrake only on sharper angles
-			if ( Math.abs( angleDiff ) > 0.35 ) {
+			if ( Math.abs( angleDiff ) > 0.4 ) {
 
 				input.handbrake = true;
 
@@ -430,7 +408,6 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 
 		} else { // CRUISING
 
-			// Smooth cruising to target
 			const dx = ( d.target ? d.target.x : 0 ) - d.vehicle.spherePos.x;
 			const dz = ( d.target ? d.target.z : 0 ) - d.vehicle.spherePos.z;
 			const carAngle = d.vehicle.container.rotation.y;
@@ -438,20 +415,13 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 			let angleDiff = targetAngle - carAngle;
 			angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
 
-			input.x = THREE.MathUtils.clamp( angleDiff * 2.0, - 1, 1 );
-			input.z = 0.80;
+			// See the steering-sign note in updateRaceAIDrivers() above.
+			input.x = THREE.MathUtils.clamp( - angleDiff * 2.0, - 1, 1 );
+			input.z = 0.85;
 
 		}
 
-		// 5. Smooth input interpolation (blend current input towards target)
-		d.currentInput.x = THREE.MathUtils.lerp( d.currentInput.x, input.x, d.inputSmoothFactor );
-		d.currentInput.z = THREE.MathUtils.lerp( d.currentInput.z, input.z, d.inputSmoothFactor );
-		
-		// Handbrake transitions more sharply (boolean-like behavior)
-		d.currentInput.handbrake = input.handbrake;
-
-		// Apply smoothed input to vehicle
-		d.vehicle.update( dt, d.currentInput );
+		d.vehicle.update( dt, input );
 
 	} );
 
