@@ -3082,15 +3082,11 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 		// its own diameter to stay contained.
 		const trackCarBoost = 1;
 
-	// Gravity scaled down with the track — real 9.81 m/s² acting on
-		// a sphere shrunk to AR-tabletop size is a huge force relative
-		// to its own tiny size, causing violent jitter/bouncing instead
-		// of the car settling naturally onto the track.
-		const world = createPhysicsWorld( arTransform.scale );
+		const world = createPhysicsWorld( 1.0 );
 		buildWallColliders( world, null, null, arTransform, trackCarBoost * 1.5 );
 
 		const groundHalfY = Math.max( 0.01 * arTransform.scale, 0.002 );
-		const groundXf = applyArTransform( [ bounds.centerX, - 0.125, bounds.centerZ ], [ 0, 0, 0, 1 ], arTransform );
+		const groundXf = applyArTransform( [ bounds.centerX, - 0.5, bounds.centerZ ], [ 0, 0, 0, 1 ], arTransform );
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents: [ bounds.halfWidth * arTransform.scale, groundHalfY, bounds.halfDepth * arTransform.scale ] } ),
 			motionType: MotionType.STATIC,
@@ -3119,15 +3115,8 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 		// arena's identical fix: a fixed margin doesn't generalize if
 		// the radius ever changes, and this is provably correct instead
 		// of numerically hoping the margin is big enough.
-		// The tiny clearance gap above the ground must scale with
-		// arTransform.scale too — it used to be a flat 0.01m, which at
-		// FIXED_SCALE (0.016) is *bigger* than the whole car (carRadius
-		// ≈ 0.008m here), so the car visibly hovered above the track and
-		// then (under the equally scaled-down, very weak AR gravity)
-		// drifted/settled unevenly — read as "floating or sunk" rather
-		// than sitting flush on the track surface.
 		const groundTopY = groundXf.position[ 1 ] + groundHalfY;
-		playerWorld.position[ 1 ] = groundTopY + carRadius + 0.01 * arTransform.scale;
+		playerWorld.position[ 1 ] = groundTopY + carRadius + 0.01;
 		const sphereBody = createSphereBody( world, playerWorld.position, carRadius );
 
 		const vehicle = new Vehicle();
@@ -3433,13 +3422,10 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		arenaGroup.remove( previewContainer );
 		previewAI.forEach( ( d ) => arenaGroup.remove( d.model ) );
 
-		// Gravity scaled down with the arena — see the floating track's
-		// own comment on why (real 9.81 m/s² on a tiny sphere causes
-		// violent jitter instead of the car settling naturally).
-		const world = createPhysicsWorld( arTransform.scale );
+		const world = createPhysicsWorld( 1.0 );
 
 		const groundHalfY = Math.max( 0.01 * arTransform.scale, 0.002 );
-		const groundXf = applyArTransform( [ 0, - 0.125, 0 ], [ 0, 0, 0, 1 ], arTransform );
+		const groundXf = applyArTransform( [ 0, 0, 0 ], [ 0, 0, 0, 1 ], arTransform );
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents: [ PAD_HALF * arTransform.scale, groundHalfY, PAD_HALF * arTransform.scale ] } ),
 			motionType: MotionType.STATIC,
@@ -3500,11 +3486,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		// knife-edge-penetration "stuck in mud" problem.
 		const groundTopY = groundXf.position[ 1 ] + groundHalfY;
 		const playerWorld = applyArTransform( [ 0, 0.5, 0 ], [ 0, 0, 0, 1 ], arTransform );
-		// Same fix as the floating track: this clearance gap must scale
-		// with arTransform.scale, or it dwarfs the tiny AR carRadius and
-		// the car spawns visibly floating above (then unevenly settling
-		// into) the arena floor instead of sitting flush on it.
-		playerWorld.position[ 1 ] = groundTopY + carRadius + 0.01 * arTransform.scale;
+		playerWorld.position[ 1 ] = groundTopY + carRadius + 0.01;
 		const sphereBody = createSphereBody( world, playerWorld.position, carRadius );
 
 		// Face the same direction the arena itself was rotated to when
