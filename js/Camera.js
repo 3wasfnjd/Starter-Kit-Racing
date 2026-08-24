@@ -4,6 +4,20 @@ const _desired = new THREE.Vector3();
 const _delta = new THREE.Vector3();
 const _lookPoint = new THREE.Vector3();
 
+// ─── Cockpit (driver's-seat) view ───────────────────────────
+// Approximate driver eye position, local to the vehicle's own container
+// coordinate frame: left side (Saudi Arabia is left-hand-drive, matching
+// the same side=-1 convention already used for the flag/taillights in
+// main.js), roughly seated eye height, just behind the windshield.
+// +Z is the model's forward direction (matches the headlight/flag/decal
+// coordinates in main.js — windshield decal sits at +z, tailgate at -z).
+// This is an estimate, not measured from the GLB directly (no way to
+// inspect the model visually from here) — may need a small manual nudge
+// after an actual in-browser look.
+const COCKPIT_EYE_OFFSET = new THREE.Vector3( -0.32, 0.85, 0.1 );
+const _cockpitEyeWorld = new THREE.Vector3();
+const _cockpitLookTarget = new THREE.Vector3();
+
 export class Camera {
 
 	constructor() {
@@ -30,6 +44,12 @@ export class Camera {
 		this.smoothedDesired = new THREE.Vector3();
 		this.initialized = false;
 
+		// 'chase' = the existing Godot-style trailing camera (update()).
+		// 'cockpit' = seated driver's-seat view (updateCockpit()).
+		this.view = 'chase';
+		this.chaseFov = 40;
+		this.cockpitFov = 68; // wider — sitting close to the windshield needs a bigger FOV to still see around
+
 		const segments = 64;
 		const points = [];
 		for ( let i = 0; i <= segments; i ++ ) {
@@ -52,6 +72,34 @@ export class Camera {
 			this.camera.updateProjectionMatrix();
 
 		} );
+
+	}
+
+	toggleView() {
+
+		this.view = this.view === 'chase' ? 'cockpit' : 'chase';
+		this.camera.fov = this.view === 'cockpit' ? this.cockpitFov : this.chaseFov;
+		this.camera.updateProjectionMatrix();
+
+	}
+
+	// vehicleContainer is `vehicle.container` — its .position/.quaternion
+	// are only true WORLD position/rotation when its parent is `scene`
+	// itself at identity transform, which is the case in NORMAL/web mode
+	// (the only mode this class is used in — AR modes render through the
+	// headset's own head-tracked camera instead, see the separate AR
+	// "dash-cam" cockpit viewport in main.js for the AR equivalent).
+	updateCockpit( vehicleContainer ) {
+
+		_cockpitEyeWorld.copy( COCKPIT_EYE_OFFSET ).applyQuaternion( vehicleContainer.quaternion ).add( vehicleContainer.position );
+		this.camera.position.copy( _cockpitEyeWorld );
+
+		// Look straight down the model's own forward (+Z) rather than
+		// copying the container's quaternion directly onto the camera —
+		// a THREE.Camera's own "forward" is its local -Z, so a plain
+		// quaternion copy would have it looking exactly backward.
+		_cockpitLookTarget.set( 0, 0, 1 ).applyQuaternion( vehicleContainer.quaternion ).add( _cockpitEyeWorld );
+		this.camera.lookAt( _cockpitLookTarget );
 
 	}
 

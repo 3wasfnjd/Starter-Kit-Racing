@@ -46,6 +46,7 @@ export class ARManager {
 		this._prevRadioButtons = { x: false, y: false };
 		this._prevHeadlightButton = false;
 		this._prevHazardButton = false;
+		this._prevCameraAxis = false;
 
 		this.controllerModelFactory = new XRControllerModelFactory();
 		this._setupControllers();
@@ -744,6 +745,27 @@ export class ARManager {
 
 		const left = this.gamepads.left;
 		return left && left.buttons[ 3 ] ? left.buttons[ 3 ].pressed : false;
+
+	}
+
+	// Right thumbstick vertical push (xr-standard axis index 3) — the one
+	// input channel left genuinely unused while driving: right stick X
+	// already steers (see getDriveInput), and every discrete button on
+	// both controllers is already claimed (headlights/hazards/high beam
+	// on the right, horn/handbrake/radio/menu on the left — see the
+	// comments on the other get*() methods above). Treated as a discrete
+	// press — crossing the threshold either up or down counts as one
+	// toggle, like a spring-loaded button rather than a continuous axis.
+	// Rising-edge only (fires once per push, not every frame while held).
+	getCameraToggle() {
+
+		const right = this.gamepads.right;
+		const axes = right ? right.axes : [];
+		const y = axes && axes.length > 3 ? axes[ 3 ] : 0;
+		const pressed = Math.abs( y ) > 0.7;
+		const edge = pressed && ! this._prevCameraAxis;
+		this._prevCameraAxis = pressed;
+		return edge;
 
 	}
 

@@ -1740,7 +1740,7 @@ function createCountdownUI() {
 // Controls.js already covers a full-screen invisible steering zone for
 // touch, so these buttons need a higher z-index to receive taps first.
 
-function setupRadioTouchUI( radio, vehicleLights ) {
+function setupRadioTouchUI( radio, vehicleLights, cam ) {
 
 	if ( ! ( 'ontouchstart' in window ) ) return { highBeamHeld: false };
 
@@ -1784,6 +1784,7 @@ function setupRadioTouchUI( radio, vehicleLights ) {
 	const headlightBtn = makeTapButton( '💡' );
 	const hazardBtn = makeTapButton( '⚠️' );
 	const highBeamBtn = makeTapButton( '🔆' );
+	const cameraBtn = makeTapButton( '📷' );
 
 	// pointerdown (not click) for lower latency and to match the steering
 	// zone's own event type; stopPropagation so the tap doesn't also get
@@ -1812,6 +1813,12 @@ function setupRadioTouchUI( radio, vehicleLights ) {
 
 		e.stopPropagation();
 		toggleHazards( vehicleLights );
+
+	} );
+	cameraBtn.addEventListener( 'pointerdown', ( e ) => {
+
+		e.stopPropagation();
+		cam.toggleView();
 
 	} );
 
@@ -1846,6 +1853,7 @@ function setupRadioTouchUI( radio, vehicleLights ) {
 	wrap.appendChild( headlightBtn );
 	wrap.appendChild( hazardBtn );
 	wrap.appendChild( highBeamBtn );
+	wrap.appendChild( cameraBtn );
 	document.body.appendChild( wrap );
 
 	return touchState;
@@ -2480,7 +2488,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	audio.init( cam.camera, vehicleGroup );
 
 	const radio = new Radio( audio.listener, vehicleGroup );
-	const touchState = setupRadioTouchUI( radio, vehicleLights );
+	const touchState = setupRadioTouchUI( radio, vehicleLights, cam );
 
 	const _forward = new THREE.Vector3();
 	const _camLead = new THREE.Vector3();
@@ -2505,7 +2513,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	// Radio controls for NORMAL mode (no VR controllers here, so keyboard
 	// instead): R = next track, T = play/pause. L = headlights, H =
 	// hazards. Edge-detected so holding a key doesn't rapid-fire.
-	let prevKeys = { r: false, t: false, l: false, h: false };
+	let prevKeys = { r: false, t: false, l: false, h: false, c: false };
 
 	// Race start countdown — only for an actual track with a finish line
 	// (not free-roam). Controls stay locked until it reaches zero.
@@ -2613,13 +2621,15 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			const lKey = !! controls.keys[ 'KeyL' ];
 			const hKey = !! controls.keys[ 'KeyH' ];
 			const nKey = !! controls.keys[ 'KeyN' ];
+			const cKey = !! controls.keys[ 'KeyC' ];
 			if ( rKey && ! prevKeys.r ) { stopBgMusic(); radio.next(); }
 			if ( tKey && ! prevKeys.t ) { stopBgMusic(); radio.togglePlayPause(); }
 			if ( lKey && ! prevKeys.l ) toggleHeadlights( vehicleLights );
 			if ( hKey && ! prevKeys.h ) toggleHazards( vehicleLights );
+			if ( cKey && ! prevKeys.c ) cam.toggleView(); // cockpit/chase camera toggle — same key pattern as the touch-dock 📷 button
 			setHighBeam( vehicleLights, nKey || touchState.highBeamHeld );
 			audio.setHorn( !! controls.keys[ 'Space' ] );
-			prevKeys = { r: rKey, t: tKey, l: lKey, h: hKey };
+			prevKeys = { r: rKey, t: tKey, l: lKey, h: hKey, c: cKey };
 
 			dirLight.position.set(
 				vehicle.spherePos.x + 11.4,
@@ -2627,13 +2637,140 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 				vehicle.spherePos.z - 5.3
 			);
 
-			const mv = vehicle.modelVelocity;
-			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
-			cam.update( dt, vehicle.spherePos, _camLead );
+			if ( cam.view === 'cockpit' ) {
+
+				// vehicle.container's own position/quaternion are true
+				// world-space here — NORMAL mode never nests it under any
+				// scaled/placed wrapper group (unlike the AR modes) — so
+				// this needs no extra transform work.
+				cam.updateCockpit( vehicle.container );
+
+			} else {
+
+				const mv = vehicle.modelVelocity;
+				_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
+				cam.update( dt, vehicle.spherePos, _camLead );
+
+			}
 
 			renderer.render( scene, cam.camera );
 
 		}
+
+	};
+
+}
+
+// ─── AR cockpit "dash-cam" viewport ─────────────────────────
+// Passthrough AR can't actually relocate the user's own head into the
+// car the way NORMAL/web mode's Camera.updateCockpit() can — the headset
+// camera IS the user's real eyes, and faking it by offsetting the WebXR
+// reference space would desync the real-room passthrough video from
+// where the virtual car/track are drawn. So the AR equivalent of the web
+// cockpit camera is a small floating screen mounted on the car, showing
+// a live render from a camera parented inside the driver's seat — a
+// dash-cam-style monitor rather than a full takeover of the view.
+//
+// The screen camera is a permanent CHILD of `vehicleContainer` (=
+// vehicle.container) with a fixed local offset/rotation, so three.js's
+// own parent-child matrix chain handles all the placement math
+// automatically — car position/heading, any AR arRoot/arenaGroup
+// scale+placement wrapping it, all of it — instead of this needing to
+// recompute world transforms by hand (which would otherwise have to
+// account for arRoot/arenaGroup differently from the room-drive mode's
+// flat scene-child hierarchy). Same eye offset as Camera.js's web
+// cockpit view, and same caveat: an estimate, not measured from the GLB
+// directly.
+const COCKPIT_LOCAL_EYE = new THREE.Vector3( -0.32, 0.85, 0.1 );
+
+function createCockpitViewport( vehicleContainer ) {
+
+	const RT_W = 256, RT_H = 160;
+	const renderTarget = new THREE.WebGLRenderTarget( RT_W, RT_H );
+
+	const cockpitCamera = new THREE.PerspectiveCamera( 68, RT_W / RT_H, 0.02, 100 );
+	cockpitCamera.position.copy( COCKPIT_LOCAL_EYE );
+	// A THREE.Camera looks down its own local -Z by default; this
+	// model's forward is +Z (matches the headlight/flag/decal convention
+	// used everywhere else in this file), so a 180° yaw points it the
+	// right way without needing a lookAt() every frame.
+	cockpitCamera.rotation.y = Math.PI;
+	vehicleContainer.add( cockpitCamera );
+
+	// Small monitor mounted above the roof — real-world sized (0.22m),
+	// which auto-shrinks correctly for the floating track/arena via
+	// their own FIXED_SCALE wrapper group, exactly like everything else
+	// parented under vehicleContainer/arRoot.
+	const screen = new THREE.Mesh(
+		new THREE.PlaneGeometry( 0.22, 0.14 ),
+		new THREE.MeshBasicMaterial( { map: renderTarget.texture, toneMapped: false } )
+	);
+	const frame = new THREE.Mesh(
+		new THREE.PlaneGeometry( 0.25, 0.17 ),
+		new THREE.MeshBasicMaterial( { color: 0x111114 } )
+	);
+	frame.position.z = -0.002;
+	const screenGroup = new THREE.Group();
+	screenGroup.add( frame );
+	screenGroup.add( screen );
+	screenGroup.position.set( 0, 1.05, 0 );
+	screenGroup.rotation.x = -0.35;
+	screenGroup.visible = false;
+	vehicleContainer.add( screenGroup );
+
+	return {
+
+		visible: false,
+
+		toggle() {
+
+			this.visible = ! this.visible;
+			screenGroup.visible = this.visible;
+
+		},
+
+		// Room-drive mode (startARMode) lets the player live-resize the
+		// car; that resize only scales the inner model child, not
+		// vehicleContainer itself, so the fixed real-meter eye offset/
+		// screen size baked in above would otherwise stay full-size next
+		// to a shrunk car. Floating track/arena never call this (their
+		// scale is fixed for the whole session via FIXED_SCALE on the
+		// wrapper group, which vehicleContainer already sits under).
+		setScale( s ) {
+
+			cockpitCamera.position.copy( COCKPIT_LOCAL_EYE ).multiplyScalar( s );
+			screenGroup.position.set( 0, 1.05 * s, 0 );
+			screenGroup.scale.setScalar( s );
+
+		},
+
+		// Must run BEFORE the frame's main renderer.render(scene, ...)
+		// call. three.js's WebXR support intercepts renderer.render()
+		// while a session is presenting and always substitutes the
+		// headset's own stereo pose, regardless of which camera object is
+		// passed in — so rendering any OTHER (non-headset) camera during
+		// an XR frame requires temporarily disabling renderer.xr, doing
+		// that render, then re-enabling it before the real XR frame
+		// renders. Standard technique for an auxiliary render (minimap,
+		// mirror, security-camera screen, etc.) inside a WebXR session.
+		render( renderer, scene ) {
+
+			if ( ! this.visible ) return;
+
+			const wasXrEnabled = renderer.xr.enabled;
+			renderer.xr.enabled = false;
+			renderer.setRenderTarget( renderTarget );
+			renderer.render( scene, cockpitCamera );
+			renderer.setRenderTarget( null );
+			renderer.xr.enabled = wasXrEnabled;
+
+		},
+
+		dispose() {
+
+			renderTarget.dispose();
+
+		},
 
 	};
 
@@ -3462,6 +3599,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			addCustomTextDecals( vehicleGroup, customText );
 			const vehicleLights = addVehicleLights( vehicleGroup );
 			const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+			const cockpitViewport = createCockpitViewport( vehicleGroup );
 
 			const audio = new GameAudio();
 			audio.init( renderer.xr.getCamera(), vehicleGroup );
@@ -3536,7 +3674,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 			} );
 
-			raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, arScale: FIXED_SCALE };
+			raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, arScale: FIXED_SCALE, cockpitViewport };
 
 		} catch ( e ) {
 
@@ -3627,6 +3765,8 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 					if ( radioBtn.next ) { stopBgMusic(); raceCtx.radio.next(); }
 					if ( radioBtn.toggle ) { stopBgMusic(); raceCtx.radio.togglePlayPause(); }
 
+					if ( arManager.getCameraToggle() ) raceCtx.cockpitViewport.toggle();
+
 					// AI opponents: same real pure-pursuit driving as
 					// NORMAL mode's own race AI, plus the same lights/
 					// flag/smoke/drift-marks the player gets. Smoke reuses
@@ -3657,6 +3797,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 			}
 
+			if ( raceCtx ) raceCtx.cockpitViewport.render( renderer, scene );
 			renderer.render( scene, placeholderCamera );
 
 		}
@@ -3988,6 +4129,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		addCustomTextDecals( vehicleGroup, customText );
 		const vehicleLights = addVehicleLights( vehicleGroup );
 		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+		const cockpitViewport = createCockpitViewport( vehicleGroup );
 
 		const audio = new GameAudio();
 		audio.init( renderer.xr.getCamera(), vehicleGroup );
@@ -4047,7 +4189,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 		} );
 
-		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, arScale: FIXED_SCALE };
+		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, arScale: FIXED_SCALE, cockpitViewport };
 		phase = 'racing';
 
 		} catch ( e ) {
@@ -4132,6 +4274,8 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 					if ( radioBtn.next ) { stopBgMusic(); raceCtx.radio.next(); }
 					if ( radioBtn.toggle ) { stopBgMusic(); raceCtx.radio.togglePlayPause(); }
 
+					if ( arManager.getCameraToggle() ) raceCtx.cockpitViewport.toggle();
+
 					// AI opponents: same wandering/drifting free-roam AI as
 					// NORMAL mode, plus the same lights/flag/smoke/drift-
 					// marks the player gets. Smoke reuses the player's own
@@ -4156,6 +4300,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 			}
 
+			if ( raceCtx ) raceCtx.cockpitViewport.render( renderer, scene );
 			renderer.render( scene, placeholderCamera );
 
 		}
@@ -4192,6 +4337,7 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 		addCustomTextDecals( vehicleGroup, customText );
 		const vehicleLights = addVehicleLights( vehicleGroup );
 		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+		const cockpitViewport = createCockpitViewport( vehicleGroup );
 
 		dirLight.target = vehicleGroup;
 
@@ -4242,7 +4388,7 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 		// No lapTimer — free-roam has no track/laps.
 		gameState = {
 			vehicle, vehicleGroup, vehicleModel, vehicleModelMinY, vehicleScale: 1,
-			particles, driftMarks, audio, radio, vehicleLights, vehicleFlag, contactListener
+			particles, driftMarks, audio, radio, vehicleLights, vehicleFlag, contactListener, cockpitViewport
 		};
 
 	};
@@ -4287,12 +4433,19 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 						// which caused it to sink into or float above the
 						// real floor as it resized.
 						gameState.vehicleModel.position.y = gameState.vehicleModelMinY * ( 1 - s );
+						// Cockpit viewport isn't parented under vehicleModel
+						// (it needs to stay upright/independent of the model's
+						// own ground-pinning offset above), so its own scale
+						// needs the same live update explicitly.
+						gameState.cockpitViewport.setScale( s );
 
 					}
 
 					const radioBtn = arManager.getRadioButtons();
 					if ( radioBtn.next ) { stopBgMusic(); gameState.radio.next(); }
 					if ( radioBtn.toggle ) { stopBgMusic(); gameState.radio.togglePlayPause(); }
+
+					if ( arManager.getCameraToggle() ) gameState.cockpitViewport.toggle();
 
 					if ( arManager.getHeadlightToggle() ) toggleHeadlights( gameState.vehicleLights );
 					if ( arManager.getHazardToggle() ) toggleHazards( gameState.vehicleLights );
@@ -4325,6 +4478,7 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 
 			}
 
+			if ( gameState ) gameState.cockpitViewport.render( renderer, scene );
 			renderer.render( scene, placeholderCamera );
 
 		}
