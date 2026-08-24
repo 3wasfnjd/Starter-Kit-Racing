@@ -2714,7 +2714,13 @@ function updateKinematicTrackAI( drivers, path, dt, racing ) {
 
 			const targetAngle = Math.atan2( dx, dz );
 			let angleDiff = targetAngle - d.heading;
-			angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
+			// Wrap to (-PI, PI]. NOTE: `((x+PI)%(2*PI))-PI` alone is
+			// broken in JavaScript for x below -PI, because JS `%` keeps
+			// the sign of the dividend (unlike e.g. Python's modulo) —
+			// see the normalizeAngle() comment in AIController.js for the
+			// full writeup and a real-physics repro. The extra
+			// `+2*PI)%(2*PI)` forces a non-negative intermediate first.
+			angleDiff = ( ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) + Math.PI * 2 ) % ( Math.PI * 2 ) ) - Math.PI;
 
 			d.heading += THREE.MathUtils.clamp( angleDiff, - TURN_RATE * dt, TURN_RATE * dt );
 
@@ -3587,7 +3593,13 @@ function updateKinematicArenaAI( drivers, dt, racing, padHalf ) {
 
 			const targetAngle = Math.atan2( dx, dz );
 			let angleDiff = targetAngle - d.heading;
-			angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
+			// Wrap to (-PI, PI]. NOTE: `((x+PI)%(2*PI))-PI` alone is
+			// broken in JavaScript for x below -PI, because JS `%` keeps
+			// the sign of the dividend (unlike e.g. Python's modulo) —
+			// see the normalizeAngle() comment in AIController.js for the
+			// full writeup and a real-physics repro. The extra
+			// `+2*PI)%(2*PI)` forces a non-negative intermediate first.
+			angleDiff = ( ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) + Math.PI * 2 ) % ( Math.PI * 2 ) ) - Math.PI;
 			d.heading += THREE.MathUtils.clamp( angleDiff, - TURN_RATE * dt, TURN_RATE * dt );
 
 		}

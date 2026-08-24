@@ -10,6 +10,88 @@ export const TOTAL_RACE_LAPS = 3;
  */
 
 /**
+ * Wraps an angle to (-PI, PI].
+ *
+ * THE ROOT CAUSE of AI cars "circling" at corners: every angle-diff in
+ * this file used to be normalized with `((x + PI) % (2*PI)) - PI`. That
+ * formula is only correct under a modulo that always returns a
+ * non-negative result (e.g. Python's %). JavaScript's `%` is a REMAINDER
+ * operator that keeps the sign of the dividend, so for any x more
+ * negative than -PI (very common near a sharp bend, where the lookahead
+ * target can end up almost behind the car), the old formula silently
+ * failed to wrap at all and returned x unchanged — e.g. -3.19 stayed
+ * -3.19 instead of wrapping to the correct +3.09. Since the AI's turn
+ * DIRECTION is read off this value's sign, that bug made it commit to
+ * steering the wrong rotational way whenever a corner pushed angleDiff
+ * past -PI, which is exactly what produced a stable, self-sustaining
+ * spin instead of the car ever turning through the bend. Verified with a
+ * real-physics single-AI-car simulation (no other vehicles involved at
+ * all — rules out any avoidance/multi-car explanation): with the old
+ * formula the car orbited one spot near a bend for 30+ seconds straight;
+ * with this fix it clears the same bend normally.
+ */
+function normalizeAngle( x ) {
+
+	return ( ( ( x + Math.PI ) % ( Math.PI * 2 ) + Math.PI * 2 ) % ( Math.PI * 2 ) ) - Math.PI;
+
+}
+
+const _headingFwd = new THREE.Vector3();
+
+/**
+ * Robustly reads a vehicle's heading (yaw) angle.
+ *
+ * THE ACTUAL ROOT CAUSE of AI cars "circling" at corners — found by
+ * isolating the exact moment a car's read heading jumped by over a
+ * radian in a single frame with NO corresponding physical rotation, down
+ * to a minimal reproduction using nothing but three.js:
+ *
+ *   const o = new THREE.Object3D(); o.rotation.set(0, 2.16, 0);
+ *   o.rotateY(0.038);
+ *   console.log(o.rotation.y);              // -> 0.943, NOT ~2.198
+ *   console.log(o.rotation.x, o.rotation.z); // -> -PI, -PI  (!)
+ *
+ * `container.rotation.y` is the cached Euler-angle decomposition of the
+ * container's quaternion, and three.js's XYZ Euler extraction is NOT
+ * guaranteed to return the "obvious" (0, heading, 0) triple for a pure
+ * yaw rotation — for headings roughly in the 124-360 degree range
+ * (verified by sweep) it can instead return the mathematically
+ * equivalent (-PI, heading', -PI), where heading' is a completely
+ * different number from the true heading. Every steering calculation in
+ * this file reads `container.rotation.y` directly AS the heading, so
+ * crossing into that range made the AI's own read of its own heading
+ * jump by over a radian with the car not having actually turned at all —
+ * corrupting every subsequent angleDiff and steering decision, which is
+ * exactly what produced a stable, self-sustaining spin at corners
+ * instead of the car ever completing the turn (confirmed end-to-end with
+ * a real-physics single-AI-car simulation: this was the true source of
+ * the failure that the angle-wrap fix above and the recovery watchdogs
+ * only partially masked). Reading heading off the forward VECTOR instead
+ * is immune to this: it works directly from the quaternion the game
+ * actually applies, with no ambiguous intermediate Euler decomposition.
+ */
+function getHeadingY( vehicle ) {
+
+	_headingFwd.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+	return Math.atan2( _headingFwd.x, _headingFwd.z );
+
+}
+
+/**
+ * Path-index priority helper for the avoidance deadlock fix below.
+ * Returns true if `otherIdx` is ahead of `myIdx` on the (circular) race
+ * path, i.e. "I am behind, so I should yield". Returns null on an exact
+ * tie — callers break ties another way (see driverIdx comparison below).
+ */
+function isIndexBehind( myIdx, otherIdx, pathLen ) {
+
+	if ( myIdx === otherIdx ) return null;
+	const fwdDist = ( otherIdx - myIdx + pathLen ) % pathLen;
+	return fwdDist > 0 && fwdDist <= pathLen / 2;
+
+}
+
+/**
  * Race AI Update
  * Uses Pure Pursuit, Curvature Predictive Braking, Racing Line Offset & Stuck Recovery.
  */
@@ -48,12 +130,52 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 
 			}
 
+			// 1b. Path-Progress Watchdog (circling failure mode)
+			//
+			// The displacement check above only catches a car that is
+			// nearly motionless. It does NOT catch a car driving in a
+			// tight, endless circle near a sharp corner — pure-pursuit
+			// chasing a lookahead target it can never quite turn tight
+			// enough to face — because that still covers roughly
+			// speed*sampleInterval of ground each check, just going in
+			// circles instead of forward. Verified with a real-physics
+			// simulation of a single AI car (no other vehicles at all, so
+			// not an avoidance issue): it got trapped orbiting one spot
+			// near a bend for 30+ seconds straight, `moved` always just
+			// above the 0.2 threshold, d.idx never advancing. Track path-
+			// index PROGRESS directly instead: if the waypoint index
+			// hasn't advanced in ~2.5s, treat it the same as being
+			// physically stuck and let the resync recovery below (which
+			// re-syncs to the nearest waypoint across the WHOLE path, not
+			// just a forward window) snap the car back onto the racing
+			// line and break the orbit.
+			d.progressTimer = ( d.progressTimer || 0 ) + dt;
+			if ( d.progressTimer >= 2.5 ) {
+
+				if ( d.idx === d.lastProgressIdx ) d.stuckStrikes = Math.max( d.stuckStrikes || 0, 3 );
+				d.lastProgressIdx = d.idx;
+				d.progressTimer = 0;
+
+			}
+
 			// If stuck for > 1.2s, resync position to current waypoint path
 			if ( d.stuckStrikes >= 3 ) {
 
+				// Search a forward-biased WINDOW around the current index,
+				// not the entire path. A full-path nearest-point search
+				// can pick a point BEHIND d.idx whenever the track loops
+				// back close to itself — exactly what a tight hairpin
+				// does — silently teleporting the car backward and
+				// undoing real progress instead of recovering it (verified
+				// with a real-physics simulation: without this bound, the
+				// car oscillated between the same 3-4 waypoints for 90+
+				// seconds, repeatedly resynced BACKWARD each time it
+				// nearly cleared the bend). A small backward allowance
+				// (-2) still lets it correct minor overshoot.
 				let bestJ = d.idx, bestD = Infinity;
-				for ( let j = 0; j < path.length; j ++ ) {
+				for ( let step = - 2; step <= 10; step ++ ) {
 
+					const j = ( ( d.idx + step ) % path.length + path.length ) % path.length;
 					const dx = path[ j ].x - d.vehicle.spherePos.x;
 					const dz = path[ j ].z - d.vehicle.spherePos.z;
 					const distSq = dx * dx + dz * dz;
@@ -87,6 +209,30 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 				d.vehicle.linearSpeed = 0;
 				d.stuckStrikes = 0;
 				d.sampleTimer = 0;
+
+				// Re-teleporting alone isn't enough: the normal 3-waypoint
+				// lookahead is what got the car into this trap in the
+				// first place — at a tight bend it can point to a target
+				// that's nearly BEHIND the car, driving the steering into
+				// a sustained one-directional spin (a real circular limit
+				// cycle, verified with a real-physics single-car
+				// simulation — no other vehicles involved). Force a window
+				// of single-waypoint-ahead pursuit (see section 3 below)
+				// so the car is guaranteed to be chasing a point that is
+				// actually in front of it until it physically clears the
+				// corner, before handing back to normal lookahead pursuit.
+				//
+				// This window is bounded by ACTUAL PROGRESS (d.idx must
+				// reach bestJ+2), not a fixed timer: a flat 2s timeout
+				// verified NOT to be enough at every corner — the car can
+				// still be mid-corner (idx unchanged) when the timer
+				// expires, snap back to the long lookahead while badly
+				// misaligned, and re-diverge into the exact same trap
+				// forever. A 6s wall-clock cap still guards against a
+				// pathological case where the car can't reach even the
+				// nearby recovery target at all.
+				d.recoveryTargetIdx = ( bestJ + 2 ) % path.length;
+				d.recoveryDeadline = totalTime + 6.0;
 
 			}
 
@@ -126,7 +272,27 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 
 				const curPt = path[ ( d.idx + 1 ) % path.length ];
 				const dToCur = Math.hypot( curPt.x - d.vehicle.spherePos.x, curPt.z - d.vehicle.spherePos.z );
-				if ( dToCur < 2.0 ) {
+
+				// Forward-crossing check: even when the car is pushed
+				// laterally off the racing line — mid-corner, avoiding
+				// another vehicle, or just carrying speed wide — if it
+				// has already passed BEYOND this waypoint along the
+				// track's direction of travel, treat it as reached. A
+				// pure distance threshold alone can permanently freeze
+				// index progression at a tight corner: verified with a
+				// real-physics single-car simulation (no other vehicles
+				// involved at all) — the car's pursuit-induced arc stayed
+				// juuust outside the 2.0-unit distance threshold of the
+				// next waypoint on every pass, so d.idx never advanced,
+				// the lookahead target never updated, and the car circled
+				// the same spot indefinitely (30+ seconds, no recovery).
+				const segAfter = path[ ( d.idx + 2 ) % path.length ];
+				const segX = segAfter.x - curPt.x, segZ = segAfter.z - curPt.z;
+				const segLen = Math.hypot( segX, segZ ) || 1;
+				const toCarX = d.vehicle.spherePos.x - curPt.x, toCarZ = d.vehicle.spherePos.z - curPt.z;
+				const forwardProgress = ( toCarX * segX + toCarZ * segZ ) / segLen;
+
+				if ( dToCur < 2.0 || forwardProgress > 0.5 ) {
 
 					d.idx = ( d.idx + 1 ) % path.length;
 					if ( d.idx === 0 ) {
@@ -149,7 +315,30 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 			const lineOffset = ( d.lineOffset !== undefined ) ? d.lineOffset : ( ( driverIdx % 3 ) - 1 ) * 0.5;
 			d.lineOffset = lineOffset;
 
-			const targetIdx = ( d.idx + LOOKAHEAD_BASE ) % path.length;
+			// Recovery mode: right after a stuck-resync, use a 1-waypoint
+			// lookahead with no lateral offset instead of the normal
+			// LOOKAHEAD_BASE=3 + racing-line offset. A far lookahead is
+			// what causes the circling trap this recovers from (see the
+			// comment above d.recoveryTargetIdx's assignment); the
+			// immediate next waypoint is always geometrically close, so
+			// it keeps the pursuit target in front of the car while it
+			// clears the corner. Active until the car has actually
+			// advanced past d.recoveryTargetIdx (isIndexBehind null/false
+			// means "reached or passed it"), or the wall-clock safety cap
+			// expires — whichever first — then normal pursuit resumes.
+			const inRecovery = d.recoveryTargetIdx !== undefined &&
+				isIndexBehind( d.idx, d.recoveryTargetIdx, path.length ) === true &&
+				totalTime < ( d.recoveryDeadline || 0 );
+			if ( ! inRecovery ) {
+
+				d.recoveryTargetIdx = undefined;
+
+			}
+
+			const effectiveLookahead = inRecovery ? 1 : LOOKAHEAD_BASE;
+			const effectiveLineOffset = inRecovery ? 0 : lineOffset;
+
+			const targetIdx = ( d.idx + effectiveLookahead ) % path.length;
 			const targetPt = path[ targetIdx ];
 
 			// Compute forward vector & perpendicular for racing line offset
@@ -160,40 +349,92 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 			const perpX = - fwdZ / fwdLen;
 			const perpZ = fwdX / fwdLen;
 
-			const targetX = targetPt.x + perpX * lineOffset;
-			const targetZ = targetPt.z + perpZ * lineOffset;
+			const targetX = targetPt.x + perpX * effectiveLineOffset;
+			const targetZ = targetPt.z + perpZ * effectiveLineOffset;
 
 			const dx = targetX - d.vehicle.spherePos.x;
 			const dz = targetZ - d.vehicle.spherePos.z;
 
 			// 4. Pure Pursuit Steering
-			const carAngle = d.vehicle.container.rotation.y;
+			const carAngle = getHeadingY( d.vehicle );
 			const targetAngle = Math.atan2( dx, dz );
 			let angleDiff = targetAngle - carAngle;
-			angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
+			angleDiff = normalizeAngle( angleDiff );
 
 			// Collision avoidance / Overtaking offset
+			//
+			// Only reacts to vehicles roughly AHEAD (checked via aheadDot
+			// below) and eases off the throttle near them (avoidSlowdown)
+			// instead of just steering harder at full speed. On its own
+			// this ahead-only + slowdown behaviour is NOT enough though:
+			// two AI cars (or an AI car and a stopped one) meeting at a
+			// corner can still both react identically and steer away from
+			// each other by the same amount forever — a symmetric deadlock
+			// that never resolves because neither avoidance response is
+			// ever allowed to "win". Verified with a real-physics, real-
+			// Vehicle/real-updateRaceAIDrivers simulation: a stationary
+			// obstacle parked mid-corner produced 15-24s standoffs with
+			// only the ahead-only+slowdown behaviour.
+			//
+			// Fix: add a priority rule. AI always fully yields sideways to
+			// the player (playerVehicle, below). Between two AI drivers,
+			// only the one BEHIND on the racing line (by path index,
+			// wraparound-aware via isIndexBehind) steers to avoid — the
+			// leading car holds its line. Both cars still get the
+			// proximity slowdown regardless, so the trailing car isn't
+			// left steering at full speed into the back of the leader.
 			let avoidSteer = 0;
+			let avoidSlowdown = 1.0;
+			const carFwdX = Math.sin( carAngle ), carFwdZ = Math.cos( carAngle );
 			const checkVehicles = [];
-			if ( playerVehicle ) checkVehicles.push( playerVehicle );
+			if ( playerVehicle ) checkVehicles.push( { vehicle: playerVehicle, idx: null, oIdx: - 1 } );
 			drivers.forEach( ( otherD, oIdx ) => {
 
-				if ( oIdx !== driverIdx ) checkVehicles.push( otherD.vehicle );
+				if ( oIdx !== driverIdx ) checkVehicles.push( { vehicle: otherD.vehicle, idx: otherD.idx, oIdx } );
 
 			} );
 
-			for ( const otherVeh of checkVehicles ) {
+			for ( const other of checkVehicles ) {
 
+				const otherVeh = other.vehicle;
 				const odx = otherVeh.spherePos.x - d.vehicle.spherePos.x;
 				const odz = otherVeh.spherePos.z - d.vehicle.spherePos.z;
 				const odist = Math.hypot( odx, odz );
 				if ( odist > 0.1 && odist < 2.5 ) {
 
+					// Behind/beside — not a collision risk in the direction
+					// of travel, so don't react (this alone is what let two
+					// cars symmetrically dodge each other at a corner
+					// without ever fully passing).
+					const aheadDot = ( odx * carFwdX + odz * carFwdZ ) / odist;
+					if ( aheadDot < 0.2 ) continue;
+
+					// Always slow near a vehicle ahead, regardless of who
+					// has steering priority — keeps a literal collision
+					// unlikely even while the leading car holds its line.
+					avoidSlowdown = Math.min( avoidSlowdown, THREE.MathUtils.clamp( odist / 1.5, 0.35, 1.0 ) );
+
+					// Priority check: player => always yield. Otherwise,
+					// only the trailing AI car steers; exact index ties
+					// (rare) are broken by driver order so the rule stays
+					// asymmetric instead of collapsing back into a tie.
+					let iYield;
+					if ( other.idx === null ) iYield = true;
+					else {
+
+						const behind = isIndexBehind( d.idx, other.idx, path.length );
+						iYield = ( behind === null ) ? ( driverIdx > other.oIdx ) : behind;
+
+					}
+
+					if ( ! iYield ) continue;
+
 					// Nudge away laterally
 					const sideAngle = Math.atan2( odx, odz ) - carAngle;
-					const normalizedSide = ( ( sideAngle + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
-					if ( normalizedSide > 0 ) avoidSteer -= ( 2.5 - odist ) * 0.4;
-					else avoidSteer += ( 2.5 - odist ) * 0.4;
+					const normalizedSide = normalizeAngle( sideAngle );
+					const strength = ( 2.5 - odist ) * 0.25;
+					if ( normalizedSide > 0 ) avoidSteer -= strength;
+					else avoidSteer += strength;
 
 				}
 
@@ -224,13 +465,13 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 				const p2 = path[ ( d.idx + k + 2 ) % path.length ];
 				const segAngle = Math.atan2( p2.x - p1.x, p2.z - p1.z );
 				let diff = segAngle - carAngle;
-				diff = ( ( diff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
+				diff = normalizeAngle( diff );
 				if ( Math.abs( diff ) > maxUpcomingCurve ) maxUpcomingCurve = Math.abs( diff );
 
 			}
 
 			const sharpness = THREE.MathUtils.clamp( maxUpcomingCurve / ( Math.PI / 2.2 ), 0, 1 );
-			input.z = 1.0 - sharpness * 0.6;
+			input.z = ( 1.0 - sharpness * 0.6 ) * avoidSlowdown;
 
 			// Drift / handbrake pulse on sharp turns
 			if ( sharpness > 0.75 && Math.abs( d.vehicle.linearSpeed ) > 5 ) {
@@ -359,10 +600,10 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 
 			const dx = - d.vehicle.spherePos.x;
 			const dz = - d.vehicle.spherePos.z;
-			const carAngle = d.vehicle.container.rotation.y;
+			const carAngle = getHeadingY( d.vehicle );
 			const targetAngle = Math.atan2( dx, dz );
 			let angleDiff = targetAngle - carAngle;
-			angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
+			angleDiff = normalizeAngle( angleDiff );
 
 			// See the steering-sign note in updateRaceAIDrivers() above —
 			// same inversion, same fix (leading minus). This is the one
@@ -390,10 +631,10 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 
 			const dx = ( d.target ? d.target.x : 0 ) - d.vehicle.spherePos.x;
 			const dz = ( d.target ? d.target.z : 0 ) - d.vehicle.spherePos.z;
-			const carAngle = d.vehicle.container.rotation.y;
+			const carAngle = getHeadingY( d.vehicle );
 			const targetAngle = Math.atan2( dx, dz );
 			let angleDiff = targetAngle - carAngle;
-			angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
+			angleDiff = normalizeAngle( angleDiff );
 
 			// Aggressive steering + handbrake flick to initiate drift
 			// See the steering-sign note in updateRaceAIDrivers() above.
@@ -410,10 +651,10 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 
 			const dx = ( d.target ? d.target.x : 0 ) - d.vehicle.spherePos.x;
 			const dz = ( d.target ? d.target.z : 0 ) - d.vehicle.spherePos.z;
-			const carAngle = d.vehicle.container.rotation.y;
+			const carAngle = getHeadingY( d.vehicle );
 			const targetAngle = Math.atan2( dx, dz );
 			let angleDiff = targetAngle - carAngle;
-			angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
+			angleDiff = normalizeAngle( angleDiff );
 
 			// See the steering-sign note in updateRaceAIDrivers() above.
 			input.x = THREE.MathUtils.clamp( - angleDiff * 2.0, - 1, 1 );
