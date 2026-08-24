@@ -1620,7 +1620,17 @@ function setHighBeam( vehicleLights, on, scale = 1 ) {
 // range proportional to the vehicle's current scale (AR resize control) —
 // a light's `.distance` is in local units and does NOT automatically
 // scale with its parent's transform the way position/rotation do.
-function updateVehicleLights( vehicleLights, dt, scale, isReversing = false ) {
+//
+// hazardScale: optional separate scale for hazards only, defaulting to
+// `scale` when omitted. Needed because AR floating-track/arena pass a
+// `scale` that already has AR_LIGHT_DAMPING baked in (added specifically
+// because the headlights — baseIntensity 500 — were blindingly strong at
+// close range in AR). Hazards start from a much weaker baseIntensity (3),
+// so that same damping on top of AR's already-tiny FIXED_SCALE crushed
+// them down to barely visible. Callers that want hazards undamped (i.e.
+// scaled only by the real AR size, not the extra headlight-only factor)
+// pass the undamped FIXED_SCALE here explicitly.
+function updateVehicleLights( vehicleLights, dt, scale, isReversing = false, hazardScale = null ) {
 
 	if ( ! vehicleLights ) return;
 
@@ -1633,6 +1643,7 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false ) {
 	// to the AR track/arena rather than blowing it out.
 	const s = Math.max( scale, 0.001 );
 	const intensityScale = s;
+	const hs = Math.max( hazardScale ?? scale, 0.001 );
 
 	if ( vehicleLights.headlights ) {
 
@@ -1660,8 +1671,8 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false ) {
 
 		vehicleLights.hazards.forEach( ( h ) => {
 
-			h.light.distance = h.baseDistance * s;
-			h.light.intensity = h.baseIntensity * intensityScale;
+			h.light.distance = h.baseDistance * hs;
+			h.light.intensity = h.baseIntensity * hs;
 
 		} );
 
@@ -2196,7 +2207,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	const world = createPhysicsWorld();
 	let sphereBody, vehicleSpawn, lapTimer = null;
-	let trackPath = null, aiDrivers = [];
+	let trackPath = null, aiDrivers = [], aiExtras = [];
 	let freeRoamHalf = 0;
 
 	if ( freeRoam ) {
@@ -2390,6 +2401,25 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		);
 		freeRoamHalf = roadHalf;
 
+		// AI cars had no flag/headlights/hazards at all in web mode (unlike
+		// the AR floating-track/arena modes, which already do this) — same
+		// fixed Saudi-flag + always-on-hazards treatment as those AR modes,
+		// so every AI car reads the same across every mode.
+		{
+
+			const aiFlagUrl = createSaudiFlagDataUrl();
+			aiExtras = aiDrivers.map( ( d ) => {
+
+				const group = d.vehicle.container;
+				const lights = addVehicleLights( group );
+				lights.hazardsOn = true; // AI always shows hazard/emergency blinkers
+				const flag = addVehicleFlag( group, aiFlagUrl );
+				return { lights, flag };
+
+			} );
+
+		}
+
 		vehicleSpawn = { position: [ 0, 0.5, 0 ], angle: 0 };
 		sphereBody = createSphereBody( world, vehicleSpawn.position );
 
@@ -2446,6 +2476,20 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			const gridSlots = computeGridPositions( spawn, 1 + npcConfigs.length );
 			gridSpawn = gridSlots[ 0 ];
 			aiDrivers = createAIDrivers( npcConfigs, gridSlots, models, scene, world, trackPath );
+
+			// Same gap as free-roam above — race-mode AI cars in web mode had
+			// no flag or lights at all. Fixed Saudi flag + always-on hazards,
+			// matching the AR floating-track/arena modes' AI treatment.
+			const aiFlagUrl = createSaudiFlagDataUrl();
+			aiExtras = aiDrivers.map( ( d ) => {
+
+				const group = d.vehicle.container;
+				const lights = addVehicleLights( group );
+				lights.hazardsOn = true;
+				const flag = addVehicleFlag( group, aiFlagUrl );
+				return { lights, flag };
+
+			} );
 
 		}
 
@@ -2593,6 +2637,20 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 				updateFreeRoamAIDrivers( aiDrivers, dt, freeRoamHalf );
 
 			}
+
+			// AI cars' hazard-blink timing and flag flutter — same per-frame
+			// update the player's own lights/flag get, just applied to each
+			// AI car's own { lights, flag } pair from aiExtras above.
+			for ( let i = 0; i < aiDrivers.length; i ++ ) {
+
+				const extra = aiExtras[ i ];
+				if ( ! extra ) continue;
+				const d = aiDrivers[ i ];
+				updateVehicleLights( extra.lights, dt, 1, d.vehicle.linearSpeed < -0.01 );
+				if ( extra.flag ) extra.flag.updateFlutter( dt, Math.abs( d.vehicle.linearSpeed / MAX_SPEED ) );
+
+			}
+
 			updateVehicleLights( vehicleLights, dt, 1, vehicle.linearSpeed < -0.01 );
 
 			if ( raceState.phase === 'finished' && ! resultsShown ) {
@@ -3409,6 +3467,24 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	scene.add( light );
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.6 ) );
 
+	// dirLight (module-level, top of file) is created once at page load
+	// and stays castShadow=true forever — nothing ever turned it back off
+	// for this mode. So this scene was rendering TWO full shadow-casting
+	// directional lights every single frame: dirLight (4096×4096 map,
+	// still using its NORMAL-mode shadow frustum since only startNormalMode
+	// ever calls dirLight.shadow.camera.left/right/top/bottom) stacked on
+	// top of this mode's own purpose-built `light` above. A second full
+	// shadow-map render pass every frame is real, avoidable GPU cost —
+	// exactly the kind of thing that pushes frame time past a Quest's
+	// ~11ms/frame budget and shows up as the reprojection judder/shake
+	// reported when turning your head after locking the track in. `light`
+	// + the ambient above are the actual intended lighting for this tiny
+	// AR scene, so dirLight is switched off entirely here rather than
+	// just its shadow — it was also double-lighting the scene from a
+	// second directional source at full (3) intensity. Page reload on
+	// exit (see the exit handler below) restores it for the next mode.
+	dirLight.visible = false;
+
 	let raceCtx = null;
 	let confirmed = false;
 
@@ -3643,7 +3719,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 					// real `dt` since those should still feel immediate.
 					const simDt = dt * TIME_SCALE;
 					updateVehicleAndFx( simDt, input, raceCtx.ctx );
-					updateVehicleLights( raceCtx.vehicleLights, dt, raceCtx.arScale, raceCtx.vehicle.linearSpeed < -0.01 );
+					updateVehicleLights( raceCtx.vehicleLights, dt, raceCtx.arScale, raceCtx.vehicle.linearSpeed < -0.01, FIXED_SCALE );
 
 					if ( arManager.getHeadlightToggle() ) toggleHeadlights( raceCtx.vehicleLights );
 					if ( arManager.getHazardToggle() ) toggleHazards( raceCtx.vehicleLights );
@@ -3671,7 +3747,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 						const extra = raceCtx.aiExtras[ i ];
 						raceCtx.ctx.particles.update( simDt, d.vehicle );
 						extra.driftMarks.update( simDt, d.vehicle );
-						updateVehicleLights( extra.lights, dt, raceCtx.arScale, d.vehicle.linearSpeed < -0.01 );
+						updateVehicleLights( extra.lights, dt, raceCtx.arScale, d.vehicle.linearSpeed < -0.01, FIXED_SCALE );
 						if ( extra.flag ) extra.flag.updateFlutter( simDt, Math.abs( d.vehicle.linearSpeed / MAX_SPEED ) );
 
 					} );
@@ -3919,6 +3995,18 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	scene.add( light );
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.6 ) );
 
+	// Same fix as startARFloatingTrack: dirLight (module-level, top of
+	// file) is created once at page load and stays castShadow=true
+	// forever unless something turns it off — nothing did for this mode,
+	// so it was rendering a second full shadow-casting pass every frame
+	// on top of this mode's own `light` above (and double-lighting the
+	// scene from two directional sources at once). That extra shadow
+	// pass is real, avoidable GPU cost — the kind that pushes frame time
+	// past a Quest's budget and shows up as reprojection judder when
+	// turning your head after locking the arena in. Page reload on exit
+	// restores it for the next mode.
+	dirLight.visible = false;
+
 	// ── Placement-phase preview: lightweight kinematic car + AI ──
 	const previewContainer = new THREE.Group();
 	const previewModel = ( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] ).clone();
@@ -4151,7 +4239,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 					// real dt so controls and blink rate feel normal.
 					const simDt = dt * TIME_SCALE;
 					updateVehicleAndFx( simDt, input, raceCtx.ctx );
-					updateVehicleLights( raceCtx.vehicleLights, dt, raceCtx.arScale, raceCtx.vehicle.linearSpeed < -0.01 );
+					updateVehicleLights( raceCtx.vehicleLights, dt, raceCtx.arScale, raceCtx.vehicle.linearSpeed < -0.01, FIXED_SCALE );
 
 					if ( arManager.getHeadlightToggle() ) toggleHeadlights( raceCtx.vehicleLights );
 					if ( arManager.getHazardToggle() ) toggleHazards( raceCtx.vehicleLights );
@@ -4173,7 +4261,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 						const extra = raceCtx.aiExtras[ i ];
 						raceCtx.ctx.particles.update( simDt, d.vehicle );
 						extra.driftMarks.update( simDt, d.vehicle );
-						updateVehicleLights( extra.lights, dt, raceCtx.arScale, d.vehicle.linearSpeed < -0.01 );
+						updateVehicleLights( extra.lights, dt, raceCtx.arScale, d.vehicle.linearSpeed < -0.01, FIXED_SCALE );
 						if ( extra.flag ) extra.flag.updateFlutter( simDt, Math.abs( d.vehicle.linearSpeed / MAX_SPEED ) );
 
 					} );
