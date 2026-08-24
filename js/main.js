@@ -624,7 +624,12 @@ function createAsphaltTexture() {
 	const canvas = document.createElement( 'canvas' );
 	canvas.width = canvas.height = size;
 	const ctx = canvas.getContext( '2d' );
-	ctx.fillStyle = '#232326';
+	// Matches the real track's own asphalt tone (0x3a3a40 — the same
+	// value the AR floating arena already samples from the track's
+	// shared palette texture) instead of the previous near-black
+	// #232326, which read visibly darker/flatter than the actual race
+	// track surface.
+	ctx.fillStyle = '#3a3a40';
 	ctx.fillRect( 0, 0, size, size );
 
 	for ( let i = 0; i < 1400; i ++ ) {
@@ -784,6 +789,68 @@ function createSkidMarksTexture( worldSize ) {
 	}
 	ctx.globalAlpha = 1;
 
+	const texture = new THREE.CanvasTexture( canvas );
+	return texture;
+
+}
+
+// Racing curb (kerb) edge marking for the open drift arenas — a white
+// boundary band running just inside the barrier, with red rumble-strip
+// blocks spaced along it, in the same accent red (0xE0621B) already used
+// by buildBarrierSegment's own barrier stripe so the two read as one
+// consistent "track style" rather than two unrelated colors. Painted
+// once across the whole square footprint (same non-repeating-overlay
+// technique as createSkidMarksTexture) so the band traces the actual
+// perimeter regardless of how large the arena is.
+// `worldSize` is the full plane size the texture will be mapped onto;
+// `half` is the arena's own half-size (footprint edge distance from
+// center) in those same world units.
+function createTrackEdgeTexture( worldSize, half ) {
+
+	const size = 1024;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = canvas.height = size;
+	const ctx = canvas.getContext( '2d' );
+
+	const px = size / worldSize; // pixels per world unit
+	const toPx = ( w ) => ( w / worldSize + 0.5 ) * size;
+
+	const bandWidth = Math.max( half * 0.014, 0.4 );  // white band thickness
+	const inset = Math.max( half * 0.01, 0.35 );       // gap between the barrier and the band's outer edge
+	const blockLen = bandWidth * 2.1;                  // length of each red block along the band
+	const gapLen = bandWidth * 1.6;                    // white gap between red blocks
+
+	const outer = half - inset;
+	const inner = outer - bandWidth;
+	const bandPx = bandWidth * px;
+
+	// White boundary band, all 4 sides at once (full-canvas-width/height
+	// strips so the corners overlap cleanly with no gap).
+	ctx.fillStyle = '#f2f2f2';
+	ctx.fillRect( 0, toPx( -outer ), size, bandPx );
+	ctx.fillRect( 0, toPx( inner ), size, bandPx );
+	ctx.fillRect( toPx( -outer ), 0, bandPx, size );
+	ctx.fillRect( toPx( inner ), 0, bandPx, size );
+
+	// Red rumble-strip blocks laid on top at regular intervals.
+	ctx.fillStyle = '#E0621B';
+	const period = blockLen + gapLen;
+	for ( let p = - half; p < half; p += period ) {
+
+		const len = Math.min( blockLen, half - p );
+		if ( len <= 0 ) continue;
+		const lenPx = len * px;
+		const startPx = toPx( p );
+
+		ctx.fillRect( startPx, toPx( -outer ), lenPx, bandPx );
+		ctx.fillRect( startPx, toPx( inner ), lenPx, bandPx );
+		ctx.fillRect( toPx( -outer ), startPx, bandPx, lenPx );
+		ctx.fillRect( toPx( inner ), startPx, bandPx, lenPx );
+
+	}
+
+	// Canvas stays transparent outside the drawn bands — meant to be
+	// layered over the asphalt, not replace it.
 	const texture = new THREE.CanvasTexture( canvas );
 	return texture;
 
@@ -2094,6 +2161,21 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		skidOverlay.position.set( 0, - 0.1195, 0 );
 		scene.add( skidOverlay );
 
+		// Racing curb (white edge line + red rumble-strip blocks), same
+		// style as the actual race track, traced just inside this arena's
+		// own barrier loop.
+		const edgeTexture = createTrackEdgeTexture( groundSize, roadHalf );
+		const edgeOverlay = new THREE.Mesh(
+			new THREE.PlaneGeometry( groundSize, groundSize ),
+			new THREE.MeshStandardMaterial( {
+				map: edgeTexture, transparent: true, roughness: 0.9,
+				metalness: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2,
+			} )
+		);
+		edgeOverlay.rotation.x = - Math.PI / 2;
+		edgeOverlay.position.set( 0, - 0.119, 0 );
+		scene.add( edgeOverlay );
+
 		// Concrete barriers dressing the same line as the invisible
 		// collision walls above (no extra physics needed — the collider's
 		// already there). One gap left open on the +Z side for the
@@ -3082,11 +3164,15 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 		// its own diameter to stay contained.
 		const trackCarBoost = 1;
 
-		const world = createPhysicsWorld( 1.0 );
+	// Gravity scaled down with the track — real 9.81 m/s² acting on
+		// a sphere shrunk to AR-tabletop size is a huge force relative
+		// to its own tiny size, causing violent jitter/bouncing instead
+		// of the car settling naturally onto the track.
+		const world = createPhysicsWorld( arTransform.scale );
 		buildWallColliders( world, null, null, arTransform, trackCarBoost * 1.5 );
 
 		const groundHalfY = Math.max( 0.01 * arTransform.scale, 0.002 );
-		const groundXf = applyArTransform( [ bounds.centerX, - 0.5, bounds.centerZ ], [ 0, 0, 0, 1 ], arTransform );
+		const groundXf = applyArTransform( [ bounds.centerX, - 0.125, bounds.centerZ ], [ 0, 0, 0, 1 ], arTransform );
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents: [ bounds.halfWidth * arTransform.scale, groundHalfY, bounds.halfDepth * arTransform.scale ] } ),
 			motionType: MotionType.STATIC,
@@ -3115,8 +3201,15 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 		// arena's identical fix: a fixed margin doesn't generalize if
 		// the radius ever changes, and this is provably correct instead
 		// of numerically hoping the margin is big enough.
+		// The tiny clearance gap above the ground must scale with
+		// arTransform.scale too — it used to be a flat 0.01m, which at
+		// FIXED_SCALE (0.016) is *bigger* than the whole car (carRadius
+		// ≈ 0.008m here), so the car visibly hovered above the track and
+		// then (under the equally scaled-down, very weak AR gravity)
+		// drifted/settled unevenly — read as "floating or sunk" rather
+		// than sitting flush on the track surface.
 		const groundTopY = groundXf.position[ 1 ] + groundHalfY;
-		playerWorld.position[ 1 ] = groundTopY + carRadius + 0.01;
+		playerWorld.position[ 1 ] = groundTopY + carRadius + 0.01 * arTransform.scale;
 		const sphereBody = createSphereBody( world, playerWorld.position, carRadius );
 
 		const vehicle = new Vehicle();
@@ -3276,6 +3369,21 @@ function buildDriftPad( half, models ) {
 	groundMesh.rotation.x = - Math.PI / 2;
 	pad.add( groundMesh );
 
+	// Same white-edge-line + red-rumble-strip curb as the web free-roam
+	// arena, traced just inside the barrier loop below — keeps the pad's
+	// edge styling consistent with the actual race track across web/AR.
+	const edgeTexture = createTrackEdgeTexture( half * 2, half );
+	const edgeOverlay = new THREE.Mesh(
+		new THREE.PlaneGeometry( half * 2, half * 2 ),
+		new THREE.MeshStandardMaterial( {
+			map: edgeTexture, transparent: true, roughness: 0.9,
+			metalness: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2,
+		} )
+	);
+	edgeOverlay.rotation.x = - Math.PI / 2;
+	edgeOverlay.position.y = 0.001;
+	pad.add( edgeOverlay );
+
 	buildBarrierLoop( pad, null, half, 0, 4 );
 
 	return pad;
@@ -3422,10 +3530,13 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		arenaGroup.remove( previewContainer );
 		previewAI.forEach( ( d ) => arenaGroup.remove( d.model ) );
 
-		const world = createPhysicsWorld( 1.0 );
+		// Gravity scaled down with the arena — see the floating track's
+		// own comment on why (real 9.81 m/s² on a tiny sphere causes
+		// violent jitter instead of the car settling naturally).
+		const world = createPhysicsWorld( arTransform.scale );
 
 		const groundHalfY = Math.max( 0.01 * arTransform.scale, 0.002 );
-		const groundXf = applyArTransform( [ 0, 0, 0 ], [ 0, 0, 0, 1 ], arTransform );
+		const groundXf = applyArTransform( [ 0, - 0.125, 0 ], [ 0, 0, 0, 1 ], arTransform );
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents: [ PAD_HALF * arTransform.scale, groundHalfY, PAD_HALF * arTransform.scale ] } ),
 			motionType: MotionType.STATIC,
@@ -3486,7 +3597,11 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		// knife-edge-penetration "stuck in mud" problem.
 		const groundTopY = groundXf.position[ 1 ] + groundHalfY;
 		const playerWorld = applyArTransform( [ 0, 0.5, 0 ], [ 0, 0, 0, 1 ], arTransform );
-		playerWorld.position[ 1 ] = groundTopY + carRadius + 0.01;
+		// Same fix as the floating track: this clearance gap must scale
+		// with arTransform.scale, or it dwarfs the tiny AR carRadius and
+		// the car spawns visibly floating above (then unevenly settling
+		// into) the arena floor instead of sitting flush on it.
+		playerWorld.position[ 1 ] = groundTopY + carRadius + 0.01 * arTransform.scale;
 		const sphereBody = createSphereBody( world, playerWorld.position, carRadius );
 
 		// Face the same direction the arena itself was rotated to when
