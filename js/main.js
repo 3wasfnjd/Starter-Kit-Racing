@@ -3320,7 +3320,14 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	//    physics/AI/particle updates below (see simDt), never to input
 	//    reading or blink timers, so controls/UI still feel responsive
 	//    at a normal rate.
-	const FIXED_SCALE = 0.02;
+	// Bumped up (0.02 → 0.026, ~30%) per feedback that the car should read
+	// a bit bigger — this is the ONE shared knob (see the CAR_VISUAL_BOOST
+	// removal note above): it scales arRoot as a whole, so car, track,
+	// and every decoration piece all grow together, keeping their
+	// relative proportions exactly as they were instead of just the car
+	// alone getting bigger (which is what caused the original car/AI/
+	// decoration size-mismatch bug this session started by fixing).
+	const FIXED_SCALE = 0.026;
 	// Reset to the game's base speed (1 = identical pacing to NORMAL/web
 	// mode) — an earlier 2.5x was tuned to fix a reported "feels slow"
 	// issue at very small AR scale, but overshot and read as sped-up.
@@ -3848,7 +3855,9 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	// of FIXED_SCALE being the one, consistent size knob) and why they're
 	// all safe to change freely (purely cosmetic/pacing, no
 	// physics-stability impact).
-	const FIXED_SCALE = 0.03;
+	// Bumped up (0.03 → 0.039, ~30%) — same reasoning and same relative
+	// bump as the identical change in startARFloatingTrack.
+	const FIXED_SCALE = 0.039;
 	// Reset to the game's base speed — see the identical note in
 	// startARFloatingTrack.
 	const TIME_SCALE = 1;
