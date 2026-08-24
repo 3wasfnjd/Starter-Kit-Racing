@@ -8,7 +8,7 @@ import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath, NPC_TRUCKS, TRACK_CELLS, GRID_SCALE } from './Track.js';
 import { updateRaceAIDrivers, updateFreeRoamAIDrivers } from './AIController.js';
-import { buildWallColliders, createSphereBody, applyArTransform } from './Physics.js';
+import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { DriftMarks } from './DriftMarks.js';
 import { GameAudio } from './Audio.js';
@@ -2768,19 +2768,6 @@ function updateKinematicTrackAI( drivers, path, dt, racing ) {
 
 }
 
-// Converts a LOCAL (pre-transform) {position:[x,y,z], angle} into WORLD
-// space via the same yaw-only arTransform convention Physics.js uses,
-// for spawning real physics bodies to match where the track visually
-// ended up after being grabbed/moved/scaled.
-function arTransformSpawn( position, angle, arTransform ) {
-
-	const localQuat = [ 0, Math.sin( angle / 2 ), 0, Math.cos( angle / 2 ) ];
-	const { position: wp, quaternion: wq } = applyArTransform( position, localQuat, arTransform );
-	const yaw = new THREE.Euler().setFromQuaternion( new THREE.Quaternion( wq[ 0 ], wq[ 1 ], wq[ 2 ], wq[ 3 ] ), 'YXZ' ).y;
-	return { position: wp, angle: yaw };
-
-}
-
 // ─── AR floating 3D mode menu ───────────────────────────────
 // Shown immediately on entering AR — three pointable/selectable cards
 // (room-drive / floating track / floating arena), replacing the old
@@ -3306,134 +3293,102 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			// (crashcat's rigid bodies live in absolute world space, not
 			// arRoot's own transform, so they'd desync from any further
 			// grab — which is why resize/move are locked at this stage).
-			const yaw = new THREE.Euler().setFromQuaternion( arRoot.quaternion, 'YXZ' ).y;
-			const yawQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
-			const arTransform = { position: arRoot.position.clone(), quaternion: yawQuat, scale: FIXED_SCALE };
+			// Physics now runs at REAL scale — the exact same numbers as
+			// NORMAL/web mode (real 9.81 gravity, real 0.5m car radius,
+			// real track dimensions), instead of the previous approach of
+			// shrinking the whole physics simulation down to tabletop
+			// size. A millimeter-scale rigid-body sim fights crashcat's
+			// own distance tolerances (collision margins, sleep
+			// thresholds) and Vehicle.js's own driving-feel constants
+			// (suspension, grip, drift thresholds) — both tuned in
+			// real-world units — which is what caused the reported "car
+			// behaves oddly" symptom (floating/sinking, jitter, erratic
+			// handling), even after earlier attempts to patch around it by
+			// scaling those tolerances down too (see createPhysicsWorld's
+			// own comment). `arRoot` already does the one thing actually
+			// needed for the AR "tabletop" look — a pure VISUAL
+			// scale+placement transform — so simulating underneath it at
+			// full scale and simply parenting the car under `arRoot` (see
+			// vehicleGroup below) lets three.js handle the shrink
+			// automatically, with no manual coordinate scaling anywhere in
+			// this function — exactly how NORMAL mode's own track/car
+			// coordinates already work, just wrapped in one extra parent
+			// transform for placement.
+			const world = createPhysicsWorld();
+			buildWallColliders( world, null, null );
 
-		// No boost here — verified against the original game's own
-		// car-to-track-width ratio (CELL_RAW×GRID_SCALE): boost=1
-		// matches NORMAL mode's proportions exactly. The wall height
-		// below still gets its own safety multiplier independent of
-		// this, since even an unboosted car needs a wall taller than
-		// its own diameter to stay contained.
-		const trackCarBoost = 1;
+			// Same ground-collider sizing as NORMAL mode's own track
+			// branch (see startNormalMode): padded well beyond the track's
+			// own footprint so the car can't drive off the edge into the
+			// void.
+			const groundSize = Math.max( bounds.halfWidth, bounds.halfDepth ) * 2 + 20;
+			const roadHalf = groundSize / 2;
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents: [ roadHalf, 0.01, roadHalf ] } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position: [ bounds.centerX, - 0.125, bounds.centerZ ],
+				friction: 5.0,
+				restitution: 0.0,
+			} );
 
-	// Gravity scaled down with the track — real 9.81 m/s² acting on
-		// a sphere shrunk to AR-tabletop size is a huge force relative
-		// to its own tiny size, causing violent jitter/bouncing instead
-		// of the car settling naturally onto the track.
-		const world = createPhysicsWorld( arTransform.scale );
-		buildWallColliders( world, null, null, arTransform, trackCarBoost * 1.5 );
+			// Real 0.5m car radius — createSphereBody's own NORMAL-mode
+			// default, no AR-specific scaling.
+			const gridSlot = computeGridPositions( spawn, 1 )[ 0 ];
+			const sphereBody = createSphereBody( world, gridSlot.position );
 
-		const groundHalfY = Math.max( 0.01 * arTransform.scale, 0.002 );
-		const groundXf = applyArTransform( [ bounds.centerX, - 0.125, bounds.centerZ ], [ 0, 0, 0, 1 ], arTransform );
-		rigidBody.create( world, {
-			shape: box.create( { halfExtents: [ bounds.halfWidth * arTransform.scale, groundHalfY, bounds.halfDepth * arTransform.scale ] } ),
-			motionType: MotionType.STATIC,
-			objectLayer: world._OL_STATIC,
-			position: groundXf.position,
-			friction: 5.0,
-			restitution: 0.0,
-		} );
+			const vehicle = new Vehicle();
+			vehicle.rigidBody = sphereBody;
+			vehicle.physicsWorld = world;
+			vehicle.spawnPos = gridSlot.position;
+			vehicle.spawnAngle = gridSlot.angle;
+			vehicle.spherePos.set( gridSlot.position[ 0 ], gridSlot.position[ 1 ], gridSlot.position[ 2 ] );
+			vehicle.prevModelPos.set( gridSlot.position[ 0 ], 0, gridSlot.position[ 2 ] );
+			vehicle.container.rotation.y = gridSlot.angle;
 
-		// Physics sphere scaled to match the track instead of the
-		// hardcoded real-0.5m default — otherwise it's comically
-		// oversized relative to a tabletop-sized loop. Same boost factor
-		// as the floating arena, applied here too for consistency
-		// between both AR modes.
-		const carRadius = Math.max( 0.5 * arTransform.scale * trackCarBoost, 0.003 );
+			const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
+			// Parented under arRoot (not scene) — vehicle.container.position
+			// is set directly from spherePos each frame (see Vehicle.js),
+			// which is now in the SAME real-scale "track-local" coordinate
+			// system trackGroup's own pieces already use underneath arRoot.
+			// arRoot's own scale+placement transform therefore shrinks and
+			// places the car exactly in sync with the track, automatically,
+			// every frame — no per-spawn or per-frame coordinate transform
+			// needed at all.
+			arRoot.add( vehicleGroup );
+			addCustomTextDecals( vehicleGroup, customText );
+			const vehicleLights = addVehicleLights( vehicleGroup );
+			const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 
-		// Spawn slightly behind the finish line (same grid convention as
-		// the web race mode) instead of exactly on top of it — spawning
-		// exactly at the line risked overlapping finish-line-specific
-		// geometry/colliders, a likely cause of the car getting shoved
-		// backward on the very first physics step.
-		const gridSlot = computeGridPositions( spawn, 1 )[ 0 ];
-		const playerWorld = arTransformSpawn( gridSlot.position, gridSlot.angle, arTransform );
-		// Spawn Y computed relative to the actual ground top plus this
-		// radius (not a fixed margin) — same reasoning as the floating
-		// arena's identical fix: a fixed margin doesn't generalize if
-		// the radius ever changes, and this is provably correct instead
-		// of numerically hoping the margin is big enough.
-		// The tiny clearance gap above the ground must scale with
-		// arTransform.scale too — it used to be a flat 0.01m, which at
-		// FIXED_SCALE (0.016) is *bigger* than the whole car (carRadius
-		// ≈ 0.008m here), so the car visibly hovered above the track and
-		// then (under the equally scaled-down, very weak AR gravity)
-		// drifted/settled unevenly — read as "floating or sunk" rather
-		// than sitting flush on the track surface.
-		const groundTopY = groundXf.position[ 1 ] + groundHalfY;
-		playerWorld.position[ 1 ] = groundTopY + carRadius + 0.01 * arTransform.scale;
-		const sphereBody = createSphereBody( world, playerWorld.position, carRadius );
+			const audio = new GameAudio();
+			audio.init( renderer.xr.getCamera(), vehicleGroup );
+			audio.forceUnlock();
+			const radio = new Radio( audio.listener, vehicleGroup );
 
-		const vehicle = new Vehicle();
-		vehicle.sphereRadius = carRadius;
-		vehicle.rigidBody = sphereBody;
-		vehicle.physicsWorld = world;
-		vehicle.spawnPos = [ playerWorld.position[ 0 ], playerWorld.position[ 1 ], playerWorld.position[ 2 ] ];
-		vehicle.spawnAngle = playerWorld.angle;
-		vehicle.spherePos.set( playerWorld.position[ 0 ], playerWorld.position[ 1 ], playerWorld.position[ 2 ] );
-		vehicle.prevModelPos.set( playerWorld.position[ 0 ], 0, playerWorld.position[ 2 ] );
-		vehicle.container.rotation.y = playerWorld.angle;
+			// Smoke particle SIZE (not position — Particles.js now reads
+			// world-space position itself, see its own comment) is still
+			// worth shrinking, purely cosmetically, to match the tiny
+			// visual scale — same numeric proportion as before.
+			const particles = new SmokeTrails( scene, Math.max( FIXED_SCALE * 5, 0.02 ) );
+			const driftMarks = new DriftMarks( scene, 'ar-floating-track' );
 
-		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
-		scene.add( vehicleGroup );
-		addCustomTextDecals( vehicleGroup, customText );
-		const vehicleLights = addVehicleLights( vehicleGroup );
-		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+			const _forward = new THREE.Vector3();
+			const contactListener = {
+				onContactAdded( bodyA, bodyB ) {
 
-		// Room-drive AR mode's version of this fix assumes a FIXED
-		// physics sphere radius (always 0.5, never changes even when
-		// the car is visually resized) — so container.position.y always
-		// represents "0.5 below spherePos", and the model's natural
-		// resting point relative to container stays at vehicleModelMinY
-		// (unscaled), which is correct there because that's exactly
-		// where NORMAL mode's own wheels already sit by construction.
-		// Here carRadius itself is scaled (unlike room-drive), so
-		// container's own origin is already ground level BY
-		// CONSTRUCTION (it's computed as spherePos.y − carRadius) —
-		// the target for the model's lowest point is local Y=0, not
-		// vehicleModelMinY, which was the real remaining bug.
-		const vehicleModel = vehicleGroup.children[ 0 ];
-		const vehicleModelMinY = new THREE.Box3().setFromObject( vehicleModel ).min.y;
-		const trackVisualScale = arTransform.scale * trackCarBoost;
-		vehicleModel.scale.setScalar( trackVisualScale );
-		vehicleModel.position.y = - vehicleModelMinY * trackVisualScale;
+					if ( bodyA !== sphereBody && bodyB !== sphereBody ) return;
+					_forward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+					_forward.y = 0;
+					_forward.normalize();
+					const impactVelocity = Math.abs( vehicle.modelVelocity.dot( _forward ) );
+					audio.playImpact( impactVelocity );
 
-		const audio = new GameAudio();
-		audio.init( renderer.xr.getCamera(), vehicleGroup );
-		audio.forceUnlock();
-		const radio = new Radio( audio.listener, vehicleGroup );
+				}
+			};
 
-		// NORMAL mode uses SmokeTrails at scale=1 for a full-size car —
-		// this car is `arTransform.scale` of that size, so smoke uses
-		// the same proportion directly.
-		// Room-drive AR mode uses a fixed 0.12 rather than a strict
-		// proportional value — a strictly-proportional smoke scale here
-		// (arTransform.scale alone) came out roughly 7.5× smaller than
-		// that reference, likely too small to render as visible smoke
-		// at all. A generous multiplier with a floor keeps it visible
-		// regardless of how small the track itself ends up.
-		const particles = new SmokeTrails( scene, Math.max( arTransform.scale * trackCarBoost * 5, 0.02 ) );
-		const driftMarks = new DriftMarks( scene, 'ar-floating-track' );
+			const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer: null, contactListener, vehicleFlag };
 
-		const _forward = new THREE.Vector3();
-		const contactListener = {
-			onContactAdded( bodyA, bodyB ) {
-
-				if ( bodyA !== sphereBody && bodyB !== sphereBody ) return;
-				_forward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
-				_forward.y = 0;
-				_forward.normalize();
-				const impactVelocity = Math.abs( vehicle.modelVelocity.dot( _forward ) );
-				audio.playImpact( impactVelocity );
-
-			}
-		};
-
-		const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer: null, contactListener, vehicleFlag };
-
-		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, arScale: arTransform.scale * trackCarBoost };
+			raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, arScale: FIXED_SCALE };
 
 		} catch ( e ) {
 
@@ -3705,122 +3660,92 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 		try {
 
-		const yaw = new THREE.Euler().setFromQuaternion( arenaGroup.quaternion, 'YXZ' ).y;
-		const yawQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
-		const arTransform = { position: arenaGroup.position.clone(), quaternion: yawQuat, scale: FIXED_SCALE };
-
 		arenaGroup.remove( previewContainer );
 		previewAI.forEach( ( d ) => arenaGroup.remove( d.model ) );
 
-		// Gravity scaled down with the arena — see the floating track's
-		// own comment on why (real 9.81 m/s² on a tiny sphere causes
-		// violent jitter instead of the car settling naturally).
-		const world = createPhysicsWorld( arTransform.scale );
+		// Physics now runs at REAL scale, exactly like NORMAL mode's own
+		// free-roam arena (real 9.81 gravity, real 0.5m car radius, real
+		// PAD_HALF-sized floor) — see the floating track's identical fix/
+		// comment for why: shrinking physics itself down to tabletop size
+		// fights crashcat's own distance tolerances and Vehicle.js's
+		// real-world-tuned driving-feel constants, which is what caused
+		// the reported "car behaves oddly" symptom. `arenaGroup` itself
+		// already carries the only thing actually needed for the AR
+		// "tabletop" look — a pure VISUAL scale+placement transform (set
+		// once above, frozen from this point on since placeable.update()
+		// stops being called once confirmed) — so simulating underneath
+		// it at full scale and parenting the car directly under
+		// `arenaGroup` (see vehicleGroup below) lets three.js handle the
+		// shrink automatically.
+		const world = createPhysicsWorld();
 
-		const groundHalfY = Math.max( 0.01 * arTransform.scale, 0.002 );
-		const groundXf = applyArTransform( [ 0, - 0.125, 0 ], [ 0, 0, 0, 1 ], arTransform );
+		const groundHalfY = 0.01;
 		rigidBody.create( world, {
-			shape: box.create( { halfExtents: [ PAD_HALF * arTransform.scale, groundHalfY, PAD_HALF * arTransform.scale ] } ),
+			shape: box.create( { halfExtents: [ PAD_HALF, groundHalfY, PAD_HALF ] } ),
 			motionType: MotionType.STATIC,
 			objectLayer: world._OL_STATIC,
-			position: groundXf.position,
+			position: [ 0, - 0.125, 0 ],
 			friction: 5.0,
 			restitution: 0.0,
 		} );
 
-		// Car scale boost (declared here, used both for wall height below
-		// and the car itself further down) — the physics wall's
-		// containment height must scale with the car, or a bigger boosted
-		// car can simply be taller than its own fence and roll over it.
-		const arenaCarBoost = 1.5;
-
 		// Four boundary walls matching the visual barrier loop's square
-		// footprint — same Y convention as the ground (wallHalfHeight
-		// centered a bit above y=-0.125, matching NORMAL mode's own
-		// free-roam wall math) transformed the same way. Height boosted
-		// by the same car-size factor plus extra headroom, so it stays
-		// clearly taller than the car even while bouncing/settling.
-		const wallHalfHeight = 1.0 * arenaCarBoost * 1.5;
+		// footprint — same real-scale wall dimensions as NORMAL mode's own
+		// free-roam arena walls (see startNormalMode's freeRoam branch).
+		const wallHalfHeight = 1.0;
 		const wallThickness = 0.2;
 		const wallLocalY = - 0.125 + wallHalfHeight;
 		for ( const sign of [ 1, -1 ] ) {
 
-			const nsXf = applyArTransform( [ 0, wallLocalY, sign * PAD_HALF ], [ 0, 0, 0, 1 ], arTransform );
 			rigidBody.create( world, {
-				shape: box.create( { halfExtents: [ PAD_HALF * arTransform.scale, wallHalfHeight * arTransform.scale, wallThickness * arTransform.scale ] } ),
+				shape: box.create( { halfExtents: [ PAD_HALF, wallHalfHeight, wallThickness ] } ),
 				motionType: MotionType.STATIC, objectLayer: world._OL_STATIC,
-				position: nsXf.position, friction: 0.2, restitution: 0.3,
+				position: [ 0, wallLocalY, sign * PAD_HALF ], friction: 0.2, restitution: 0.3,
 			} );
 
-			const ewXf = applyArTransform( [ sign * PAD_HALF, wallLocalY, 0 ], [ 0, 0, 0, 1 ], arTransform );
 			rigidBody.create( world, {
-				shape: box.create( { halfExtents: [ wallThickness * arTransform.scale, wallHalfHeight * arTransform.scale, PAD_HALF * arTransform.scale ] } ),
+				shape: box.create( { halfExtents: [ wallThickness, wallHalfHeight, PAD_HALF ] } ),
 				motionType: MotionType.STATIC, objectLayer: world._OL_STATIC,
-				position: ewXf.position, friction: 0.2, restitution: 0.3,
+				position: [ sign * PAD_HALF, wallLocalY, 0 ], friction: 0.2, restitution: 0.3,
 			} );
 
 		}
 
-
-		// The open arena's footprint is large relative to FIXED_SCALE
-		// compared to the track's compact layout — using the raw scale
-		// alone made the car look tiny by comparison, so both the
-		// physics sphere and the visual model are boosted together by
-		// the same factor (keeping them matched — boosting only the
-		// visual would leave the car sticking out well beyond its own
-		// tiny collision sphere).
-		const carRadius = Math.max( 0.5 * arTransform.scale * arenaCarBoost, 0.003 );
-
-		// Spawn Y computed directly relative to the ground collider's
-		// actual top surface plus this (now-boosted) radius, rather
-		// than a fixed small margin — a fixed margin sized for the
-		// original tiny radius would leave the bigger boosted sphere
-		// still overlapping the ground, right back into the same
-		// knife-edge-penetration "stuck in mud" problem.
-		const groundTopY = groundXf.position[ 1 ] + groundHalfY;
-		const playerWorld = applyArTransform( [ 0, 0.5, 0 ], [ 0, 0, 0, 1 ], arTransform );
-		// Same fix as the floating track: this clearance gap must scale
-		// with arTransform.scale, or it dwarfs the tiny AR carRadius and
-		// the car spawns visibly floating above (then unevenly settling
-		// into) the arena floor instead of sitting flush on it.
-		playerWorld.position[ 1 ] = groundTopY + carRadius + 0.01 * arTransform.scale;
-		const sphereBody = createSphereBody( world, playerWorld.position, carRadius );
-
-		// Face the same direction the arena itself was rotated to when
-		// placed — was previously left at the default angle 0 entirely,
-		// which is arbitrary and unrelated to how the arena visually
-		// ended up oriented.
-		const yaw2 = new THREE.Euler().setFromQuaternion( new THREE.Quaternion( arTransform.quaternion[ 0 ], arTransform.quaternion[ 1 ], arTransform.quaternion[ 2 ], arTransform.quaternion[ 3 ] ), 'YXZ' ).y;
+		// Real 0.5m car radius, spawned at the arena's own local center —
+		// same defaults NORMAL mode's own free-roam arena uses.
+		const sphereBody = createSphereBody( world, [ 0, 0.5, 0 ] );
 
 		const vehicle = new Vehicle();
-		vehicle.sphereRadius = carRadius;
 		vehicle.rigidBody = sphereBody;
 		vehicle.physicsWorld = world;
-		vehicle.spawnPos = [ playerWorld.position[ 0 ], playerWorld.position[ 1 ], playerWorld.position[ 2 ] ];
-		vehicle.spawnAngle = yaw2;
-		vehicle.spherePos.set( playerWorld.position[ 0 ], playerWorld.position[ 1 ], playerWorld.position[ 2 ] );
-		vehicle.prevModelPos.set( playerWorld.position[ 0 ], 0, playerWorld.position[ 2 ] );
-		vehicle.container.rotation.y = yaw2;
+		vehicle.spawnPos = [ 0, 0.5, 0 ];
+		vehicle.spawnAngle = 0;
+		vehicle.spherePos.set( 0, 0.5, 0 );
+		vehicle.prevModelPos.set( 0, 0, 0 );
+		vehicle.container.rotation.y = 0;
 
 		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
-		scene.add( vehicleGroup );
+		// Parented under arenaGroup (not scene) — same idea as the
+		// floating track's identical change: vehicle.container.position is
+		// now real-scale "arena-local" coordinates, and arenaGroup's own
+		// frozen scale+placement transform shrinks/places the car in sync
+		// with the arena automatically, every frame — no manual coordinate
+		// transform needed anywhere in this function.
+		arenaGroup.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
 		const vehicleLights = addVehicleLights( vehicleGroup );
 		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
-
-		// Same corrected fix as the floating track — see its comment.
-		const vehicleModel = vehicleGroup.children[ 0 ];
-		const vehicleModelMinY = new THREE.Box3().setFromObject( vehicleModel ).min.y;
-		const arenaVisualScale = arTransform.scale * arenaCarBoost;
-		vehicleModel.scale.setScalar( arenaVisualScale );
-		vehicleModel.position.y = - vehicleModelMinY * arenaVisualScale;
 
 		const audio = new GameAudio();
 		audio.init( renderer.xr.getCamera(), vehicleGroup );
 		audio.forceUnlock();
 		const radio = new Radio( audio.listener, vehicleGroup );
 
-		const particles = new SmokeTrails( scene, Math.max( arTransform.scale * arenaCarBoost * 5, 0.02 ) );
+		// Smoke particle SIZE (not position — Particles.js now reads
+		// world-space position itself, see its own comment) is still
+		// worth shrinking, purely cosmetically, to match the tiny visual
+		// scale.
+		const particles = new SmokeTrails( scene, Math.max( FIXED_SCALE * 5, 0.02 ) );
 		const driftMarks = new DriftMarks( scene, 'ar-floating-arena' );
 
 		const _forward = new THREE.Vector3();
@@ -3839,7 +3764,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 		const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer: null, contactListener, vehicleFlag };
 
-		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, arScale: arTransform.scale * arenaCarBoost };
+		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, arScale: FIXED_SCALE };
 		phase = 'racing';
 
 		} catch ( e ) {

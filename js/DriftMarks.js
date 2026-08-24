@@ -25,6 +25,7 @@ const _cL = new THREE.Vector3();
 const _cR = new THREE.Vector3();
 const _replayPrev = new THREE.Vector3();
 const _replayCurr = new THREE.Vector3();
+const _containerWorldPos = new THREE.Vector3();
 
 class DriftTrail {
 
@@ -270,7 +271,11 @@ export class DriftMarks {
 
 		if ( ! emit && ! this.trails[ 0 ].active && ! this.trails[ 1 ].active ) return;
 
-		const groundY = vehicle.container.position.y + Y_OFFSET;
+		// World-space Y, not local — see the identical fix/comment in
+		// Particles.js (SmokeTrails.update) for why: container.position is
+		// only world position when container's parent is the scene at
+		// identity transform. No-op in NORMAL mode.
+		const groundY = vehicle.container.getWorldPosition( _containerWorldPos ).y + Y_OFFSET;
 		const intensity = vehicle.driftIntensity;
 
 		this.trails[ 0 ].track( vehicle.wheelBL, groundY, intensity, emit );

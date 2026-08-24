@@ -9,6 +9,7 @@ const INV_MAX_LIFE = 1 / MAX_LIFE;
 
 const _blPos = new THREE.Vector3();
 const _brPos = new THREE.Vector3();
+const _containerWorldPos = new THREE.Vector3();
 
 export class SmokeTrails {
 
@@ -107,7 +108,17 @@ export class SmokeTrails {
 
 		if ( shouldEmit ) {
 
-			const roadY = vehicle.container.position.y + 0.05 * this.scale;
+			// World-space Y, not local — container.position is only the
+			// same thing as world position when container's parent is the
+			// scene itself at identity transform (true in NORMAL mode).
+			// The AR floating track/arena nest the vehicle under a scaled +
+			// placed `arRoot` group instead, so local Y (real-scale meters)
+			// and the wheels' getWorldPosition() below (already tiny/placed
+			// AR-room coordinates) would otherwise be mixed from two
+			// different spaces. getWorldPosition() resolves the current
+			// matrix chain on demand, so this is correct and NOT one frame
+			// stale, and is a no-op in NORMAL mode (identity parent chain).
+			const roadY = vehicle.container.getWorldPosition( _containerWorldPos ).y + 0.05 * this.scale;
 			const bl = vehicle.wheelBL ? vehicle.wheelBL.getWorldPosition( _blPos ) : null;
 			const br = vehicle.wheelBR ? vehicle.wheelBR.getWorldPosition( _brPos ) : null;
 
