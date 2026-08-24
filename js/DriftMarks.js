@@ -29,7 +29,9 @@ const _containerWorldPos = new THREE.Vector3();
 
 class DriftTrail {
 
-	constructor( scene, material ) {
+	constructor( scene, material, scale = 1 ) {
+
+		this.scale = scale;
 
 		const positions = new Float32Array( MAX_SEGMENTS * FLOATS_PER_SEGMENT );
 		const colors = new Float32Array( MAX_SEGMENTS * COLOR_FLOATS_PER_SEGMENT );
@@ -96,10 +98,20 @@ class DriftTrail {
 		_dir.subVectors( curr, prev );
 		_dir.y = 0;
 		const len = _dir.length();
-		if ( len < MIN_SEGMENT_LENGTH ) return;
+		// WIDTH/MIN_SEGMENT_LENGTH are real-world meters (tuned for NORMAL
+		// mode's 1:1 scale). Scaled here by the same factor the AR floating
+		// track/arena shrink everything else by (this.scale, passed down
+		// from DriftMarks — see the identical need in Particles.js), so a
+		// segment threshold tuned for a real car doesn't silently swallow
+		// nearly every AR-scale movement (a real 2cm minimum segment length
+		// is enormous once car positions themselves are shrunk to
+		// millimeters — this was why drift marks never appeared at all in
+		// AR: almost no per-frame movement ever cleared the un-scaled
+		// threshold).
+		if ( len < MIN_SEGMENT_LENGTH * this.scale ) return;
 		_dir.divideScalar( len );
 
-		_side.set( _dir.z, 0, - _dir.x ).multiplyScalar( WIDTH );
+		_side.set( _dir.z, 0, - _dir.x ).multiplyScalar( WIDTH * this.scale );
 
 		_pL.copy( prev ).add( _side );
 		_pR.copy( prev ).sub( _side );
@@ -239,7 +251,18 @@ class DriftTrail {
 
 export class DriftMarks {
 
-	constructor( scene, trackId ) {
+	// scale: same idea as SmokeTrails' own `scale` param in Particles.js —
+	// WIDTH, MIN_SEGMENT_LENGTH, and Y_OFFSET below are all real-world
+	// meters, tuned for NORMAL mode's 1:1 scale. The AR floating track/
+	// arena shrink everything by FIXED_SCALE via a wrapping transform
+	// group, so those constants need the same shrink applied to stay
+	// proportional to the (now tiny) car — otherwise the trail floats
+	// miles above the tabletop car, or never renders at all (see the
+	// MIN_SEGMENT_LENGTH comment below). Defaults to 1 (no change) for
+	// every existing caller, including NORMAL/web mode.
+	constructor( scene, trackId, scale = 1 ) {
+
+		this.scale = scale;
 
 		const material = new THREE.MeshBasicMaterial( {
 			color: 0x111111,
@@ -254,8 +277,8 @@ export class DriftMarks {
 		} );
 
 		this.trails = [
-			new DriftTrail( scene, material ),
-			new DriftTrail( scene, material ),
+			new DriftTrail( scene, material, scale ),
+			new DriftTrail( scene, material, scale ),
 		];
 
 		this.storageKey = STORAGE_PREFIX + ( trackId || 'default' );
@@ -275,7 +298,11 @@ export class DriftMarks {
 		// Particles.js (SmokeTrails.update) for why: container.position is
 		// only world position when container's parent is the scene at
 		// identity transform. No-op in NORMAL mode.
-		const groundY = vehicle.container.getWorldPosition( _containerWorldPos ).y + Y_OFFSET;
+		// Y_OFFSET is scaled by this.scale for the same reason WIDTH/
+		// MIN_SEGMENT_LENGTH are in _writeSegment() — a real 5cm offset is
+		// huge relative to an AR-shrunk car, and would float the trail
+		// well above the visible tabletop ground.
+		const groundY = vehicle.container.getWorldPosition( _containerWorldPos ).y + Y_OFFSET * this.scale;
 		const intensity = vehicle.driftIntensity;
 
 		this.trails[ 0 ].track( vehicle.wheelBL, groundY, intensity, emit );

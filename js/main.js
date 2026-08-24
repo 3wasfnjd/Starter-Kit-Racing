@@ -12,7 +12,7 @@ import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { DriftMarks } from './DriftMarks.js';
 import { GameAudio } from './Audio.js';
-import { createFlag } from './Flag.js';
+import { createFlag, createSaudiFlagDataUrl } from './Flag.js';
 import { LapTimer } from './LapTimer.js';
 import { ColorMapGLTFLoader } from './Loader.js';
 import { ARManager } from './ARManager.js';
@@ -3220,18 +3220,27 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	const trackPath = computeTrackPath( null );
 	let totalTime = 0;
 
-	// ✏️ EASY RETUNING KNOBS — all three are purely cosmetic/pacing, safe
-	// to tweak freely without touching physics stability (mass, gravity,
-	// and the real 0.5m collision radius are never touched by any of
+	// ✏️ EASY RETUNING KNOBS — both are purely cosmetic/pacing, safe to
+	// tweak freely without touching physics stability (mass, gravity, and
+	// the real 0.5m collision radius are never touched by either of
 	// them):
 	//  - FIXED_SCALE: how big the whole tabletop track appears (smaller
-	//    number = smaller footprint on the table).
-	//  - CAR_VISUAL_BOOST: renders the car's MODEL bigger than its real
-	//    physics hitbox. Purely cosmetic mismatch (common in games —
-	//    visible mesh a bit bigger than the invisible collision shape).
-	//    Nudged up again after feedback that the previous 1.4 still
-	//    looked too small — if it starts visibly poking through the
-	//    track's real-sized walls on tight corners, dial it back down.
+	//    number = smaller footprint on the table). This is now the ONLY
+	//    size knob — a previous per-car CAR_VISUAL_BOOST hack (rendering
+	//    the car's model bigger than its real hitbox) was removed after
+	//    feedback that it made car sizes inconsistent: the player car,
+	//    the AI cars (boosted the same way), and the arena's own parked
+	//    decoration cars (never boosted, since they're not "the car" —
+	//    just static dressing) all ended up at three different relative
+	//    sizes on the same tabletop. Every car-shaped object here — the
+	//    player, the AI racers, and the decoration cars in the arena's
+	//    corners — is now rendered at its real, unboosted, 1:1 size, and
+	//    ALL of them are parented under the one wrapping transform group
+	//    (arRoot / arenaGroup) that FIXED_SCALE is applied to. That
+	//    guarantees every car on the table shares the exact same
+	//    proportions relative to the track/arena and to each other,
+	//    which is exactly how NORMAL/web mode already works — this is
+	//    that same approach, not a new one.
 	//  - TIME_SCALE: the actual fix for "the car feels slow" — a real
 	//    car driven at real speed, shrunk to fit on a table but viewed
 	//    from the player's own REAL (unshrunk) eye distance, is a
@@ -3247,8 +3256,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	//    physics/AI/particle updates below (see simDt), never to input
 	//    reading or blink timers, so controls/UI still feel responsive
 	//    at a normal rate.
-	const FIXED_SCALE = 0.014;
-	const CAR_VISUAL_BOOST = 1.7;
+	const FIXED_SCALE = 0.02;
 	const TIME_SCALE = 2.5;
 
 	// arRoot carries the AR placement (position/rotation/scale) as one
@@ -3393,30 +3401,24 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			const vehicleLights = addVehicleLights( vehicleGroup );
 			const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 
-			// Visual-only size boost — the MODEL is scaled up, the physics
-			// sphere (createSphereBody above) stays at the real, stable
-			// 0.5m radius. Re-anchored on its own lowest point so scaling
-			// up doesn't lift the wheels off the ground / sink them into
-			// it (same technique NORMAL mode's Vehicle.init() already uses
-			// internally at scale=1 — this just applies it again on top).
-			const vehicleModel = vehicleGroup.children[ 0 ];
-			const vehicleModelMinY = new THREE.Box3().setFromObject( vehicleModel ).min.y;
-			vehicleModel.scale.setScalar( CAR_VISUAL_BOOST );
-			vehicleModel.position.y = - vehicleModelMinY * CAR_VISUAL_BOOST;
-
 			const audio = new GameAudio();
 			audio.init( renderer.xr.getCamera(), vehicleGroup );
 			audio.forceUnlock();
 			const radio = new Radio( audio.listener, vehicleGroup );
 
-			// Smoke: small visual size, and a MUCH-cut emission RATE
-			// (emitMultiplier). Cut further after feedback that it looked
-			// too thick — this instance is now shared across the player
-			// AND all 3 AI (see below), so the aggregate emission with
-			// everyone potentially drifting at once is what actually
-			// matters, not any one car's rate alone.
-			const particles = new SmokeTrails( scene, Math.max( FIXED_SCALE * 2.5, 0.01 ), 0.12 );
-			const driftMarks = new DriftMarks( scene, 'ar-floating-track' );
+			// Smoke and drift marks both carry real-world-meter constants
+			// internally (particle size/velocity, trail width/segment
+			// length) — passing FIXED_SCALE here shrinks those constants by
+			// the exact same factor arRoot shrinks the car/track visuals
+			// by, so both come out proportional to the real thing, matching
+			// NORMAL/web mode's look instead of an arbitrarily-tuned size.
+			// emitMultiplier still cuts the emission RATE (not size) well
+			// below web mode's default, since this instance is shared
+			// across the player AND all 3 AI (see below) — the aggregate
+			// emission with everyone potentially drifting at once is what
+			// actually matters for performance, not any one car's rate.
+			const particles = new SmokeTrails( scene, FIXED_SCALE, 0.3 );
+			const driftMarks = new DriftMarks( scene, 'ar-floating-track', FIXED_SCALE );
 
 			const _forward = new THREE.Vector3();
 			const contactListener = {
@@ -3438,20 +3440,25 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			// player (createAIDrivers is NORMAL mode's own function,
 			// reused unchanged), parented under arRoot (passed in place of
 			// `scene`) so they shrink/place in sync automatically exactly
-			// like the player. Visual size boosted the same way as
-			// CAR_VISUAL_BOOST — createAIDrivers already scales the whole
-			// car by radius/0.5, and 0.5×1.4=0.7 is still a completely
-			// normal, stable size for crashcat (nowhere near the
-			// millimeter-scale territory that caused the original AR
-			// instability), so this stays safe.
-			const aiDrivers = createAIDrivers( npcConfigs, gridSlots, models, arRoot, world, trackPath, 0.5 * CAR_VISUAL_BOOST );
+			// like the player. No radius override now (defaults to the
+			// real 0.5m / scale=1) — same reasoning as removing
+			// CAR_VISUAL_BOOST above: AI cars stay the exact same real
+			// size as the player and the arena's decoration cars, all
+			// governed by the one FIXED_SCALE transform.
+			const aiDrivers = createAIDrivers( npcConfigs, gridSlots, models, arRoot, world, trackPath );
+			// AI flags always fly this fixed Saudi Arabia flag — never the
+			// player's own flagImage — and don't change if the player
+			// changes theirs. Flutter is driven every frame below (AI
+			// flags were previously created but never animated — only the
+			// player's own updateVehicleAndFx() call did that).
+			const aiFlagUrl = createSaudiFlagDataUrl();
 			const aiExtras = aiDrivers.map( ( d, i ) => {
 
 				const group = d.vehicle.container;
 				const lights = addVehicleLights( group );
-				addVehicleFlag( group, flagImage );
-				const marks = new DriftMarks( scene, 'ar-floating-track-ai-' + i );
-				return { lights, driftMarks: marks };
+				const flag = addVehicleFlag( group, aiFlagUrl );
+				const marks = new DriftMarks( scene, 'ar-floating-track-ai-' + i, FIXED_SCALE );
+				return { lights, driftMarks: marks, flag };
 
 			} );
 
@@ -3532,6 +3539,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 						raceCtx.ctx.particles.update( simDt, d.vehicle );
 						extra.driftMarks.update( simDt, d.vehicle );
 						updateVehicleLights( extra.lights, dt, raceCtx.arScale, d.vehicle.linearSpeed < -0.01 );
+						if ( extra.flag ) extra.flag.updateFlutter( simDt, Math.abs( d.vehicle.linearSpeed / MAX_SPEED ) );
 
 					} );
 
@@ -3705,7 +3713,9 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 	const placeholderCamera = new THREE.PerspectiveCamera();
 
-	const PAD_HALF = 45; // half-size, in the pad's own (unscaled) coordinate space — widened per feedback that it felt small
+	// Halved per feedback that the arena felt too big relative to the
+	// car (was 45 — widened once before that, now reverted back down).
+	const PAD_HALF = 22.5;
 	const arenaGroup = buildDriftPad( PAD_HALF, models );
 
 	// buildDriftPad() starts at identity transform (no internal offset
@@ -3715,10 +3725,11 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	//
 	// ✏️ EASY RETUNING KNOBS — see the identical comment in
 	// startARFloatingTrack for what each one does (including TIME_SCALE,
-	// used below via simDt) and why they're all safe to change freely
-	// (purely cosmetic/pacing, no physics-stability impact).
-	const FIXED_SCALE = 0.014;
-	const CAR_VISUAL_BOOST = 1.7;
+	// used below via simDt, and why CAR_VISUAL_BOOST was removed in favor
+	// of FIXED_SCALE being the one, consistent size knob) and why they're
+	// all safe to change freely (purely cosmetic/pacing, no
+	// physics-stability impact).
+	const FIXED_SCALE = 0.02;
 	const TIME_SCALE = 2.5;
 	arenaGroup.scale.setScalar( FIXED_SCALE );
 	arenaGroup.position.set( 0, 0.55, - 0.85 );
@@ -3840,27 +3851,21 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		const vehicleLights = addVehicleLights( vehicleGroup );
 		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 
-		// Visual-only size boost — see the identical comment in
-		// startARFloatingTrack: the MODEL is scaled up, the physics
-		// sphere (createSphereBody above) stays at the real, stable
-		// 0.5m radius.
-		const vehicleModel = vehicleGroup.children[ 0 ];
-		const vehicleModelMinY = new THREE.Box3().setFromObject( vehicleModel ).min.y;
-		vehicleModel.scale.setScalar( CAR_VISUAL_BOOST );
-		vehicleModel.position.y = - vehicleModelMinY * CAR_VISUAL_BOOST;
-
 		const audio = new GameAudio();
 		audio.init( renderer.xr.getCamera(), vehicleGroup );
 		audio.forceUnlock();
 		const radio = new Radio( audio.listener, vehicleGroup );
 
-		// Smoke: small visual size, and a MUCH-cut emission RATE
-		// (emitMultiplier). Cut further after feedback that it looked too
-		// thick — this instance is shared across the player AND all 3 AI
-		// (see below), so the aggregate emission with everyone
-		// potentially drifting at once is what actually matters.
-		const particles = new SmokeTrails( scene, Math.max( FIXED_SCALE * 2.5, 0.01 ), 0.12 );
-		const driftMarks = new DriftMarks( scene, 'ar-floating-arena' );
+		// Smoke and drift marks — see the identical comment in
+		// startARFloatingTrack: FIXED_SCALE shrinks their real-world-meter
+		// constants (particle size/velocity, trail width/segment length)
+		// by the same factor the car/arena visuals are shrunk by, so both
+		// come out proportional to the real thing instead of an
+		// arbitrarily-tuned size. emitMultiplier still cuts the emission
+		// RATE well below web mode's default since this instance is
+		// shared across the player AND all 3 AI (see below).
+		const particles = new SmokeTrails( scene, FIXED_SCALE, 0.3 );
+		const driftMarks = new DriftMarks( scene, 'ar-floating-arena', FIXED_SCALE );
 
 		const _forward = new THREE.Vector3();
 		const contactListener = {
@@ -3881,23 +3886,27 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		// AI opponents — same wandering "تفحيط" free-roam AI as NORMAL
 		// mode's own free-roam arena (createFreeRoamAI, reused unchanged),
 		// parented under arenaGroup (passed in place of `scene`) so they
-		// shrink/place in sync automatically. createFreeRoamAI itself has
-		// no built-in visual-boost knob (unlike createAIDrivers), so the
-		// same CAR_VISUAL_BOOST is applied directly to each car's own
-		// container afterward — purely visual, physics sphere stays real/
-		// stable at 0.5m.
+		// shrink/place in sync automatically. No visual boost now (see the
+		// CAR_VISUAL_BOOST removal note above) — AI cars stay real/
+		// unboosted size, same as the player and the arena's own
+		// decoration cars, all governed by the one FIXED_SCALE transform.
 		const aiDrivers = createFreeRoamAI(
 			NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
 			models, arenaGroup, world, PAD_HALF
 		);
+		// AI flags always fly this fixed Saudi Arabia flag — never the
+		// player's own flagImage — and don't change if the player changes
+		// theirs. Flutter is driven every frame below (AI flags were
+		// previously created but never animated — only the player's own
+		// updateVehicleAndFx() call did that).
+		const aiFlagUrl = createSaudiFlagDataUrl();
 		const aiExtras = aiDrivers.map( ( d, i ) => {
 
 			const group = d.vehicle.container;
-			group.scale.setScalar( CAR_VISUAL_BOOST );
 			const lights = addVehicleLights( group );
-			addVehicleFlag( group, flagImage );
-			const marks = new DriftMarks( scene, 'ar-floating-arena-ai-' + i );
-			return { lights, driftMarks: marks };
+			const flag = addVehicleFlag( group, aiFlagUrl );
+			const marks = new DriftMarks( scene, 'ar-floating-arena-ai-' + i, FIXED_SCALE );
+			return { lights, driftMarks: marks, flag };
 
 		} );
 
@@ -3981,6 +3990,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 						raceCtx.ctx.particles.update( simDt, d.vehicle );
 						extra.driftMarks.update( simDt, d.vehicle );
 						updateVehicleLights( extra.lights, dt, raceCtx.arScale, d.vehicle.linearSpeed < -0.01 );
+						if ( extra.flag ) extra.flag.updateFlutter( simDt, Math.abs( d.vehicle.linearSpeed / MAX_SPEED ) );
 
 					} );
 

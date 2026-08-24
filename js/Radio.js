@@ -17,7 +17,7 @@ export class Radio {
 		this.sound = new THREE.PositionalAudio( listener );
 		this.sound.setRefDistance( 4 );
 		this.sound.setRolloffFactor( 1.5 );
-		this.sound.setVolume( 0.6 );
+		this.sound.setVolume( 1.2 ); // doubled from 0.6 per feedback that it was too quiet
 		target.add( this.sound );
 
 		this.loader = new THREE.AudioLoader();

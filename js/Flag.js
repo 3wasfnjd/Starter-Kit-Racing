@@ -25,6 +25,68 @@ const POLE_RADIUS = 0.022;
 const FLAG_YAW = THREE.MathUtils.degToRad( 50 );
 const FLAG_PITCH = 0; // upright pole, no backward lean
 
+// A fixed Saudi Arabia flag for AI opponents — unlike the player's own
+// flag (whatever image they picked in the menu), every AI car always
+// flies this exact green-field + Shahada + sword flag, regardless of
+// what the player chose for themselves. Drawn on canvas (same technique
+// as createPlaceholderTexture below) instead of shipping a new image
+// asset. Cached after the first call since it never changes.
+let _saudiFlagDataUrl = null;
+
+export function createSaudiFlagDataUrl() {
+
+	if ( _saudiFlagDataUrl ) return _saudiFlagDataUrl;
+
+	const w = 512, h = 341; // official ~3:2 field ratio
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = w;
+	canvas.height = h;
+	const ctx = canvas.getContext( '2d' );
+
+	// Official field green.
+	ctx.fillStyle = '#006C35';
+	ctx.fillRect( 0, 0, w, h );
+
+	// Shahada text, centered in the upper portion.
+	ctx.direction = 'rtl';
+	ctx.textAlign = 'center';
+	ctx.textBaseline = 'middle';
+	ctx.fillStyle = '#ffffff';
+	ctx.font = 'bold ' + Math.round( h * 0.16 ) + 'px "Segoe UI", Tahoma, Arial, sans-serif';
+	ctx.fillText( 'لا إله إلا الله محمد رسول الله', w / 2, h * 0.4 );
+
+	// Stylized sword beneath the text: straight blade + pointed tip +
+	// short crossguard near the hilt, spanning most of the flag's width —
+	// a simplified stand-in for the real flag's sword emblem.
+	const swordY = h * 0.68;
+	const bladeHalf = w * 0.32;
+	ctx.strokeStyle = '#ffffff';
+	ctx.fillStyle = '#ffffff';
+	ctx.lineWidth = h * 0.035;
+	ctx.lineCap = 'round';
+
+	ctx.beginPath();
+	ctx.moveTo( w / 2 - bladeHalf, swordY );
+	ctx.lineTo( w / 2 + bladeHalf * 0.7, swordY );
+	ctx.stroke();
+
+	ctx.beginPath();
+	ctx.moveTo( w / 2 + bladeHalf * 0.7, swordY - h * 0.03 );
+	ctx.lineTo( w / 2 + bladeHalf, swordY );
+	ctx.lineTo( w / 2 + bladeHalf * 0.7, swordY + h * 0.03 );
+	ctx.closePath();
+	ctx.fill();
+
+	ctx.beginPath();
+	ctx.moveTo( w / 2 - bladeHalf * 0.78, swordY - h * 0.05 );
+	ctx.lineTo( w / 2 - bladeHalf * 0.78, swordY + h * 0.05 );
+	ctx.stroke();
+
+	_saudiFlagDataUrl = canvas.toDataURL( 'image/png' );
+	return _saudiFlagDataUrl;
+
+}
+
 function createPlaceholderTexture() {
 
 	// Plain placeholder banner (solid field + thin trim) shown until a
