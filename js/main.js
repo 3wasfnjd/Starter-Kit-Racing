@@ -1912,10 +1912,13 @@ const TOTAL_RACE_LAPS = 3; // matches LapTimer.js's own TOTAL_LAPS
 function computeGridPositions( vehicleSpawn, count ) {
 
 	const { position, angle } = vehicleSpawn;
-	// Flipped relative to angle's raw sin/cos — matches the same
-	// correction applied in Track.js's computeTrackPath, verified
-	// against actual gameplay direction.
-	const forward = { x: - Math.sin( angle ), z: - Math.cos( angle ) };
+	// Matches Vehicle.js's own forward-vector convention (see the same
+	// note in Track.js's computeTrackPath) — NOT flipped. With the old
+	// flipped vector, "position - forward*backDist" actually placed
+	// slots AHEAD of the finish line (opposite of this function's own
+	// "behind the finish line" comment) since -forward*backDist canceled
+	// the flip back to +trueForward*backDist.
+	const forward = { x: Math.sin( angle ), z: Math.cos( angle ) };
 	const right = { x: forward.z, z: - forward.x };
 	const rowSpacing = 3.2, colOffset = 0.8;
 

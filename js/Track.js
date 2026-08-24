@@ -438,10 +438,19 @@ export function computeTrackPath( customCells ) {
 	if ( finishNeighbors.length < 1 ) return [];
 
 	const spawn = computeSpawnPosition( cells );
-	// Flipped relative to spawn.angle's raw sin/cos — verified against
-	// actual gameplay that the true forward driving direction from the
-	// finish line is the opposite of what the raw angle math suggests.
-	const forward = { x: - Math.sin( spawn.angle ), z: - Math.cos( spawn.angle ) };
+	// Matches Vehicle.js's own forward-vector convention exactly:
+	// forward = (0,0,1).applyQuaternion(container.quaternion), which for
+	// a pure-Y rotation of `angle` works out to (sin(angle), cos(angle)).
+	// An earlier version of this file negated this vector based on an
+	// in-gameplay direction check — that check was confounded by an
+	// independent inverted-steering-sign bug in AIController.js's pure
+	// pursuit (input.x was flipped relative to what Vehicle.js's own
+	// keyboard/gamepad steering formula expects). With that bug now
+	// fixed on its own, the path must trace the SAME direction the car's
+	// forward vector already points at spawn, not its opposite — verified
+	// numerically: dot(carForward, path[1]-path[0]) was -1.0 (exactly
+	// reversed) with the flip, +1.0 (aligned) without it.
+	const forward = { x: Math.sin( spawn.angle ), z: Math.cos( spawn.angle ) };
 
 	// Of the finish cell's (up to two) neighbors, pick whichever is more
 	// in the direction a player crossing the line would be heading.
