@@ -1401,23 +1401,11 @@ function addVehicleLights( vehicleGroup ) {
 	// SpotLight attempt) and aimed forward with a gentle downward tilt
 	// calculated to clear the hood/roof entirely, so the beam only ever
 	// hits the room, never the car's own body.
-	// ✏️ THIS is where headlight brightness actually comes from —
-	// baseIntensity below, not the intensityScale multiplier in
-	// updateVehicleLights()/setHighBeam() further down this file (that
-	// multiplier only scales this base number down for AR's tiny
-	// FIXED_SCALE; in NORMAL/web mode scale=1 so the light renders at
-	// exactly this baseIntensity, unscaled). Cut hard (3000 → 500, ~83%)
-	// per feedback that it was still far too strong after the earlier
-	// scaling-curve fix — that fix only affected AR's relative dimming,
-	// it never touched this base number, so web mode never actually got
-	// dimmer from it. Lower this single number to dim headlights further
-	// (setHighBeam()'s high-beam boost is a flat ×2.5 on top of whatever
-	// this is, so it scales down together with it automatically).
 	const headlights = [];
 	for ( const side of [ -1, 1 ] ) {
 
 		const baseDistance = 14;
-		const baseIntensity = 500;
+		const baseIntensity = 3000;
 		const light = new THREE.SpotLight( 0xfff2cc, baseIntensity, baseDistance, Math.PI / 8, 0.35, 2 );
 		const basePosition = new THREE.Vector3( side * 0.3, 1.05, 1.0 ); // clear above the roof, open air
 		light.position.copy( basePosition );
@@ -1826,6 +1814,7 @@ function setupRadioTouchUI( radio, vehicleLights ) {
 		toggleHazards( vehicleLights );
 
 	} );
+
 	// High beam is a hold, not a tap — on while pressed, off on release.
 	// Sets a flag rather than calling setHighBeam() directly: the
 	// keyboard's own per-frame check (N key) was calling setHighBeam()
@@ -3347,22 +3336,6 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	// fading out — much shorter than NORMAL mode's permanent record,
 	// since the user reported marks lingering too long in AR.
 	const DRIFT_MARK_LIFETIME = 4;
-	// Extra headlight dimming specific to this AR mode, on top of
-	// FIXED_SCALE's own size-based scaling. updateVehicleLights()/
-	// setHighBeam() scale a light's distance AND intensity linearly by
-	// whatever `scale` they're given, but physically-based inverse-square
-	// falloff (decay=2 on the SpotLight itself, see addVehicleLights()'s
-	// baseIntensity comment) means brightness right next to the source
-	// stays extreme regardless of that scale — and the AR track is viewed
-	// from real, close-up distance, unlike NORMAL/web mode's own headlight
-	// use where the car is far from camera. Feedback was specifically
-	// that headlights stayed too strong here even after the shared
-	// baseIntensity cut (which mainly fixed web mode, since web's scale=1
-	// applies no reduction at all) — this multiplies FIXED_SCALE down
-	// further, ONLY for this mode's lights (raceCtx.arScale below is used
-	// exclusively for lighting, nothing else, so it's safe to bake the
-	// extra factor directly into it here).
-	const AR_LIGHT_DAMPING = 0.35;
 
 	// arRoot carries the AR placement (position/rotation/scale) as one
 	// clean transform. trackGroup goes underneath it UNCHANGED — still
@@ -3563,7 +3536,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 			} );
 
-			raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, arScale: FIXED_SCALE * AR_LIGHT_DAMPING };
+			raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, arScale: FIXED_SCALE };
 
 		} catch ( e ) {
 
@@ -3891,9 +3864,6 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	// How long (seconds) a tire/drift mark stays on the ground before
 	// fading — see the identical note in startARFloatingTrack.
 	const DRIFT_MARK_LIFETIME = 4;
-	// Extra headlight dimming, on top of FIXED_SCALE's own size-based
-	// scaling — see the identical note in startARFloatingTrack.
-	const AR_LIGHT_DAMPING = 0.35;
 	arenaGroup.scale.setScalar( FIXED_SCALE );
 	// Position/rotation are no longer a fixed guess — see the placing-
 	// phase in frameUpdate below, which drives arenaGroup from the same
@@ -4077,7 +4047,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 		} );
 
-		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, arScale: FIXED_SCALE * AR_LIGHT_DAMPING };
+		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, arScale: FIXED_SCALE };
 		phase = 'racing';
 
 		} catch ( e ) {
