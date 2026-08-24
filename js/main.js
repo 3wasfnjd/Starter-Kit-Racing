@@ -2058,7 +2058,7 @@ function computeStandings( drivers, path, playerFinishTime ) {
 
 		const progress = path && path.length > 1 ? d.idx / path.length : 0;
 		entries.push( {
-			label: 'الحاسوب ' + ( i + 1 ), isPlayer: false,
+			label: 'المتسابق ' + ( i + 1 ), isPlayer: false,
 			metric: d.lapsCompleted + progress,
 			finishTime: d.finishTime,
 		} );
@@ -2505,8 +2505,11 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 				}
 
-			} else if ( raceState.phase === 'racing' ) {
+			} else if ( raceState.phase !== 'countdown' ) {
 
+				// Keep advancing after the player finishes too (phase
+				// 'finished'), not just during 'racing' — see the
+				// aiRacing note below for why this must not freeze.
 				raceState.totalTime += dt;
 
 			}
@@ -2518,7 +2521,19 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			updateVehicleAndFx( dt, input, ctx );
 			if ( isRace ) {
 
-				updateRaceAIDrivers( aiDrivers, trackPath, dt, racing, raceState.totalTime, vehicle );
+				// IMPORTANT: do NOT gate the AI update on `racing`. The
+				// player's own LapTimer can (and often does) finish their
+				// 3 laps before slower AI drivers finish theirs — `racing`
+				// flips to false the instant raceState.phase becomes
+				// 'finished', which zeroes every AI driver's input and
+				// freezes it wherever it happens to be (looked like "AI
+				// stops after 2 laps" whenever the player finished first).
+				// Each AI already stops itself once IT personally reaches
+				// TOTAL_RACE_LAPS (d.finished, checked inside
+				// updateRaceAIDrivers) — so only the pre-race countdown
+				// should hold them back, not the player crossing the line.
+				const aiRacing = raceState.phase !== 'countdown';
+				updateRaceAIDrivers( aiDrivers, trackPath, dt, aiRacing, raceState.totalTime, vehicle );
 
 			} else {
 
@@ -2532,7 +2547,20 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 				resultsShown = true;
 				const standings = computeStandings( aiDrivers, trackPath, raceState.totalTime );
 				showRaceResultsOverlay( standings, {
-					onRestart: () => location.reload(),
+					onRestart: () => {
+
+						// Stash this race's settings so init() can skip the mode
+						// menu on reload and jump straight back into the same
+						// race/track/car. See the matching read+consume logic
+						// near the top of init() (sessionStorage key 'hwRestartRace').
+						try {
+
+							sessionStorage.setItem( 'hwRestartRace', JSON.stringify( { customText, freeRoam, vehicleKey, flagImage } ) );
+
+						} catch ( e ) { /* ignore — falls back to showing the menu again */ }
+						location.reload();
+
+					},
 					onMenu: () => { location.href = location.pathname; },
 				} );
 
@@ -4187,6 +4215,39 @@ async function init() {
 		} catch ( e ) {
 
 			console.warn( 'Invalid map parameter, using default track' );
+
+		}
+
+	}
+
+	// "إعادة السباق" (restart race) reloads the page for a guaranteed-clean
+	// scene/physics-world reset — rebuilding everything in place without a
+	// reload risks leaking the old track/car meshes and physics colliders
+	// into the shared scene. What it should NOT do is send the player back
+	// through the mode-selection menu first. onRestart below stashes the
+	// race's exact settings here before reloading; if present, skip
+	// straight to startNormalMode() with them instead of showing the menu.
+	let restartData = null;
+	try {
+		const raw = sessionStorage.getItem( 'hwRestartRace' );
+		if ( raw ) restartData = JSON.parse( raw );
+	} catch ( e ) {
+		restartData = null;
+	}
+	try {
+		sessionStorage.removeItem( 'hwRestartRace' );
+	} catch ( e ) { /* ignore */ }
+
+	if ( restartData ) {
+
+		try {
+
+			activeMode = startNormalMode( { customCells, spawn, mapParam, ...restartData } );
+			return;
+
+		} catch ( e ) {
+
+			activeMode = null; // fall through to the normal menu flow below
 
 		}
 
