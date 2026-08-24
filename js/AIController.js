@@ -492,7 +492,7 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
  * Free-Roam / Hajwalah AI Update ("هجولة وتفحيط احترافي")
  * Features multi-state AI (CRUISING, DRIFTING, DONUTS, WALL_AVOIDANCE).
  */
-export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
+export function updateFreeRoamAIDrivers( drivers, dt, roadHalf, roadHalfZ = roadHalf ) {
 
 	// Widened after feedback that the AI stayed clustered in the middle of
 	// the arena instead of using the whole floor — wanderRadius is the
@@ -501,8 +501,14 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 	// unused); wallLimitRadius is where the AVOIDANCE safety state kicks
 	// in (was 0.65) and needs to stay comfortably above wanderRadius so
 	// normal wandering doesn't constantly trip the wall-avoidance check.
-	const wanderRadius = roadHalf * 0.8;
-	const wallLimitRadius = roadHalf * 0.92;
+	// Now per-axis (X from roadHalf, Z from the new optional roadHalfZ,
+	// defaulting to roadHalf for backward-compatible square arenas) so a
+	// rectangular arena's AI wander area matches its actual footprint
+	// instead of a circle inscribed inside the shorter side.
+	const wanderRadiusX = roadHalf * 0.8;
+	const wanderRadiusZ = roadHalfZ * 0.8;
+	const wallLimitRadiusX = roadHalf * 0.92;
+	const wallLimitRadiusZ = roadHalfZ * 0.92;
 
 	drivers.forEach( ( d ) => {
 
@@ -536,9 +542,9 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 
 			// Teleport safely back inside arena
 			const a = Math.random() * Math.PI * 2;
-			const r = Math.random() * wanderRadius * 0.5;
-			const px = Math.cos( a ) * r;
-			const pz = Math.sin( a ) * r;
+			const r = Math.random() * 0.5;
+			const px = Math.cos( a ) * wanderRadiusX * r;
+			const pz = Math.sin( a ) * wanderRadiusZ * r;
 
 			const pWorld = d.vehicle.physicsWorld || ( d.vehicle.rigidBody ? d.vehicle.rigidBody.world : null );
 			if ( pWorld && d.vehicle.rigidBody ) {
@@ -560,9 +566,13 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 
 		d.stateTimer -= dt;
 
-		// 2. Wall / Arena Edge Safety Check
-		const distFromCenter = Math.hypot( d.vehicle.spherePos.x, d.vehicle.spherePos.z );
-		if ( distFromCenter > wallLimitRadius ) {
+		// 2. Wall / Arena Edge Safety Check — normalized "ellipse distance"
+		// (each axis divided by its own radius before combining): 1.0
+		// means exactly at the boundary on that axis. Plain Math.hypot(x,z)
+		// against a single radius would treat a rectangular arena's long
+		// axis as out-of-bounds too early (or its short axis too late).
+		const distNormWall = Math.hypot( d.vehicle.spherePos.x / wallLimitRadiusX, d.vehicle.spherePos.z / wallLimitRadiusZ );
+		if ( distNormWall > 1 ) {
 
 			d.aiState = 'AVOIDANCE';
 			d.target = { x: 0, z: 0 };
@@ -578,16 +588,16 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 				d.aiState = 'DRIFTING';
 				d.stateTimer = 3 + Math.random() * 4;
 				const a = Math.random() * Math.PI * 2;
-				const r = Math.random() * wanderRadius;
-				d.target = { x: Math.cos( a ) * r, z: Math.sin( a ) * r };
+				const r = Math.random();
+				d.target = { x: Math.cos( a ) * wanderRadiusX * r, z: Math.sin( a ) * wanderRadiusZ * r };
 
 			} else if ( rand < 0.75 ) {
 
 				d.aiState = 'CRUISING';
 				d.stateTimer = 3 + Math.random() * 4;
 				const a = Math.random() * Math.PI * 2;
-				const r = Math.random() * wanderRadius;
-				d.target = { x: Math.cos( a ) * r, z: Math.sin( a ) * r };
+				const r = Math.random();
+				d.target = { x: Math.cos( a ) * wanderRadiusX * r, z: Math.sin( a ) * wanderRadiusZ * r };
 
 			} else {
 
@@ -620,7 +630,8 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 			input.x = THREE.MathUtils.clamp( - angleDiff * 3.0, - 1, 1 );
 			input.z = 0.8;
 
-			if ( distFromCenter < wanderRadius * 0.8 ) {
+			const distNormWander = Math.hypot( d.vehicle.spherePos.x / wanderRadiusX, d.vehicle.spherePos.z / wanderRadiusZ );
+			if ( distNormWander < 0.8 ) {
 
 				d.aiState = 'CRUISING';
 				d.stateTimer = 2;

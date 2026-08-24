@@ -72,9 +72,19 @@ class DriftTrail {
 		this.active = false;
 		this.dirty = false;
 
+		// Per-segment fade bookkeeping (see DriftMarks' own `lifetime`
+		// comment) — baseAlphas holds the intensity-derived alpha each
+		// segment was WRITTEN with (never itself modified after writing),
+		// while the live color buffer's alpha is continuously multiplied
+		// down from that base as the segment ages. writeClocks holds the
+		// DriftMarks-level clock value (see `clock` below) each segment
+		// was written at, so age = clock - writeClocks[slot].
+		this.baseAlphas = new Float32Array( MAX_SEGMENTS );
+		this.writeClocks = new Float32Array( MAX_SEGMENTS );
+
 	}
 
-	track( wheel, groundY, intensity, emit ) {
+	track( wheel, groundY, intensity, emit, clock ) {
 
 		if ( ! wheel ) return;
 
@@ -84,7 +94,7 @@ class DriftTrail {
 		if ( emit && this.active ) {
 
 			const alpha = THREE.MathUtils.clamp( ( intensity - INTENSITY_MIN ) * INV_INTENSITY_RANGE, 0, 1 );
-			this._writeSegment( this.prev, _wheelWorld, alpha, true );
+			this._writeSegment( this.prev, _wheelWorld, alpha, true, clock );
 
 		}
 
@@ -93,7 +103,7 @@ class DriftTrail {
 
 	}
 
-	_writeSegment( prev, curr, alpha, markDirty ) {
+	_writeSegment( prev, curr, alpha, markDirty, clock = 0 ) {
 
 		_dir.subVectors( curr, prev );
 		_dir.y = 0;
@@ -118,7 +128,8 @@ class DriftTrail {
 		_cL.copy( curr ).add( _side );
 		_cR.copy( curr ).sub( _side );
 
-		const offset = this.segmentIndex * FLOATS_PER_SEGMENT;
+		const segIndex = this.segmentIndex; // capture before it advances below
+		const offset = segIndex * FLOATS_PER_SEGMENT;
 		const p = this.positions;
 
 		// Winding CCW from above so DoubleSide isn't strictly required.
@@ -129,7 +140,7 @@ class DriftTrail {
 		p[ offset + 12 ] = _cR.x; p[ offset + 13 ] = _cR.y; p[ offset + 14 ] = _cR.z;
 		p[ offset + 15 ] = _cL.x; p[ offset + 16 ] = _cL.y; p[ offset + 17 ] = _cL.z;
 
-		const colorOffset = this.segmentIndex * COLOR_FLOATS_PER_SEGMENT;
+		const colorOffset = segIndex * COLOR_FLOATS_PER_SEGMENT;
 		const c = this.colors;
 
 		for ( let i = 0; i < VERTS_PER_SEGMENT; i ++ ) {
@@ -137,6 +148,9 @@ class DriftTrail {
 			c[ colorOffset + i * 4 + 3 ] = alpha;
 
 		}
+
+		this.baseAlphas[ segIndex ] = alpha;
+		this.writeClocks[ segIndex ] = clock;
 
 		if ( markDirty ) {
 
@@ -160,6 +174,41 @@ class DriftTrail {
 			this.geometry.setDrawRange( 0, this.drawCount );
 
 		}
+
+	}
+
+	// Fades every already-written segment toward invisible as it ages,
+	// instead of marks staying on the ground forever (the previous
+	// behavior — segments only ever disappeared once the 4096-segment
+	// ring buffer wrapped back around and overwrote them, which in
+	// practice could take a very long time). Called once per
+	// DriftMarks.update() frame, regardless of whether the car is
+	// currently drifting, so old marks keep fading even after the car
+	// stops. A no-op (skipped entirely by the caller) when lifetime is
+	// Infinity, which keeps NORMAL/web mode's permanent, localStorage-
+	// persisted marks completely unaffected.
+	updateFade( clock, lifetime ) {
+
+		const segCount = this.drawCount / VERTS_PER_SEGMENT;
+		if ( segCount === 0 ) return;
+
+		const start = ( segCount < MAX_SEGMENTS ) ? 0 : this.segmentIndex;
+		const c = this.colors;
+
+		for ( let i = 0; i < segCount; i ++ ) {
+
+			const slot = ( start + i ) % MAX_SEGMENTS;
+			const age = clock - this.writeClocks[ slot ];
+			const fade = THREE.MathUtils.clamp( 1 - age / lifetime, 0, 1 );
+			const targetAlpha = this.baseAlphas[ slot ] * fade;
+
+			const colorOffset = slot * COLOR_FLOATS_PER_SEGMENT;
+			for ( let v = 0; v < VERTS_PER_SEGMENT; v ++ ) c[ colorOffset + v * 4 + 3 ] = targetAlpha;
+
+		}
+
+		this.geometry.attributes.color.needsUpdate = true;
+		this.dirty = true;
 
 	}
 
@@ -189,7 +238,10 @@ class DriftTrail {
 			const cy = Math.round( ( p[ offset +  7 ] + p[ offset + 13 ] ) * 0.5 * QUANTIZE );
 			const cz = Math.round( ( p[ offset +  8 ] + p[ offset + 14 ] ) * 0.5 * QUANTIZE );
 
-			const aByte = Math.round( c[ slot * COLOR_FLOATS_PER_SEGMENT + 3 ] * 255 );
+			// Serialized at full (base) alpha, not the currently-faded
+			// live value — only reached when lifetime is Infinity anyway
+			// (see DriftMarks._save()), where nothing ever fades.
+			const aByte = Math.round( this.baseAlphas[ slot ] * 255 );
 
 			const continued = havePrev && px === lastX && py === lastY && pz === lastZ;
 
@@ -260,9 +312,23 @@ export class DriftMarks {
 	// miles above the tabletop car, or never renders at all (see the
 	// MIN_SEGMENT_LENGTH comment below). Defaults to 1 (no change) for
 	// every existing caller, including NORMAL/web mode.
-	constructor( scene, trackId, scale = 1 ) {
+	//
+	// lifetime: real seconds a mark stays visible before fading out
+	// completely. Defaults to Infinity — marks never fade (the original
+	// behavior) and are saved/restored via localStorage across reloads,
+	// exactly as before, for every existing caller (NORMAL/web mode's
+	// "persistent track record" feature is untouched). Passing a finite
+	// value (used by the AR floating track/arena, after feedback that
+	// marks stayed on the ground too long) switches to a live-session-
+	// only fade effect instead — localStorage persistence is skipped
+	// entirely in that case, since a saved mark carries no age
+	// information and would otherwise reappear at full strength on the
+	// next reload regardless of how long it had already faded.
+	constructor( scene, trackId, scale = 1, lifetime = Infinity ) {
 
 		this.scale = scale;
+		this.lifetime = lifetime;
+		this.clock = 0; // running total time, used for age-based fade-out
 
 		const material = new THREE.MeshBasicMaterial( {
 			color: 0x111111,
@@ -282,31 +348,48 @@ export class DriftMarks {
 		];
 
 		this.storageKey = STORAGE_PREFIX + ( trackId || 'default' );
-		this._load();
 
+		if ( isFinite( this.lifetime ) ) return; // fading marks: live-session only, nothing to persist
+
+		this._load();
 		window.addEventListener( 'pagehide', () => this._save() );
 
 	}
 
 	update( dt, vehicle ) {
 
+		this.clock += dt;
+
 		const emit = vehicle.driftIntensity > 0.5 && Math.abs( vehicle.linearSpeed ) > 0.15;
 
-		if ( ! emit && ! this.trails[ 0 ].active && ! this.trails[ 1 ].active ) return;
+		if ( emit || this.trails[ 0 ].active || this.trails[ 1 ].active ) {
 
-		// World-space Y, not local — see the identical fix/comment in
-		// Particles.js (SmokeTrails.update) for why: container.position is
-		// only world position when container's parent is the scene at
-		// identity transform. No-op in NORMAL mode.
-		// Y_OFFSET is scaled by this.scale for the same reason WIDTH/
-		// MIN_SEGMENT_LENGTH are in _writeSegment() — a real 5cm offset is
-		// huge relative to an AR-shrunk car, and would float the trail
-		// well above the visible tabletop ground.
-		const groundY = vehicle.container.getWorldPosition( _containerWorldPos ).y + Y_OFFSET * this.scale;
-		const intensity = vehicle.driftIntensity;
+			// World-space Y, not local — see the identical fix/comment in
+			// Particles.js (SmokeTrails.update) for why: container.position
+			// is only world position when container's parent is the scene
+			// at identity transform. No-op in NORMAL mode.
+			// Y_OFFSET is scaled by this.scale for the same reason WIDTH/
+			// MIN_SEGMENT_LENGTH are in _writeSegment() — a real 5cm offset
+			// is huge relative to an AR-shrunk car, and would float the
+			// trail well above the visible tabletop ground.
+			const groundY = vehicle.container.getWorldPosition( _containerWorldPos ).y + Y_OFFSET * this.scale;
+			const intensity = vehicle.driftIntensity;
 
-		this.trails[ 0 ].track( vehicle.wheelBL, groundY, intensity, emit );
-		this.trails[ 1 ].track( vehicle.wheelBR, groundY, intensity, emit );
+			this.trails[ 0 ].track( vehicle.wheelBL, groundY, intensity, emit, this.clock );
+			this.trails[ 1 ].track( vehicle.wheelBR, groundY, intensity, emit, this.clock );
+
+		}
+
+		// Keeps fading already-written marks even once the car stops
+		// drifting — a mark laid a few seconds ago shouldn't freeze in
+		// place just because emit is currently false. No-op when
+		// lifetime is Infinity (see updateFade's own comment).
+		if ( isFinite( this.lifetime ) ) {
+
+			this.trails[ 0 ].updateFade( this.clock, this.lifetime );
+			this.trails[ 1 ].updateFade( this.clock, this.lifetime );
+
+		}
 
 	}
 
@@ -332,6 +415,7 @@ export class DriftMarks {
 
 	_save() {
 
+		if ( isFinite( this.lifetime ) ) return; // fading marks are never persisted (see constructor comment)
 		if ( ! this.trails.some( ( trail ) => trail.dirty ) ) return;
 
 		try {

@@ -805,47 +805,67 @@ function createSkidMarksTexture( worldSize ) {
 // `worldSize` is the full plane size the texture will be mapped onto;
 // `half` is the arena's own half-size (footprint edge distance from
 // center) in those same world units.
-function createTrackEdgeTexture( worldSize, half ) {
+// worldSizeX/worldSizeZ + halfX/halfZ are now independent (were a single
+// worldSize/half assuming a square footprint) so this also maps correctly
+// onto a rectangular pad — separate per-axis pixel scales, and the
+// perimeter rumble-strip blocks are laid out along each axis using that
+// axis's own half-length. Callers with a square footprint just pass the
+// same value for both (X/Z), producing byte-identical output to before.
+function createTrackEdgeTexture( worldSizeX, worldSizeZ, halfX, halfZ ) {
 
 	const size = 1024;
 	const canvas = document.createElement( 'canvas' );
 	canvas.width = canvas.height = size;
 	const ctx = canvas.getContext( '2d' );
 
-	const px = size / worldSize; // pixels per world unit
-	const toPx = ( w ) => ( w / worldSize + 0.5 ) * size;
+	const pxX = size / worldSizeX; // pixels per world unit, X axis
+	const pxZ = size / worldSizeZ; // pixels per world unit, Z axis
+	const toPxX = ( w ) => ( w / worldSizeX + 0.5 ) * size;
+	const toPxZ = ( w ) => ( w / worldSizeZ + 0.5 ) * size;
 
-	const bandWidth = Math.max( half * 0.014, 0.4 );  // white band thickness
-	const inset = Math.max( half * 0.01, 0.35 );       // gap between the barrier and the band's outer edge
+	const refHalf = Math.min( halfX, halfZ ); // band thickness stays consistent regardless of aspect ratio
+	const bandWidth = Math.max( refHalf * 0.014, 0.4 );  // white band thickness
+	const inset = Math.max( refHalf * 0.01, 0.35 );       // gap between the barrier and the band's outer edge
 	const blockLen = bandWidth * 2.1;                  // length of each red block along the band
 	const gapLen = bandWidth * 1.6;                    // white gap between red blocks
 
-	const outer = half - inset;
-	const inner = outer - bandWidth;
-	const bandPx = bandWidth * px;
+	const outerX = halfX - inset, innerX = outerX - bandWidth;
+	const outerZ = halfZ - inset, innerZ = outerZ - bandWidth;
+	const bandPxX = bandWidth * pxX;
+	const bandPxZ = bandWidth * pxZ;
 
 	// White boundary band, all 4 sides at once (full-canvas-width/height
 	// strips so the corners overlap cleanly with no gap).
 	ctx.fillStyle = '#f2f2f2';
-	ctx.fillRect( 0, toPx( -outer ), size, bandPx );
-	ctx.fillRect( 0, toPx( inner ), size, bandPx );
-	ctx.fillRect( toPx( -outer ), 0, bandPx, size );
-	ctx.fillRect( toPx( inner ), 0, bandPx, size );
+	ctx.fillRect( 0, toPxZ( -outerZ ), size, bandPxZ );
+	ctx.fillRect( 0, toPxZ( innerZ ), size, bandPxZ );
+	ctx.fillRect( toPxX( -outerX ), 0, bandPxX, size );
+	ctx.fillRect( toPxX( innerX ), 0, bandPxX, size );
 
-	// Red rumble-strip blocks laid on top at regular intervals.
+	// Red rumble-strip blocks laid on top at regular intervals — one pass
+	// along each axis, since the two can now have different lengths.
 	ctx.fillStyle = '#E0621B';
 	const period = blockLen + gapLen;
-	for ( let p = - half; p < half; p += period ) {
+	for ( let p = - halfX; p < halfX; p += period ) {
 
-		const len = Math.min( blockLen, half - p );
+		const len = Math.min( blockLen, halfX - p );
 		if ( len <= 0 ) continue;
-		const lenPx = len * px;
-		const startPx = toPx( p );
+		const lenPx = len * pxX;
+		const startPx = toPxX( p );
 
-		ctx.fillRect( startPx, toPx( -outer ), lenPx, bandPx );
-		ctx.fillRect( startPx, toPx( inner ), lenPx, bandPx );
-		ctx.fillRect( toPx( -outer ), startPx, bandPx, lenPx );
-		ctx.fillRect( toPx( inner ), startPx, bandPx, lenPx );
+		ctx.fillRect( startPx, toPxZ( -outerZ ), lenPx, bandPxZ );
+		ctx.fillRect( startPx, toPxZ( innerZ ), lenPx, bandPxZ );
+
+	}
+	for ( let p = - halfZ; p < halfZ; p += period ) {
+
+		const len = Math.min( blockLen, halfZ - p );
+		if ( len <= 0 ) continue;
+		const lenPx = len * pxZ;
+		const startPx = toPxZ( p );
+
+		ctx.fillRect( toPxX( -outerX ), startPx, bandPxX, lenPx );
+		ctx.fillRect( toPxX( innerX ), startPx, bandPxX, lenPx );
 
 	}
 
@@ -907,20 +927,32 @@ function createCrowdTexture() {
 // walls) for reasons not fully root-caused — reverted to this
 // proven-working runtime approach rather than keep chasing the asset
 // pipeline issue.
-function buildBarrierLoop( parentGroup, world, half, yOffset = 0, heightScale = 1 ) {
+// halfZ defaults to halfX, so an existing (square) caller that only ever
+// passed one half-length keeps producing exactly the same barrier loop as
+// before; a rectangular caller passes both independently.
+function buildBarrierLoop( parentGroup, world, halfX, halfZ = halfX, yOffset = 0, heightScale = 1 ) {
 
 	const barrierSeg = 8;
 
 	for ( const sign of [ 1, -1 ] ) {
 
-		for ( let p = - half; p < half; p += barrierSeg ) {
+		for ( let p = - halfX; p < halfX; p += barrierSeg ) {
 
-			const segLen = Math.min( barrierSeg, half - p ) - 0.3; // small gaps between segments, like real jersey barrier sections
+			const segLen = Math.min( barrierSeg, halfX - p ) - 0.3; // small gaps between segments, like real jersey barrier sections
 			if ( segLen <= 0 ) continue;
 			const center = p + segLen / 2;
 
-			buildBarrierSegment( parentGroup, world, center, sign * half, segLen, 'x', yOffset, heightScale );
-			buildBarrierSegment( parentGroup, world, sign * half, center, segLen, 'z', yOffset, heightScale );
+			buildBarrierSegment( parentGroup, world, center, sign * halfZ, segLen, 'x', yOffset, heightScale );
+
+		}
+
+		for ( let p = - halfZ; p < halfZ; p += barrierSeg ) {
+
+			const segLen = Math.min( barrierSeg, halfZ - p ) - 0.3;
+			if ( segLen <= 0 ) continue;
+			const center = p + segLen / 2;
+
+			buildBarrierSegment( parentGroup, world, sign * halfX, center, segLen, 'z', yOffset, heightScale );
 
 		}
 
@@ -1171,21 +1203,26 @@ function buildFloodlightPoleVisual( parent, x, z, aimTarget, poleHeight = 9 ) {
 // whatever group/scene those add their own dressing to, so this works
 // unscaled (world space) or inside a group that later gets uniformly
 // scaled down for AR.
-function scatterCornerDecor( parent, models, half, truckKeys ) {
+// halfZ defaults to halfX (square, backward-compatible); a rectangular
+// caller passes both independently so each corner cluster sits inset
+// proportionally on both axes instead of assuming a square footprint.
+function scatterCornerDecor( parent, models, halfX, halfZ = halfX, truckKeys ) {
 
-	const margin = half * 0.14; // how far inside the corner the cluster sits
-	const jitter = half * 0.05;
+	const marginX = halfX * 0.14; // how far inside the corner the cluster sits
+	const marginZ = halfZ * 0.14;
+	const jitterX = halfX * 0.05;
+	const jitterZ = halfZ * 0.05;
 
 	for ( const sx of [ -1, 1 ] ) {
 
 		for ( const sz of [ -1, 1 ] ) {
 
-			const cx = sx * ( half - margin );
-			const cz = sz * ( half - margin );
+			const cx = sx * ( halfX - marginX );
+			const cz = sz * ( halfZ - marginZ );
 
 			const tireCount = 3 + Math.floor( Math.random() * 4 ); // 3-6
-			const tireX = cx + ( Math.random() - 0.5 ) * jitter * 2;
-			const tireZ = cz + ( Math.random() - 0.5 ) * jitter * 2;
+			const tireX = cx + ( Math.random() - 0.5 ) * jitterX * 2;
+			const tireZ = cz + ( Math.random() - 0.5 ) * jitterZ * 2;
 			buildTireStack( parent, tireX, tireZ, tireCount );
 
 			if ( truckKeys.length > 0 && Math.random() < 0.85 ) {
@@ -1199,8 +1236,8 @@ function scatterCornerDecor( parent, models, half, truckKeys ) {
 					// Offset toward the arena's center relative to the tire
 					// stack, away from the corner point, so the two don't
 					// overlap each other.
-					const carX = cx - sx * jitter * 1.8 + ( Math.random() - 0.5 ) * jitter;
-					const carZ = cz - sz * jitter * 1.8 + ( Math.random() - 0.5 ) * jitter;
+					const carX = cx - sx * jitterX * 1.8 + ( Math.random() - 0.5 ) * jitterX;
+					const carZ = cz - sz * jitterZ * 1.8 + ( Math.random() - 0.5 ) * jitterZ;
 					car.position.set( carX, 0, carZ );
 					car.rotation.y = Math.random() * Math.PI * 2;
 					car.traverse( ( c ) => {
@@ -1533,7 +1570,7 @@ function setHighBeam( vehicleLights, on, scale = 1 ) {
 	vehicleLights._highBeamOn = on;
 
 	const s = Math.max( scale, 0.001 );
-	const intensityScale = Math.sqrt( s );
+	const intensityScale = s;
 
 	vehicleLights.headlights.forEach( ( h ) => {
 
@@ -1578,16 +1615,12 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false ) {
 	// Every light's distance/intensity scales with the vehicle size —
 	// not just headlights. Taillights are always-on, so at AR-tabletop
 	// scale an unscaled ~0.9m range dwarfed the entire shrunk track,
-	// washing the whole scene in red. Distance scales linearly with
-	// `scale`. Intensity uses sqrt(scale) rather than true inverse-
-	// square (scale²) — physically "more correct", but at the floating
-	// track's very small fixed scale (~0.016) squaring pushed intensity
-	// down to a fraction of a percent of base, making every light
-	// essentially invisible even when correctly toggled on. sqrt keeps
-	// a visible amount of light at small scales while still dimming
-	// noticeably larger cars less than smaller ones.
+	// washing the whole scene in red. Both distance and intensity scale
+	// linearly with `scale` — matches how the same light would actually
+	// look on a smaller physical car, and keeps brightness proportionate
+	// to the AR track/arena rather than blowing it out.
 	const s = Math.max( scale, 0.001 );
-	const intensityScale = Math.sqrt( s );
+	const intensityScale = s;
 
 	if ( vehicleLights.headlights ) {
 
@@ -2005,20 +2038,25 @@ function createAIDrivers( npcConfigs, gridSlots, models, scene, world, path, rad
 // show" look. No collision avoidance — bumping the boundary wall or
 // another car is fine, even expected, for this look.
 
-function createFreeRoamAI( npcConfigs, models, scene, world, roadHalf ) {
+// roadHalfZ defaults to roadHalf so existing (square) callers spread AI
+// exactly as before; a rectangular arena passes both independently so the
+// spawn ring matches its actual footprint instead of a circle inscribed
+// inside the shorter side.
+function createFreeRoamAI( npcConfigs, models, scene, world, roadHalf, roadHalfZ = roadHalf ) {
 
 	// Widened alongside updateFreeRoamAIDrivers' own wanderRadius (see
 	// AIController.js) — these AI cars now spread across most of the
 	// arena's radius from the start instead of clustering near its
 	// center.
-	const spawnMargin = roadHalf * 0.85; // keep starting points away from the walls
+	const spawnMarginX = roadHalf * 0.85; // keep starting points away from the walls
+	const spawnMarginZ = roadHalfZ * 0.85;
 
 	return npcConfigs.map( ( cfg, i ) => {
 
 		const angle = ( i / npcConfigs.length ) * Math.PI * 2;
-		const dist = spawnMargin * ( 0.3 + Math.random() * 0.65 );
-		const x = Math.cos( angle ) * dist;
-		const z = Math.sin( angle ) * dist;
+		const distFrac = 0.3 + Math.random() * 0.65;
+		const x = Math.cos( angle ) * spawnMarginX * distFrac;
+		const z = Math.sin( angle ) * spawnMarginZ * distFrac;
 		const heading = Math.random() * Math.PI * 2;
 
 		const sphereBody = createSphereBody( world, [ x, 0.5, z ] );
@@ -2242,7 +2280,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		// Same red/white barrier style as the actual race track (and the
 		// AR floating arena) instead of grandstands — keeps the visual
 		// language consistent across web/AR and both arena variants.
-		buildBarrierLoop( scene, null, roadHalf, - 0.125 );
+		buildBarrierLoop( scene, null, roadHalf, roadHalf, - 0.125 );
 
 		// Floodlight poles at the four corners, all aimed back at center —
 		// the actual light source for the night-stadium look set above.
@@ -2289,7 +2327,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		// Racing curb (white edge line + red rumble-strip blocks), same
 		// style as the actual race track, traced just inside this arena's
 		// own barrier loop.
-		const edgeTexture = createTrackEdgeTexture( groundSize, roadHalf );
+		const edgeTexture = createTrackEdgeTexture( groundSize, groundSize, roadHalf, roadHalf );
 		const edgeOverlay = new THREE.Mesh(
 			new THREE.PlaneGeometry( groundSize, groundSize ),
 			new THREE.MeshStandardMaterial( {
@@ -2328,7 +2366,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 		// Tire stacks + parked decoration cars scattered near all 4
 		// corners (randomized each time), warning signs flanking the gate.
-		scatterCornerDecor( scene, models, roadHalf, [ 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red' ] );
+		scatterCornerDecor( scene, models, roadHalf, roadHalf, [ 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red' ] );
 		buildWarningSign( scene, -4.5, roadHalf - 1, Math.PI );
 		buildWarningSign( scene, 4.5, roadHalf - 1, Math.PI );
 
@@ -3283,7 +3321,14 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	//    reading or blink timers, so controls/UI still feel responsive
 	//    at a normal rate.
 	const FIXED_SCALE = 0.02;
-	const TIME_SCALE = 2.5;
+	// Reset to the game's base speed (1 = identical pacing to NORMAL/web
+	// mode) — an earlier 2.5x was tuned to fix a reported "feels slow"
+	// issue at very small AR scale, but overshot and read as sped-up.
+	const TIME_SCALE = 1;
+	// How long (seconds) a tire/drift mark stays on the ground before
+	// fading out — much shorter than NORMAL mode's permanent record,
+	// since the user reported marks lingering too long in AR.
+	const DRIFT_MARK_LIFETIME = 4;
 
 	// arRoot carries the AR placement (position/rotation/scale) as one
 	// clean transform. trackGroup goes underneath it UNCHANGED — still
@@ -3416,19 +3461,18 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			audio.forceUnlock();
 			const radio = new Radio( audio.listener, vehicleGroup );
 
-			// Smoke and drift marks both carry real-world-meter constants
-			// internally (particle size/velocity, trail width/segment
-			// length) — passing FIXED_SCALE here shrinks those constants by
-			// the exact same factor arRoot shrinks the car/track visuals
-			// by, so both come out proportional to the real thing, matching
-			// NORMAL/web mode's look instead of an arbitrarily-tuned size.
-			// emitMultiplier still cuts the emission RATE (not size) well
-			// below web mode's default, since this instance is shared
-			// across the player AND all 3 AI (see below) — the aggregate
-			// emission with everyone potentially drifting at once is what
-			// actually matters for performance, not any one car's rate.
-			const particles = new SmokeTrails( scene, FIXED_SCALE, 0.3 );
-			const driftMarks = new DriftMarks( scene, 'ar-floating-track', FIXED_SCALE );
+			// Smoke reverted to the game's basic/default settings — same
+			// call NORMAL/web mode uses, no AR-specific size/rate tuning.
+			const particles = new SmokeTrails( scene );
+			// Drift marks fade out after DRIFT_MARK_LIFETIME seconds instead
+			// of staying forever — appropriate for AR (a live tabletop
+			// scene, not a persisted record like NORMAL mode's track), and
+			// also skips the localStorage persistence NORMAL mode relies on
+			// (a faded mark has no age info, so it would come back at full
+			// strength on reload otherwise). NORMAL/room-AR mode's own
+			// DriftMarks calls are untouched — they keep the default
+			// Infinity lifetime and their permanent saved record.
+			const driftMarks = new DriftMarks( scene, 'ar-floating-track', FIXED_SCALE, DRIFT_MARK_LIFETIME );
 
 			const _forward = new THREE.Vector3();
 			const contactListener = {
@@ -3466,8 +3510,9 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 				const group = d.vehicle.container;
 				const lights = addVehicleLights( group );
+				lights.hazardsOn = true; // AI always shows hazard/emergency blinkers
 				const flag = addVehicleFlag( group, aiFlagUrl );
-				const marks = new DriftMarks( scene, 'ar-floating-track-ai-' + i, FIXED_SCALE );
+				const marks = new DriftMarks( scene, 'ar-floating-track-ai-' + i, FIXED_SCALE, DRIFT_MARK_LIFETIME );
 				return { lights, driftMarks: marks, flag };
 
 			} );
@@ -3602,14 +3647,16 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 }
 
 // ─── AR floating arena (Stage 4) ────────────────────────────
-// An open square for drifting — flat asphalt with the track's own
+// An open rectangle for drifting — flat asphalt with the track's own
 // red/white barrier around all 4 edges (buildBarrierSegment, same as the
 // real track, world=null for visual-only/no physics), a curb-striped
 // edge line, and corner dressing (floodlight poles, tire stacks, parked
 // decoration cars) — but no walls/track loop of its own. Grabbable/
 // movable/scalable (PlaceableObject) and a simple kinematic car, same
-// mechanic as the floating track.
-function buildDriftPad( half, models ) {
+// mechanic as the floating track. halfX/halfZ are independent (was a
+// single `half`, square-only) per feedback that the pad should be
+// rectangular and bigger rather than a square.
+function buildDriftPad( halfX, halfZ, models ) {
 
 	const pad = new THREE.Group();
 
@@ -3620,7 +3667,7 @@ function buildDriftPad( half, models ) {
 	// of the intended dark asphalt gray for reasons not fully
 	// root-caused.
 	const groundMesh = new THREE.Mesh(
-		new THREE.PlaneGeometry( half * 2, half * 2 ),
+		new THREE.PlaneGeometry( halfX * 2, halfZ * 2 ),
 		new THREE.MeshStandardMaterial( { color: 0x3a3a40, roughness: 1, metalness: 0 } )
 	);
 	groundMesh.rotation.x = - Math.PI / 2;
@@ -3629,9 +3676,9 @@ function buildDriftPad( half, models ) {
 	// Same white-edge-line + red-rumble-strip curb as the web free-roam
 	// arena, traced just inside the barrier loop below — keeps the pad's
 	// edge styling consistent with the actual race track across web/AR.
-	const edgeTexture = createTrackEdgeTexture( half * 2, half );
+	const edgeTexture = createTrackEdgeTexture( halfX * 2, halfZ * 2, halfX, halfZ );
 	const edgeOverlay = new THREE.Mesh(
-		new THREE.PlaneGeometry( half * 2, half * 2 ),
+		new THREE.PlaneGeometry( halfX * 2, halfZ * 2 ),
 		new THREE.MeshStandardMaterial( {
 			map: edgeTexture, transparent: true, roughness: 0.9,
 			metalness: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2,
@@ -3648,7 +3695,7 @@ function buildDriftPad( half, models ) {
 	// everything else went back to true 1:1 proportions. The barrier is a
 	// low real-world jersey barrier (0.6m), meant to sit well below car
 	// height, exactly like it does in web mode.
-	buildBarrierLoop( pad, null, half );
+	buildBarrierLoop( pad, null, halfX, halfZ );
 
 	// Floodlight poles + scattered tire stacks/parked decoration cars at
 	// the 4 corners, same dressing as the web free-roam arena — added to
@@ -3658,18 +3705,19 @@ function buildDriftPad( half, models ) {
 	// since `pad` gets scaled down to tabletop size later — a real
 	// light's intensity/distance don't scale down with it and would
 	// blow out this tiny scene.
-	const poleInset = half * 0.82;
+	const poleInsetX = halfX * 0.82;
+	const poleInsetZ = halfZ * 0.82;
 	for ( const cx of [ -1, 1 ] ) {
 
 		for ( const cz of [ -1, 1 ] ) {
 
-			buildFloodlightPoleVisual( pad, cx * poleInset, cz * poleInset, { x: 0, z: 0 } );
+			buildFloodlightPoleVisual( pad, cx * poleInsetX, cz * poleInsetZ, { x: 0, z: 0 } );
 
 		}
 
 	}
 
-	scatterCornerDecor( pad, models, half, [ 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red' ] );
+	scatterCornerDecor( pad, models, halfX, halfZ, [ 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red' ] );
 
 	return pad;
 
@@ -3677,17 +3725,19 @@ function buildDriftPad( half, models ) {
 
 // Kinematic version of the web free-roam AI (random wander target,
 // always full throttle, no easing off for turns — same idea as
-// updateFreeRoamAI in the web build) for the floating arena.
-function createKinematicArenaAI( npcConfigs, models, parentGroup, padHalf ) {
+// updateFreeRoamAI in the web build) for the floating arena. halfX/halfZ
+// independent for the rectangular pad.
+function createKinematicArenaAI( npcConfigs, models, parentGroup, halfX, halfZ ) {
 
-	const spawnMargin = padHalf * 0.5;
+	const spawnMarginX = halfX * 0.5;
+	const spawnMarginZ = halfZ * 0.5;
 
 	return npcConfigs.map( ( cfg, i ) => {
 
 		const angle = ( i / npcConfigs.length ) * Math.PI * 2;
-		const dist = spawnMargin * ( 0.4 + Math.random() * 0.5 );
-		const x = Math.cos( angle ) * dist;
-		const z = Math.sin( angle ) * dist;
+		const distFrac = 0.4 + Math.random() * 0.5;
+		const x = Math.cos( angle ) * spawnMarginX * distFrac;
+		const z = Math.sin( angle ) * spawnMarginZ * distFrac;
 		const heading = Math.random() * Math.PI * 2;
 
 		const model = ( models[ cfg.key ] || models[ 'vehicle-truck-yellow' ] ).clone();
@@ -3702,9 +3752,10 @@ function createKinematicArenaAI( npcConfigs, models, parentGroup, padHalf ) {
 
 }
 
-function updateKinematicArenaAI( drivers, dt, racing, padHalf ) {
+function updateKinematicArenaAI( drivers, dt, racing, halfX, halfZ ) {
 
-	const wanderRadius = padHalf * 0.6;
+	const wanderRadiusX = halfX * 0.6;
+	const wanderRadiusZ = halfZ * 0.6;
 	const MAX_SPEED = 8, ACCEL = 10, TURN_RATE = 3.5;
 
 	for ( const d of drivers ) {
@@ -3717,8 +3768,8 @@ function updateKinematicArenaAI( drivers, dt, racing, padHalf ) {
 		if ( d.retargetTimer <= 0 || distToTarget < 3 ) {
 
 			const a = Math.random() * Math.PI * 2;
-			const r = Math.random() * wanderRadius;
-			d.target = { x: Math.cos( a ) * r, z: Math.sin( a ) * r };
+			const r = Math.random();
+			d.target = { x: Math.cos( a ) * wanderRadiusX * r, z: Math.sin( a ) * wanderRadiusZ * r };
 			d.retargetTimer = 2 + Math.random() * 3;
 
 		}
@@ -3746,8 +3797,8 @@ function updateKinematicArenaAI( drivers, dt, racing, padHalf ) {
 		d.z += Math.cos( d.heading ) * d.speed * dt;
 
 		const margin = 2;
-		d.x = THREE.MathUtils.clamp( d.x, - padHalf + margin, padHalf - margin );
-		d.z = THREE.MathUtils.clamp( d.z, - padHalf + margin, padHalf - margin );
+		d.x = THREE.MathUtils.clamp( d.x, - halfX + margin, halfX - margin );
+		d.z = THREE.MathUtils.clamp( d.z, - halfZ + margin, halfZ - margin );
 
 		d.model.position.set( d.x, 0.5, d.z );
 		d.model.rotation.y = d.heading;
@@ -3766,11 +3817,13 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 	const placeholderCamera = new THREE.PerspectiveCamera();
 
-	// Halved AGAIN per feedback that the arena still felt too big
-	// relative to the car (was 45, then 22.5 — widened once before that,
-	// now reverted further down).
-	const PAD_HALF = 11.25;
-	const arenaGroup = buildDriftPad( PAD_HALF, models );
+	// Rectangular now (not square) and bigger overall, per feedback — X is
+	// the long side. buildDriftPad/buildBarrierLoop/scatterCornerDecor/
+	// the AI helpers below all take independent halfX/halfZ now instead of
+	// one square `half`.
+	const PAD_HALF_X = 16;
+	const PAD_HALF_Z = 10;
+	const arenaGroup = buildDriftPad( PAD_HALF_X, PAD_HALF_Z, models );
 
 	// buildDriftPad() starts at identity transform (no internal offset
 	// baked in, unlike buildTrack()'s trackGroup) — so unlike the
@@ -3782,14 +3835,14 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	// used below via simDt, and why CAR_VISUAL_BOOST was removed in favor
 	// of FIXED_SCALE being the one, consistent size knob) and why they're
 	// all safe to change freely (purely cosmetic/pacing, no
-	// physics-stability impact). Bumped up from 0.02 alongside the
-	// PAD_HALF halving above — since PAD_HALF and FIXED_SCALE both scale
-	// the WHOLE group (arena, barrier, car, decoration cars) together,
-	// this keeps the tabletop footprint a comfortable size while the
-	// smaller PAD_HALF is what actually grows the car-to-arena ratio, not
-	// a car-only boost (see the size-consistency note above).
+	// physics-stability impact).
 	const FIXED_SCALE = 0.03;
-	const TIME_SCALE = 2.5;
+	// Reset to the game's base speed — see the identical note in
+	// startARFloatingTrack.
+	const TIME_SCALE = 1;
+	// How long (seconds) a tire/drift mark stays on the ground before
+	// fading — see the identical note in startARFloatingTrack.
+	const DRIFT_MARK_LIFETIME = 4;
 	arenaGroup.scale.setScalar( FIXED_SCALE );
 	// Position/rotation are no longer a fixed guess — see the placing-
 	// phase in frameUpdate below, which drives arenaGroup from the same
@@ -3803,7 +3856,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	const light = new THREE.DirectionalLight( 0xffffff, 3 );
 	light.position.set( 0.6, 1, 0.6 );
 	light.castShadow = true;
-	const shadowExtent = PAD_HALF * 2 * FIXED_SCALE;
+	const shadowExtent = Math.max( PAD_HALF_X, PAD_HALF_Z ) * 2 * FIXED_SCALE;
 	light.shadow.camera.left = - shadowExtent;
 	light.shadow.camera.right = shadowExtent;
 	light.shadow.camera.top = shadowExtent;
@@ -3825,7 +3878,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 	const previewAI = createKinematicArenaAI(
 		NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
-		models, arenaGroup, PAD_HALF
+		models, arenaGroup, PAD_HALF_X, PAD_HALF_Z
 	);
 
 	let phase = 'placing'; // 'placing' -> 'racing'
@@ -3840,8 +3893,9 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 		// Physics now runs at REAL scale, exactly like NORMAL mode's own
 		// free-roam arena (real 9.81 gravity, real 0.5m car radius, real
-		// PAD_HALF-sized floor) — see the floating track's identical fix/
-		// comment for why: shrinking physics itself down to tabletop size
+		// PAD_HALF_X/PAD_HALF_Z-sized floor) — see the floating track's
+		// identical fix/comment for why: shrinking physics itself down to
+		// tabletop size
 		// fights crashcat's own distance tolerances and Vehicle.js's
 		// real-world-tuned driving-feel constants, which is what caused
 		// the reported "car behaves oddly" symptom. `arenaGroup` itself
@@ -3857,7 +3911,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 		const groundHalfY = 0.01;
 		rigidBody.create( world, {
-			shape: box.create( { halfExtents: [ PAD_HALF, groundHalfY, PAD_HALF ] } ),
+			shape: box.create( { halfExtents: [ PAD_HALF_X, groundHalfY, PAD_HALF_Z ] } ),
 			motionType: MotionType.STATIC,
 			objectLayer: world._OL_STATIC,
 			position: [ 0, - 0.125, 0 ],
@@ -3865,24 +3919,26 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 			restitution: 0.0,
 		} );
 
-		// Four boundary walls matching the visual barrier loop's square
-		// footprint — same real-scale wall dimensions as NORMAL mode's own
-		// free-roam arena walls (see startNormalMode's freeRoam branch).
+		// Four boundary walls matching the visual barrier loop's
+		// rectangular footprint — same real-scale wall dimensions as
+		// NORMAL mode's own free-roam arena walls (see startNormalMode's
+		// freeRoam branch). North/south walls run along X at z=±PAD_HALF_Z;
+		// east/west walls run along Z at x=±PAD_HALF_X.
 		const wallHalfHeight = 1.0;
 		const wallThickness = 0.2;
 		const wallLocalY = - 0.125 + wallHalfHeight;
 		for ( const sign of [ 1, -1 ] ) {
 
 			rigidBody.create( world, {
-				shape: box.create( { halfExtents: [ PAD_HALF, wallHalfHeight, wallThickness ] } ),
+				shape: box.create( { halfExtents: [ PAD_HALF_X, wallHalfHeight, wallThickness ] } ),
 				motionType: MotionType.STATIC, objectLayer: world._OL_STATIC,
-				position: [ 0, wallLocalY, sign * PAD_HALF ], friction: 0.2, restitution: 0.3,
+				position: [ 0, wallLocalY, sign * PAD_HALF_Z ], friction: 0.2, restitution: 0.3,
 			} );
 
 			rigidBody.create( world, {
-				shape: box.create( { halfExtents: [ wallThickness, wallHalfHeight, PAD_HALF ] } ),
+				shape: box.create( { halfExtents: [ wallThickness, wallHalfHeight, PAD_HALF_Z ] } ),
 				motionType: MotionType.STATIC, objectLayer: world._OL_STATIC,
-				position: [ sign * PAD_HALF, wallLocalY, 0 ], friction: 0.2, restitution: 0.3,
+				position: [ sign * PAD_HALF_X, wallLocalY, 0 ], friction: 0.2, restitution: 0.3,
 			} );
 
 		}
@@ -3917,16 +3973,12 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		audio.forceUnlock();
 		const radio = new Radio( audio.listener, vehicleGroup );
 
-		// Smoke and drift marks — see the identical comment in
-		// startARFloatingTrack: FIXED_SCALE shrinks their real-world-meter
-		// constants (particle size/velocity, trail width/segment length)
-		// by the same factor the car/arena visuals are shrunk by, so both
-		// come out proportional to the real thing instead of an
-		// arbitrarily-tuned size. emitMultiplier still cuts the emission
-		// RATE well below web mode's default since this instance is
-		// shared across the player AND all 3 AI (see below).
-		const particles = new SmokeTrails( scene, FIXED_SCALE, 0.3 );
-		const driftMarks = new DriftMarks( scene, 'ar-floating-arena', FIXED_SCALE );
+		// Smoke reverted to the game's basic/default settings — see the
+		// identical note in startARFloatingTrack.
+		const particles = new SmokeTrails( scene );
+		// Drift marks fade out after DRIFT_MARK_LIFETIME seconds — see the
+		// identical note in startARFloatingTrack.
+		const driftMarks = new DriftMarks( scene, 'ar-floating-arena', FIXED_SCALE, DRIFT_MARK_LIFETIME );
 
 		const _forward = new THREE.Vector3();
 		const contactListener = {
@@ -3953,7 +4005,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		// decoration cars, all governed by the one FIXED_SCALE transform.
 		const aiDrivers = createFreeRoamAI(
 			NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
-			models, arenaGroup, world, PAD_HALF
+			models, arenaGroup, world, PAD_HALF_X, PAD_HALF_Z
 		);
 		// AI flags always fly this fixed Saudi Arabia flag — never the
 		// player's own flagImage — and don't change if the player changes
@@ -3965,8 +4017,9 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 			const group = d.vehicle.container;
 			const lights = addVehicleLights( group );
+			lights.hazardsOn = true; // AI always shows hazard/emergency blinkers
 			const flag = addVehicleFlag( group, aiFlagUrl );
-			const marks = new DriftMarks( scene, 'ar-floating-arena-ai-' + i, FIXED_SCALE );
+			const marks = new DriftMarks( scene, 'ar-floating-arena-ai-' + i, FIXED_SCALE, DRIFT_MARK_LIFETIME );
 			return { lights, driftMarks: marks, flag };
 
 		} );
@@ -4017,7 +4070,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 					}
 
-					updateKinematicArenaAI( previewAI, dt, false, PAD_HALF );
+					updateKinematicArenaAI( previewAI, dt, false, PAD_HALF_X, PAD_HALF_Z );
 
 					if ( confirmEdge ) {
 
@@ -4061,7 +4114,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 					// marks the player gets. Smoke reuses the player's own
 					// shared SmokeTrails instance (see the identical note
 					// in startARFloatingTrack).
-					updateFreeRoamAIDrivers( raceCtx.aiDrivers, simDt, PAD_HALF );
+					updateFreeRoamAIDrivers( raceCtx.aiDrivers, simDt, PAD_HALF_X, PAD_HALF_Z );
 					raceCtx.aiDrivers.forEach( ( d, i ) => {
 
 						const extra = raceCtx.aiExtras[ i ];
