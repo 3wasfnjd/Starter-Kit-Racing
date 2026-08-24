@@ -2201,6 +2201,53 @@ function showRaceResultsOverlay( standings, { onRestart, onMenu } ) {
 
 }
 
+// AI cars in web mode originally had no flag, lights, or drift marks at
+// all. addVehicleLights() was wired in for all of them, but it builds a
+// FULL light rig per car — 2 headlight spotlights + 2 lens glows + 2
+// taillights + 2 reverse lights + 4 hazards, 10 lights total — and
+// nothing ever toggles headlights/high-beam/reverse for an AI car, so 6
+// of those 10 were dead weight just sitting in the scene graph, still
+// costing the renderer a light slot every frame, for 3-4 AI cars at
+// once. That's the likely cause of the reported heaviness/stutter on
+// the web-mode track. What was actually asked for was the flag and the
+// hazard/emergency lights ("العلم وإضاءات الطوارئ") — so headlights,
+// their lens glows, taillights, and reverse lights are removed from the
+// scene graph right after creation, keeping only the 4 hazard lights
+// live. `addVehicleLights` itself is left untouched (still used by the
+// player's own car, and by AR mode which legitimately wants the full
+// rig) — this only strips the extra Object3Ds back out for AI-in-web.
+//
+// Also adds the drift/tire marks AI cars were still missing in web mode
+// (present already in AR). A finite lifetime (fades after a few
+// seconds) is used rather than web mode's usual Infinity+localStorage
+// persistence — that persistent-trail-record feature is specifically
+// about the player's own driving history, not meant to grow 3-4 more
+// permanently-saved trails every session for cars nobody is steering.
+function setupWebAIExtras( aiDrivers, idPrefix ) {
+
+	const aiFlagUrl = createSaudiFlagDataUrl();
+	const AI_DRIFT_MARK_LIFETIME = 4;
+
+	return aiDrivers.map( ( d, i ) => {
+
+		const group = d.vehicle.container;
+
+		const lights = addVehicleLights( group );
+		lights.hazardsOn = true;
+		lights.headlights.forEach( ( h ) => { h.light.removeFromParent(); h.target.removeFromParent(); } );
+		lights.headlightLenses.forEach( ( lens ) => lens.removeFromParent() );
+		lights.taillights.forEach( ( t ) => t.light.removeFromParent() );
+		lights.reverseLights.forEach( ( r ) => { r.light.removeFromParent(); r.lens.removeFromParent(); } );
+
+		const flag = addVehicleFlag( group, aiFlagUrl );
+		const driftMarks = new DriftMarks( scene, idPrefix + '-' + i, 1, AI_DRIFT_MARK_LIFETIME );
+
+		return { lights, flag, driftMarks };
+
+	} );
+
+}
+
 // ─── NORMAL MODE (unchanged behavior from the original game) ──
 
 function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } ) {
@@ -2401,24 +2448,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		);
 		freeRoamHalf = roadHalf;
 
-		// AI cars had no flag/headlights/hazards at all in web mode (unlike
-		// the AR floating-track/arena modes, which already do this) — same
-		// fixed Saudi-flag + always-on-hazards treatment as those AR modes,
-		// so every AI car reads the same across every mode.
-		{
-
-			const aiFlagUrl = createSaudiFlagDataUrl();
-			aiExtras = aiDrivers.map( ( d ) => {
-
-				const group = d.vehicle.container;
-				const lights = addVehicleLights( group );
-				lights.hazardsOn = true; // AI always shows hazard/emergency blinkers
-				const flag = addVehicleFlag( group, aiFlagUrl );
-				return { lights, flag };
-
-			} );
-
-		}
+		aiExtras = setupWebAIExtras( aiDrivers, 'web-freeroam-ai' );
 
 		vehicleSpawn = { position: [ 0, 0.5, 0 ], angle: 0 };
 		sphereBody = createSphereBody( world, vehicleSpawn.position );
@@ -2476,20 +2506,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			const gridSlots = computeGridPositions( spawn, 1 + npcConfigs.length );
 			gridSpawn = gridSlots[ 0 ];
 			aiDrivers = createAIDrivers( npcConfigs, gridSlots, models, scene, world, trackPath );
-
-			// Same gap as free-roam above — race-mode AI cars in web mode had
-			// no flag or lights at all. Fixed Saudi flag + always-on hazards,
-			// matching the AR floating-track/arena modes' AI treatment.
-			const aiFlagUrl = createSaudiFlagDataUrl();
-			aiExtras = aiDrivers.map( ( d ) => {
-
-				const group = d.vehicle.container;
-				const lights = addVehicleLights( group );
-				lights.hazardsOn = true;
-				const flag = addVehicleFlag( group, aiFlagUrl );
-				return { lights, flag };
-
-			} );
+			aiExtras = setupWebAIExtras( aiDrivers, 'web-race-ai' );
 
 		}
 
@@ -2638,9 +2655,10 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 			}
 
-			// AI cars' hazard-blink timing and flag flutter — same per-frame
-			// update the player's own lights/flag get, just applied to each
-			// AI car's own { lights, flag } pair from aiExtras above.
+			// AI cars' hazard-blink timing, flag flutter, and drift/tire
+			// marks — same per-frame update the player's own car gets, just
+			// applied to each AI car's own { lights, flag, driftMarks }
+			// from aiExtras above.
 			for ( let i = 0; i < aiDrivers.length; i ++ ) {
 
 				const extra = aiExtras[ i ];
@@ -2648,6 +2666,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 				const d = aiDrivers[ i ];
 				updateVehicleLights( extra.lights, dt, 1, d.vehicle.linearSpeed < -0.01 );
 				if ( extra.flag ) extra.flag.updateFlutter( dt, Math.abs( d.vehicle.linearSpeed / MAX_SPEED ) );
+				if ( extra.driftMarks ) extra.driftMarks.update( dt, d.vehicle );
 
 			}
 
