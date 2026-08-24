@@ -3220,24 +3220,36 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	const trackPath = computeTrackPath( null );
 	let totalTime = 0;
 
-	// ✏️ EASY RETUNING KNOBS — both purely visual/cosmetic, safe to
-	// tweak freely without touching physics stability:
+	// ✏️ EASY RETUNING KNOBS — all three are purely cosmetic/pacing, safe
+	// to tweak freely without touching physics stability (mass, gravity,
+	// and the real 0.5m collision radius are never touched by any of
+	// them):
 	//  - FIXED_SCALE: how big the whole tabletop track appears (smaller
-	//    number = smaller footprint on the table). Shrunk from the
-	//    previous 0.016 per feedback that the track/car felt too small
-	//    together — see CAR_VISUAL_BOOST below for why shrinking this
-	//    further doesn't just make the car even tinier.
+	//    number = smaller footprint on the table).
 	//  - CAR_VISUAL_BOOST: renders the car's MODEL bigger than its real
-	//    physics hitbox (which stays the stable, real 0.5m radius — see
-	//    the physics comment below for why that must not change). This
-	//    is a purely cosmetic mismatch (common in games — visible mesh
-	//    slightly bigger than the invisible collision shape) and is what
-	//    actually fixes "car looks small/disproportionate", since with
-	//    real-world-accurate proportions alone a real car IS tiny next
-	//    to a 30m track. Keep this modest (under ~1.5) — much higher and
-	//    the car will visibly poke through the track's real-sized walls.
-	const FIXED_SCALE = 0.011;
-	const CAR_VISUAL_BOOST = 1.4;
+	//    physics hitbox. Purely cosmetic mismatch (common in games —
+	//    visible mesh a bit bigger than the invisible collision shape).
+	//    Nudged up again after feedback that the previous 1.4 still
+	//    looked too small — if it starts visibly poking through the
+	//    track's real-sized walls on tight corners, dial it back down.
+	//  - TIME_SCALE: the actual fix for "the car feels slow" — a real
+	//    car driven at real speed, shrunk to fit on a table but viewed
+	//    from the player's own REAL (unshrunk) eye distance, is a
+	//    textbook "miniature effect": the same physical motion covers a
+	//    proportionally tiny slice of your field of view, so it reads as
+	//    slow-motion no matter how fast the physics itself says the car
+	//    is going — the car's true speed never changed, only how far
+	//    away it looks from being shrunk. This is the same reasoning
+	//    film miniature work uses in reverse (full-size scenes shot to
+	//    look tiny are sped up so they read as toy-scale) — here it's
+	//    already toy-scale, so simulation TIME itself is sped up instead
+	//    to make it read as full-speed again. Applied only to the
+	//    physics/AI/particle updates below (see simDt), never to input
+	//    reading or blink timers, so controls/UI still feel responsive
+	//    at a normal rate.
+	const FIXED_SCALE = 0.014;
+	const CAR_VISUAL_BOOST = 1.7;
+	const TIME_SCALE = 2.5;
 
 	// arRoot carries the AR placement (position/rotation/scale) as one
 	// clean transform. trackGroup goes underneath it UNCHANGED — still
@@ -3397,11 +3409,13 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			audio.forceUnlock();
 			const radio = new Radio( audio.listener, vehicleGroup );
 
-			// Smoke: small visual size, and a cut emission RATE
-			// (emitMultiplier) specifically so it doesn't add per-frame
-			// particle-update/draw cost on top of everything else AR
-			// already has to render (passthrough + stereo).
-			const particles = new SmokeTrails( scene, Math.max( FIXED_SCALE * 4, 0.015 ), 0.35 );
+			// Smoke: small visual size, and a MUCH-cut emission RATE
+			// (emitMultiplier). Cut further after feedback that it looked
+			// too thick — this instance is now shared across the player
+			// AND all 3 AI (see below), so the aggregate emission with
+			// everyone potentially drifting at once is what actually
+			// matters, not any one car's rate alone.
+			const particles = new SmokeTrails( scene, Math.max( FIXED_SCALE * 2.5, 0.01 ), 0.12 );
 			const driftMarks = new DriftMarks( scene, 'ar-floating-track' );
 
 			const _forward = new THREE.Vector3();
@@ -3479,7 +3493,16 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 						touchActive: kbInput.touchActive,
 						handbrake: kbInput.handbrake || arManager.getHandbrakeHold(),
 					};
-					updateVehicleAndFx( dt, input, raceCtx.ctx );
+					// simDt (not dt) drives physics/AI/particles/drift-marks
+					// — see the TIME_SCALE comment above for why: a real
+					// car at real speed, shrunk to fit a table but viewed
+					// from the player's real (unshrunk) eye distance,
+					// reads as slow motion no matter what the physics says
+					// — this is what actually fixes that. Input reading,
+					// UI, and light-toggle edge detection above stay on
+					// real `dt` since those should still feel immediate.
+					const simDt = dt * TIME_SCALE;
+					updateVehicleAndFx( simDt, input, raceCtx.ctx );
 					updateVehicleLights( raceCtx.vehicleLights, dt, raceCtx.arScale, raceCtx.vehicle.linearSpeed < -0.01 );
 
 					if ( arManager.getHeadlightToggle() ) toggleHeadlights( raceCtx.vehicleLights );
@@ -3498,13 +3521,16 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 					// particle pool/draw call for everyone, cheaper than a
 					// separate instance per car) — drift marks stay
 					// per-car since each needs its own continuous trail.
-					totalTime += dt;
-					updateRaceAIDrivers( raceCtx.aiDrivers, trackPath, dt, true, totalTime, raceCtx.vehicle );
+					// Driven by the same simDt as the player so the AI
+					// keeps pace instead of visually lagging behind a
+					// player who now moves 2.5× faster in sim-time.
+					totalTime += simDt;
+					updateRaceAIDrivers( raceCtx.aiDrivers, trackPath, simDt, true, totalTime, raceCtx.vehicle );
 					raceCtx.aiDrivers.forEach( ( d, i ) => {
 
 						const extra = raceCtx.aiExtras[ i ];
-						raceCtx.ctx.particles.update( dt, d.vehicle );
-						extra.driftMarks.update( dt, d.vehicle );
+						raceCtx.ctx.particles.update( simDt, d.vehicle );
+						extra.driftMarks.update( simDt, d.vehicle );
 						updateVehicleLights( extra.lights, dt, raceCtx.arScale, d.vehicle.linearSpeed < -0.01 );
 
 					} );
@@ -3688,10 +3714,12 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	// directly here without needing an extra wrapper group.
 	//
 	// ✏️ EASY RETUNING KNOBS — see the identical comment in
-	// startARFloatingTrack for what each one does and why it's safe to
-	// change freely (both purely cosmetic, no physics-stability impact).
-	const FIXED_SCALE = 0.011;
-	const CAR_VISUAL_BOOST = 1.4;
+	// startARFloatingTrack for what each one does (including TIME_SCALE,
+	// used below via simDt) and why they're all safe to change freely
+	// (purely cosmetic/pacing, no physics-stability impact).
+	const FIXED_SCALE = 0.014;
+	const CAR_VISUAL_BOOST = 1.7;
+	const TIME_SCALE = 2.5;
 	arenaGroup.scale.setScalar( FIXED_SCALE );
 	arenaGroup.position.set( 0, 0.55, - 0.85 );
 	scene.add( arenaGroup );
@@ -3826,10 +3854,12 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		audio.forceUnlock();
 		const radio = new Radio( audio.listener, vehicleGroup );
 
-		// Smoke: small visual size, and a cut emission RATE
-		// (emitMultiplier) so it doesn't add per-frame particle-update/
-		// draw cost on top of everything else AR already renders.
-		const particles = new SmokeTrails( scene, Math.max( FIXED_SCALE * 4, 0.015 ), 0.35 );
+		// Smoke: small visual size, and a MUCH-cut emission RATE
+		// (emitMultiplier). Cut further after feedback that it looked too
+		// thick — this instance is shared across the player AND all 3 AI
+		// (see below), so the aggregate emission with everyone
+		// potentially drifting at once is what actually matters.
+		const particles = new SmokeTrails( scene, Math.max( FIXED_SCALE * 2.5, 0.01 ), 0.12 );
 		const driftMarks = new DriftMarks( scene, 'ar-floating-arena' );
 
 		const _forward = new THREE.Vector3();
@@ -3918,7 +3948,16 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 						touchActive: kbInput.touchActive,
 						handbrake: kbInput.handbrake || arManager.getHandbrakeHold(),
 					};
-					updateVehicleAndFx( dt, input, raceCtx.ctx );
+					// simDt: physics/AI/particle time runs faster than real dt
+					// (see TIME_SCALE note above) to counter the "miniature
+					// effect" — a real-speed object viewed at a real, un-
+					// shrunk distance always reads as slow motion no matter
+					// its true speed, so we speed up sim time instead of
+					// touching any physical constant. Input reading, button
+					// edge-detection, and light-blink pacing all stay on the
+					// real dt so controls and blink rate feel normal.
+					const simDt = dt * TIME_SCALE;
+					updateVehicleAndFx( simDt, input, raceCtx.ctx );
 					updateVehicleLights( raceCtx.vehicleLights, dt, raceCtx.arScale, raceCtx.vehicle.linearSpeed < -0.01 );
 
 					if ( arManager.getHeadlightToggle() ) toggleHeadlights( raceCtx.vehicleLights );
@@ -3935,12 +3974,12 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 					// marks the player gets. Smoke reuses the player's own
 					// shared SmokeTrails instance (see the identical note
 					// in startARFloatingTrack).
-					updateFreeRoamAIDrivers( raceCtx.aiDrivers, dt, PAD_HALF );
+					updateFreeRoamAIDrivers( raceCtx.aiDrivers, simDt, PAD_HALF );
 					raceCtx.aiDrivers.forEach( ( d, i ) => {
 
 						const extra = raceCtx.aiExtras[ i ];
-						raceCtx.ctx.particles.update( dt, d.vehicle );
-						extra.driftMarks.update( dt, d.vehicle );
+						raceCtx.ctx.particles.update( simDt, d.vehicle );
+						extra.driftMarks.update( simDt, d.vehicle );
 						updateVehicleLights( extra.lights, dt, raceCtx.arScale, d.vehicle.linearSpeed < -0.01 );
 
 					} );
