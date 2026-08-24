@@ -8,13 +8,22 @@ const _lookPoint = new THREE.Vector3();
 // Approximate driver eye position, local to the vehicle's own container
 // coordinate frame: left side (Saudi Arabia is left-hand-drive, matching
 // the same side=-1 convention already used for the flag/taillights in
-// main.js), roughly seated eye height, just behind the windshield.
-// +Z is the model's forward direction (matches the headlight/flag/decal
-// coordinates in main.js — windshield decal sits at +z, tailgate at -z).
-// This is an estimate, not measured from the GLB directly (no way to
-// inspect the model visually from here) — may need a small manual nudge
-// after an actual in-browser look.
-const COCKPIT_EYE_OFFSET = new THREE.Vector3( -0.32, 0.85, 0.1 );
+// main.js), roughly seated eye height. +Z is the model's forward
+// direction (matches the headlight/flag/decal coordinates in main.js —
+// windshield decal sits at +z ~0.42-0.55, tailgate at -z).
+// Pulled further back (z: 0.1 → -0.25) and down (y: 0.85 → 0.78) from an
+// earlier version that sat almost AT the windshield glass — too close to
+// it to actually show any car (dash/hood/glass) in frame, just the open
+// world beyond. Sitting back inside the cabin proper means the dash and
+// windshield frame now fall inside the view. LOOK_PITCH_DOWN tilts the
+// view down slightly (a real driver's eyeline naturally angles down a
+// bit, not dead level) so the hood is visible in the lower part of the
+// frame instead of only sky/horizon.
+// Still an estimate, not measured from the GLB directly (no way to
+// inspect the model visually from here) — nudge further if the hood/
+// dash/glass still don't read right in an actual browser look.
+const COCKPIT_EYE_OFFSET = new THREE.Vector3( -0.32, 0.78, -0.25 );
+const LOOK_PITCH_DOWN = 0.12;
 const _cockpitEyeWorld = new THREE.Vector3();
 const _cockpitLookTarget = new THREE.Vector3();
 
@@ -94,11 +103,13 @@ export class Camera {
 		_cockpitEyeWorld.copy( COCKPIT_EYE_OFFSET ).applyQuaternion( vehicleContainer.quaternion ).add( vehicleContainer.position );
 		this.camera.position.copy( _cockpitEyeWorld );
 
-		// Look straight down the model's own forward (+Z) rather than
-		// copying the container's quaternion directly onto the camera —
-		// a THREE.Camera's own "forward" is its local -Z, so a plain
-		// quaternion copy would have it looking exactly backward.
-		_cockpitLookTarget.set( 0, 0, 1 ).applyQuaternion( vehicleContainer.quaternion ).add( _cockpitEyeWorld );
+		// Look mostly down the model's own forward (+Z), with a slight
+		// downward pitch (LOOK_PITCH_DOWN) so the hood is visible in the
+		// lower part of the frame instead of the view sitting dead level
+		// and showing only sky/horizon over the top of it. Not a plain
+		// quaternion copy — a THREE.Camera's own "forward" is its local
+		// -Z, so that would have it looking exactly backward.
+		_cockpitLookTarget.set( 0, - LOOK_PITCH_DOWN, 1 ).applyQuaternion( vehicleContainer.quaternion ).add( _cockpitEyeWorld );
 		this.camera.lookAt( _cockpitLookTarget );
 
 	}
