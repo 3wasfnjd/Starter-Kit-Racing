@@ -4,7 +4,7 @@ import { LightProbeGrid } from 'three/addons/lighting/LightProbeGrid.js';
 import { LightProbeGridHelper } from 'three/addons/helpers/LightProbeGridHelper.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
 import { Vehicle, MAX_SPEED } from './Vehicle.js';
-import { Camera } from './Camera.js';
+import { Camera, createCockpitProps } from './Camera.js';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath, NPC_TRUCKS, TRACK_CELLS, GRID_SCALE } from './Track.js';
 import { updateRaceAIDrivers, updateFreeRoamAIDrivers } from './AIController.js';
@@ -2491,6 +2491,10 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const cam = new Camera();
 	scene.add( cam.debug );
 
+	// Procedural steering wheel + dashboard hint — web-mode cockpit view
+	// only (see Camera.js for why it's positioned where it is).
+	vehicleGroup.add( createCockpitProps() );
+
 	const controls = new Controls();
 
 	const particles = new SmokeTrails( scene );
@@ -3370,6 +3374,22 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	// fading out — much shorter than NORMAL mode's permanent record,
 	// since the user reported marks lingering too long in AR.
 	const DRIFT_MARK_LIFETIME = 4;
+	// Extra headlight dimming specific to this AR mode, on top of
+	// FIXED_SCALE's own size-based scaling. updateVehicleLights()/
+	// setHighBeam() scale a light's distance AND intensity linearly by
+	// whatever `scale` they're given, but physically-based inverse-square
+	// falloff (decay=2 on the SpotLight itself, see addVehicleLights()'s
+	// baseIntensity comment) means brightness right next to the source
+	// stays extreme regardless of that scale — and the AR track is viewed
+	// from real, close-up distance, unlike NORMAL/web mode's own headlight
+	// use where the car is far from camera. Feedback was specifically
+	// that headlights stayed too strong here even after the shared
+	// baseIntensity cut (which mainly fixed web mode, since web's scale=1
+	// applies no reduction at all) — this multiplies FIXED_SCALE down
+	// further, ONLY for this mode's lights (raceCtx.arScale below is used
+	// exclusively for lighting, nothing else, so it's safe to bake the
+	// extra factor directly into it here).
+	const AR_LIGHT_DAMPING = 0.35;
 
 	// arRoot carries the AR placement (position/rotation/scale) as one
 	// clean transform. trackGroup goes underneath it UNCHANGED — still
@@ -3570,7 +3590,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 			} );
 
-			raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, arScale: FIXED_SCALE };
+			raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, arScale: FIXED_SCALE * AR_LIGHT_DAMPING };
 
 		} catch ( e ) {
 
@@ -3898,6 +3918,9 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	// How long (seconds) a tire/drift mark stays on the ground before
 	// fading — see the identical note in startARFloatingTrack.
 	const DRIFT_MARK_LIFETIME = 4;
+	// Extra headlight dimming, on top of FIXED_SCALE's own size-based
+	// scaling — see the identical note in startARFloatingTrack.
+	const AR_LIGHT_DAMPING = 0.35;
 	arenaGroup.scale.setScalar( FIXED_SCALE );
 	// Position/rotation are no longer a fixed guess — see the placing-
 	// phase in frameUpdate below, which drives arenaGroup from the same
@@ -4081,7 +4104,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 		} );
 
-		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, arScale: FIXED_SCALE };
+		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, arScale: FIXED_SCALE * AR_LIGHT_DAMPING };
 		phase = 'racing';
 
 		} catch ( e ) {

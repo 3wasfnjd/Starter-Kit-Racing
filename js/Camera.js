@@ -33,6 +33,67 @@ const LOOK_PITCH_DOWN = 0.55;
 const _cockpitEyeWorld = new THREE.Vector3();
 const _cockpitLookTarget = new THREE.Vector3();
 
+// ─── Procedural steering wheel + dashboard hint ─────────────
+// Stylized, primitive-geometry props — NOT modeled from the real GLB
+// (which, per the inspection above, has no wheel/dash geometry to copy).
+// Positioning is deliberately conservative: everything here sits in the
+// SAME validated clear-air band as COCKPIT_EYE_OFFSET (y≈1.2-1.35, above
+// the solid body mesh's measured roof line at container-space y≈1.2, and
+// below the already-proven-safe headlight bar at y≈1.35) rather than
+// anywhere near the hood/roof surface itself — after three straight
+// guesses that ended up embedded in solid geometry, a fourth guess that
+// touches that surface again isn't worth the risk for a purely
+// decorative prop. So the "dashboard" reads as a raked hint-plate
+// floating just below the wheel, not a plate resting on the hood.
+const WHEEL_TILT = 0.5; // rotation about X — matches the eye's look-pitch, so the ring/dash face the camera roughly square-on
+const WHEEL_CENTER = new THREE.Vector3( -0.16, 1.27, 0.58 );
+const DASH_CENTER = new THREE.Vector3( -0.02, 1.24, 0.66 );
+
+export function createCockpitProps() {
+
+	const group = new THREE.Group();
+	group.name = 'cockpitProps';
+
+	const trimMat = new THREE.MeshStandardMaterial( { color: 0x1a1a1a, roughness: 0.7, metalness: 0.1 } );
+
+	// Steering wheel: rim + hub + 3 spokes, built flat in the group's local
+	// XY plane (a torus's ring naturally lies in XY, hole-axis along Z),
+	// then the whole wheel group is tilted about X by WHEEL_TILT so it
+	// faces back toward the camera eye.
+	const wheel = new THREE.Group();
+	wheel.position.copy( WHEEL_CENTER );
+	wheel.rotation.x = WHEEL_TILT;
+
+	const rim = new THREE.Mesh( new THREE.TorusGeometry( 0.13, 0.014, 8, 24 ), trimMat );
+	wheel.add( rim );
+
+	const hub = new THREE.Mesh( new THREE.CylinderGeometry( 0.035, 0.035, 0.03, 12 ), trimMat );
+	hub.rotation.x = Math.PI / 2; // cylinder's default axis is Y — align it with the wheel's local Z instead
+	wheel.add( hub );
+
+	const spokeGeom = new THREE.BoxGeometry( 0.12, 0.018, 0.018 );
+	spokeGeom.translate( 0.06, 0, 0 ); // one end at the origin so rotating about Z fans it out from the hub, not from its own center
+	for ( let i = 0; i < 3; i ++ ) {
+
+		const spoke = new THREE.Mesh( spokeGeom, trimMat );
+		spoke.rotation.z = ( i / 3 ) * Math.PI * 2;
+		wheel.add( spoke );
+
+	}
+
+	group.add( wheel );
+
+	// Dashboard hint: a small raked plate just below the wheel, same tilt,
+	// same clear-air band — a silhouette suggestion rather than a modeled dash.
+	const dash = new THREE.Mesh( new THREE.BoxGeometry( 0.5, 0.03, 0.16 ), trimMat );
+	dash.position.copy( DASH_CENTER );
+	dash.rotation.x = WHEEL_TILT;
+	group.add( dash );
+
+	return group;
+
+}
+
 export class Camera {
 
 	constructor() {
