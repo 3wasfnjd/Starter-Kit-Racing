@@ -3218,7 +3218,24 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	const spawn = computeSpawnPosition( null );
 	const bounds = computeTrackBounds( TRACK_CELLS );
 
-	const FIXED_SCALE = 0.016;
+	// ✏️ EASY RETUNING KNOBS — both purely visual/cosmetic, safe to
+	// tweak freely without touching physics stability:
+	//  - FIXED_SCALE: how big the whole tabletop track appears (smaller
+	//    number = smaller footprint on the table). Shrunk from the
+	//    previous 0.016 per feedback that the track/car felt too small
+	//    together — see CAR_VISUAL_BOOST below for why shrinking this
+	//    further doesn't just make the car even tinier.
+	//  - CAR_VISUAL_BOOST: renders the car's MODEL bigger than its real
+	//    physics hitbox (which stays the stable, real 0.5m radius — see
+	//    the physics comment below for why that must not change). This
+	//    is a purely cosmetic mismatch (common in games — visible mesh
+	//    slightly bigger than the invisible collision shape) and is what
+	//    actually fixes "car looks small/disproportionate", since with
+	//    real-world-accurate proportions alone a real car IS tiny next
+	//    to a 30m track. Keep this modest (under ~1.5) — much higher and
+	//    the car will visibly poke through the track's real-sized walls.
+	const FIXED_SCALE = 0.011;
+	const CAR_VISUAL_BOOST = 1.4;
 
 	// arRoot carries the AR placement (position/rotation/scale) as one
 	// clean transform. trackGroup goes underneath it UNCHANGED — still
@@ -3360,16 +3377,27 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			const vehicleLights = addVehicleLights( vehicleGroup );
 			const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 
+			// Visual-only size boost — the MODEL is scaled up, the physics
+			// sphere (createSphereBody above) stays at the real, stable
+			// 0.5m radius. Re-anchored on its own lowest point so scaling
+			// up doesn't lift the wheels off the ground / sink them into
+			// it (same technique NORMAL mode's Vehicle.init() already uses
+			// internally at scale=1 — this just applies it again on top).
+			const vehicleModel = vehicleGroup.children[ 0 ];
+			const vehicleModelMinY = new THREE.Box3().setFromObject( vehicleModel ).min.y;
+			vehicleModel.scale.setScalar( CAR_VISUAL_BOOST );
+			vehicleModel.position.y = - vehicleModelMinY * CAR_VISUAL_BOOST;
+
 			const audio = new GameAudio();
 			audio.init( renderer.xr.getCamera(), vehicleGroup );
 			audio.forceUnlock();
 			const radio = new Radio( audio.listener, vehicleGroup );
 
-			// Smoke particle SIZE (not position — Particles.js now reads
-			// world-space position itself, see its own comment) is still
-			// worth shrinking, purely cosmetically, to match the tiny
-			// visual scale — same numeric proportion as before.
-			const particles = new SmokeTrails( scene, Math.max( FIXED_SCALE * 5, 0.02 ) );
+			// Smoke: small visual size, and a cut emission RATE
+			// (emitMultiplier) specifically so it doesn't add per-frame
+			// particle-update/draw cost on top of everything else AR
+			// already has to render (passthrough + stereo).
+			const particles = new SmokeTrails( scene, Math.max( FIXED_SCALE * 4, 0.015 ), 0.35 );
 			const driftMarks = new DriftMarks( scene, 'ar-floating-track' );
 
 			const _forward = new THREE.Vector3();
@@ -3615,7 +3643,12 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	// baked in, unlike buildTrack()'s trackGroup) — so unlike the
 	// floating track, arenaGroup's own scale/position can be set
 	// directly here without needing an extra wrapper group.
-	const FIXED_SCALE = 0.016;
+	//
+	// ✏️ EASY RETUNING KNOBS — see the identical comment in
+	// startARFloatingTrack for what each one does and why it's safe to
+	// change freely (both purely cosmetic, no physics-stability impact).
+	const FIXED_SCALE = 0.011;
+	const CAR_VISUAL_BOOST = 1.4;
 	arenaGroup.scale.setScalar( FIXED_SCALE );
 	arenaGroup.position.set( 0, 0.55, - 0.85 );
 	scene.add( arenaGroup );
@@ -3736,16 +3769,24 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		const vehicleLights = addVehicleLights( vehicleGroup );
 		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 
+		// Visual-only size boost — see the identical comment in
+		// startARFloatingTrack: the MODEL is scaled up, the physics
+		// sphere (createSphereBody above) stays at the real, stable
+		// 0.5m radius.
+		const vehicleModel = vehicleGroup.children[ 0 ];
+		const vehicleModelMinY = new THREE.Box3().setFromObject( vehicleModel ).min.y;
+		vehicleModel.scale.setScalar( CAR_VISUAL_BOOST );
+		vehicleModel.position.y = - vehicleModelMinY * CAR_VISUAL_BOOST;
+
 		const audio = new GameAudio();
 		audio.init( renderer.xr.getCamera(), vehicleGroup );
 		audio.forceUnlock();
 		const radio = new Radio( audio.listener, vehicleGroup );
 
-		// Smoke particle SIZE (not position — Particles.js now reads
-		// world-space position itself, see its own comment) is still
-		// worth shrinking, purely cosmetically, to match the tiny visual
-		// scale.
-		const particles = new SmokeTrails( scene, Math.max( FIXED_SCALE * 5, 0.02 ) );
+		// Smoke: small visual size, and a cut emission RATE
+		// (emitMultiplier) so it doesn't add per-frame particle-update/
+		// draw cost on top of everything else AR already renders.
+		const particles = new SmokeTrails( scene, Math.max( FIXED_SCALE * 4, 0.015 ), 0.35 );
 		const driftMarks = new DriftMarks( scene, 'ar-floating-arena' );
 
 		const _forward = new THREE.Vector3();

@@ -13,9 +13,16 @@ const _containerWorldPos = new THREE.Vector3();
 
 export class SmokeTrails {
 
-	constructor( scene, scale = 1 ) {
+	// emitMultiplier scales how many particles spawn per emission burst,
+	// independent of visual `scale` — added so AR modes can cut the
+	// emission RATE (the actual CPU/GPU cost driver: more live particles
+	// = more per-frame buffer writes + draw cost) without changing how
+	// tiny each individual puff renders. Defaults to 1 (no change) for
+	// every existing caller, including NORMAL/web mode.
+	constructor( scene, scale = 1, emitMultiplier = 1 ) {
 
 		this.scale = scale;
+		this.emitMultiplier = emitMultiplier;
 
 		const positions = new Float32Array( POOL_SIZE * 3 );
 		const opacities = new Float32Array( POOL_SIZE );
@@ -122,7 +129,8 @@ export class SmokeTrails {
 			const bl = vehicle.wheelBL ? vehicle.wheelBL.getWorldPosition( _blPos ) : null;
 			const br = vehicle.wheelBR ? vehicle.wheelBR.getWorldPosition( _brPos ) : null;
 
-			const perEmit = PARTICLES_PER_EMIT + Math.round( heat * 5 ); // up to 8/frame per wheel at max heat
+			// up to 8/frame per wheel at max heat, before emitMultiplier
+			const perEmit = Math.max( 1, Math.round( ( PARTICLES_PER_EMIT + Math.round( heat * 5 ) ) * this.emitMultiplier ) );
 
 			for ( let i = 0; i < perEmit; i ++ ) {
 
