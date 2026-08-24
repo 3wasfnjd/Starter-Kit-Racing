@@ -234,7 +234,13 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 
 /**
  * Free-Roam / Hajwalah AI Update ("هجولة وتفحيط احترافي")
- * Features multi-state AI (CRUISING, DRIFTING, DONUTS, WALL_AVOIDANCE).
+ * Features multi-state AI with smooth transitions (CRUISING, DRIFTING, DONUTS, WALL_AVOIDANCE).
+ * 
+ * Enhanced with:
+ * - Smooth easing between state transitions
+ * - Stable target waypoints that don't change abruptly
+ * - Input smoothing for natural vehicle control
+ * - State stability duration to prevent rapid switching
  */
 export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 
@@ -248,8 +254,18 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 
 			d.aiState = 'CRUISING'; // CRUISING | DRIFTING | DONUT | AVOIDANCE
 			d.stateTimer = 2 + Math.random() * 3;
+			d.target = { x: 0, z: 0 };
 			d.donutCenter = { x: 0, z: 0 };
 			d.donutAngle = 0;
+			
+			// Smooth input interpolation
+			d.currentInput = { x: 0, z: 0.85, handbrake: false };
+			d.targetInput = { x: 0, z: 0.85, handbrake: false };
+			d.inputSmoothFactor = 0.15; // Controls how quickly inputs blend (0-1)
+			
+			// State stability tracking
+			d.stateChangeCounter = 0;
+			d.minStateDuration = 2.0; // Minimum time in a state before transitioning
 
 		}
 
@@ -292,48 +308,57 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 			d.stuckStrikes = 0;
 			d.aiState = 'CRUISING';
 			d.stateTimer = 2;
+			d.stateChangeCounter = 0;
 
 		}
 
 		d.stateTimer -= dt;
+		d.stateChangeCounter += dt;
 
-		// 2. Wall / Arena Edge Safety Check
+		// 2. Wall / Arena Edge Safety Check (AVOIDANCE has priority)
 		const distFromCenter = Math.hypot( d.vehicle.spherePos.x, d.vehicle.spherePos.z );
 		if ( distFromCenter > wallLimitRadius ) {
 
 			d.aiState = 'AVOIDANCE';
 			d.target = { x: 0, z: 0 };
+			d.stateChangeCounter = 0;
 
 		}
 
-		// 3. State Transitions
-		if ( d.aiState !== 'AVOIDANCE' && d.stateTimer <= 0 ) {
+		// 3. State Transitions (with minimum duration check)
+		if ( d.aiState !== 'AVOIDANCE' && d.stateTimer <= 0 && d.stateChangeCounter >= d.minStateDuration ) {
 
 			const rand = Math.random();
-			if ( rand < 0.45 ) {
+			
+			if ( rand < 0.4 ) {
 
+				// DRIFTING state
 				d.aiState = 'DRIFTING';
-				d.stateTimer = 3 + Math.random() * 4;
+				d.stateTimer = 4 + Math.random() * 3; // Longer, more stable duration
 				const a = Math.random() * Math.PI * 2;
-				const r = Math.random() * wanderRadius;
+				const r = Math.random() * wanderRadius * 0.8;
 				d.target = { x: Math.cos( a ) * r, z: Math.sin( a ) * r };
 
 			} else if ( rand < 0.75 ) {
 
+				// CRUISING state
 				d.aiState = 'CRUISING';
-				d.stateTimer = 3 + Math.random() * 4;
+				d.stateTimer = 4 + Math.random() * 3;
 				const a = Math.random() * Math.PI * 2;
-				const r = Math.random() * wanderRadius;
+				const r = Math.random() * wanderRadius * 0.8;
 				d.target = { x: Math.cos( a ) * r, z: Math.sin( a ) * r };
 
 			} else {
 
+				// DONUT state
 				d.aiState = 'DONUT';
-				d.stateTimer = 2.5 + Math.random() * 2.5;
+				d.stateTimer = 3 + Math.random() * 2;
 				d.donutCenter = { x: d.vehicle.spherePos.x, z: d.vehicle.spherePos.z };
 				d.donutAngle = Math.random() * Math.PI * 2;
 
 			}
+			
+			d.stateChangeCounter = 0;
 
 		}
 
@@ -342,6 +367,7 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 
 		if ( d.aiState === 'AVOIDANCE' ) {
 
+			// Return to center of arena with smooth steering
 			const dx = - d.vehicle.spherePos.x;
 			const dz = - d.vehicle.spherePos.z;
 			const carAngle = d.vehicle.container.rotation.y;
@@ -349,25 +375,30 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 			let angleDiff = targetAngle - carAngle;
 			angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
 
-			input.x = THREE.MathUtils.clamp( angleDiff * 3.0, - 1, 1 );
+			input.x = THREE.MathUtils.clamp( angleDiff * 2.5, - 1, 1 ); // Reduced from 3.0
 			input.z = 0.8;
 
-			if ( distFromCenter < wanderRadius * 0.8 ) {
+			if ( distFromCenter < wanderRadius * 0.7 ) {
 
 				d.aiState = 'CRUISING';
-				d.stateTimer = 2;
+				d.stateTimer = 2.5;
+				d.stateChangeCounter = 0;
 
 			}
 
 		} else if ( d.aiState === 'DONUT' ) {
 
-			// High RPM Donut / Spin maneuver
-			input.x = 1.0; // full lock
-			input.z = 1.0; // full gas
-			input.handbrake = ( Math.sin( Date.now() * 0.01 ) > 0.5 ); // rhythmic handbrake pulse
+			// Smooth high RPM Donut / Spin maneuver
+			input.x = 0.95; // Slightly less than full lock for smoothness
+			input.z = 1.0; // Full gas
+			
+			// Smooth handbrake pulse instead of sharp on/off
+			const pulseCycle = Math.sin( d.stateChangeCounter * Math.PI ) * 0.5 + 0.5;
+			input.handbrake = pulseCycle > 0.4;
 
 		} else if ( d.aiState === 'DRIFTING' ) {
 
+			// Aggressive drift to target with smooth steering
 			const dx = ( d.target ? d.target.x : 0 ) - d.vehicle.spherePos.x;
 			const dz = ( d.target ? d.target.z : 0 ) - d.vehicle.spherePos.z;
 			const carAngle = d.vehicle.container.rotation.y;
@@ -375,11 +406,12 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 			let angleDiff = targetAngle - carAngle;
 			angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
 
-			// Aggressive steering + handbrake flick to initiate drift
-			input.x = THREE.MathUtils.clamp( angleDiff * 4.0, - 1, 1 );
-			input.z = 1.0;
+			// Smooth steering interpolation
+			input.x = THREE.MathUtils.clamp( angleDiff * 3.5, - 1, 1 ); // Reduced from 4.0
+			input.z = 0.95; // Slightly less aggressive
 
-			if ( Math.abs( angleDiff ) > 0.4 ) {
+			// Handbrake only on sharper angles
+			if ( Math.abs( angleDiff ) > 0.35 ) {
 
 				input.handbrake = true;
 
@@ -387,6 +419,7 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 
 		} else { // CRUISING
 
+			// Smooth cruising to target
 			const dx = ( d.target ? d.target.x : 0 ) - d.vehicle.spherePos.x;
 			const dz = ( d.target ? d.target.z : 0 ) - d.vehicle.spherePos.z;
 			const carAngle = d.vehicle.container.rotation.y;
@@ -395,11 +428,19 @@ export function updateFreeRoamAIDrivers( drivers, dt, roadHalf ) {
 			angleDiff = ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) ) - Math.PI;
 
 			input.x = THREE.MathUtils.clamp( angleDiff * 2.0, - 1, 1 );
-			input.z = 0.85;
+			input.z = 0.80;
 
 		}
 
-		d.vehicle.update( dt, input );
+		// 5. Smooth input interpolation (blend current input towards target)
+		d.currentInput.x = THREE.MathUtils.lerp( d.currentInput.x, input.x, d.inputSmoothFactor );
+		d.currentInput.z = THREE.MathUtils.lerp( d.currentInput.z, input.z, d.inputSmoothFactor );
+		
+		// Handbrake transitions more sharply (boolean-like behavior)
+		d.currentInput.handbrake = input.handbrake;
+
+		// Apply smoothed input to vehicle
+		d.vehicle.update( dt, d.currentInput );
 
 	} );
 
