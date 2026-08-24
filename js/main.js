@@ -3461,9 +3461,21 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			audio.forceUnlock();
 			const radio = new Radio( audio.listener, vehicleGroup );
 
-			// Smoke reverted to the game's basic/default settings — same
-			// call NORMAL/web mode uses, no AR-specific size/rate tuning.
-			const particles = new SmokeTrails( scene );
+			// Smoke IS scaled for AR (going back to the game's plain default
+			// caused the reported freeze/hang before the track even fully
+			// rendered) — Particles.js authors particle size in real
+			// world-first meters (BASE_SIZE=1), and these particles are
+			// added straight to `scene` rather than nested under `arRoot`,
+			// so at scale=1 each puff rendered close to a full meter wide —
+			// several times bigger than the whole (FIXED_SCALE-shrunk) car.
+			// Passing FIXED_SCALE * 0.7 here keeps every puff visibly
+			// smaller than the car, proportional to it instead of dwarfing
+			// it. emitMultiplier is also cut hard (0.15, well below the
+			// previous 0.3) since this ONE particle pool is shared across
+			// the player AND all 3 AI every frame (see the AI loop below) —
+			// four cars all emitting into the same fixed-size pool at
+			// default emission rate is exactly what caused the freeze.
+			const particles = new SmokeTrails( scene, FIXED_SCALE * 0.7, 0.15 );
 			// Drift marks fade out after DRIFT_MARK_LIFETIME seconds instead
 			// of staying forever — appropriate for AR (a live tabletop
 			// scene, not a persisted record like NORMAL mode's track), and
@@ -3973,9 +3985,11 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		audio.forceUnlock();
 		const radio = new Radio( audio.listener, vehicleGroup );
 
-		// Smoke reverted to the game's basic/default settings — see the
-		// identical note in startARFloatingTrack.
-		const particles = new SmokeTrails( scene );
+		// Smoke IS scaled for AR — see the identical note in
+		// startARFloatingTrack (defaulting to scale=1 caused the reported
+		// freeze/hang: real-meter-sized puffs, at default emission rate,
+		// shared across the player AND all 3 AI every frame).
+		const particles = new SmokeTrails( scene, FIXED_SCALE * 0.7, 0.15 );
 		// Drift marks fade out after DRIFT_MARK_LIFETIME seconds — see the
 		// identical note in startARFloatingTrack.
 		const driftMarks = new DriftMarks( scene, 'ar-floating-arena', FIXED_SCALE, DRIFT_MARK_LIFETIME );
