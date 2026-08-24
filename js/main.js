@@ -1130,6 +1130,96 @@ function buildWarningSign( scene, x, z, rotationY ) {
 
 }
 
+// Mesh-only floodlight pole (pole + lamp head, no THREE.SpotLight) — for
+// contexts like the AR floating arena where the whole group gets scaled
+// down to tabletop size and a real light with real-world-scale
+// intensity/distance would blow out the tiny scene instead of scaling
+// down with it. Visual twin of buildFloodlightPole's non-light parts.
+function buildFloodlightPoleVisual( parent, x, z, aimTarget, poleHeight = 9 ) {
+
+	const pole = new THREE.Mesh(
+		new THREE.CylinderGeometry( 0.12, 0.16, poleHeight, 8 ),
+		new THREE.MeshStandardMaterial( { color: 0x3a3a3e, roughness: 0.7, metalness: 0.4 } )
+	);
+	pole.position.set( x, poleHeight / 2, z );
+	pole.castShadow = true;
+	parent.add( pole );
+
+	const headGroup = new THREE.Group();
+	headGroup.position.set( x, poleHeight - 0.1, z );
+	headGroup.lookAt( aimTarget.x, 0, aimTarget.z );
+	parent.add( headGroup );
+
+	const headMat = new THREE.MeshStandardMaterial( { color: 0x111114, roughness: 0.5, metalness: 0.6 } );
+	for ( let i = -1; i <= 1; i ++ ) {
+
+		const lamp = new THREE.Mesh( new THREE.BoxGeometry( 0.5, 0.35, 0.15 ), headMat );
+		lamp.position.set( i * 0.6, 0, 0.3 );
+		lamp.rotation.x = -0.5;
+		headGroup.add( lamp );
+
+	}
+
+}
+
+// Tire stacks + a parked decoration car scattered near each of the
+// arena's 4 corners — random tire count and a little position jitter
+// each time so the four corners don't look copy-pasted, and a randomly
+// picked truck model parked nearby (skipped occasionally so it's not
+// mechanically "always all 4 corners"). Shared between the web
+// free-roam arena and the AR floating arena/drift pad; `parent` is
+// whatever group/scene those add their own dressing to, so this works
+// unscaled (world space) or inside a group that later gets uniformly
+// scaled down for AR.
+function scatterCornerDecor( parent, models, half, truckKeys ) {
+
+	const margin = half * 0.14; // how far inside the corner the cluster sits
+	const jitter = half * 0.05;
+
+	for ( const sx of [ -1, 1 ] ) {
+
+		for ( const sz of [ -1, 1 ] ) {
+
+			const cx = sx * ( half - margin );
+			const cz = sz * ( half - margin );
+
+			const tireCount = 3 + Math.floor( Math.random() * 4 ); // 3-6
+			const tireX = cx + ( Math.random() - 0.5 ) * jitter * 2;
+			const tireZ = cz + ( Math.random() - 0.5 ) * jitter * 2;
+			buildTireStack( parent, tireX, tireZ, tireCount );
+
+			if ( truckKeys.length > 0 && Math.random() < 0.85 ) {
+
+				const key = truckKeys[ Math.floor( Math.random() * truckKeys.length ) ];
+				const src = models[ key ];
+
+				if ( src ) {
+
+					const car = src.clone();
+					// Offset toward the arena's center relative to the tire
+					// stack, away from the corner point, so the two don't
+					// overlap each other.
+					const carX = cx - sx * jitter * 1.8 + ( Math.random() - 0.5 ) * jitter;
+					const carZ = cz - sz * jitter * 1.8 + ( Math.random() - 0.5 ) * jitter;
+					car.position.set( carX, 0, carZ );
+					car.rotation.y = Math.random() * Math.PI * 2;
+					car.traverse( ( c ) => {
+
+						if ( c.isMesh ) { c.castShadow = true; c.receiveShadow = true; }
+
+					} );
+					parent.add( car );
+
+				}
+
+			}
+
+		}
+
+	}
+
+}
+
 // ─── Custom windshield/tailgate text decal ─────────────────
 
 function createTextTexture( text ) {
@@ -2201,10 +2291,9 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 		buildEntranceGate( scene, 0, roadHalf, 'x' );
 
-		// Tire stacks in two corners, warning signs flanking the gate.
-		buildTireStack( scene, roadHalf - 3, roadHalf - 3, 5 );
-		buildTireStack( scene, - ( roadHalf - 3 ), - ( roadHalf - 3 ), 4 );
-		buildTireStack( scene, roadHalf - 3, - ( roadHalf - 3 ), 6 );
+		// Tire stacks + parked decoration cars scattered near all 4
+		// corners (randomized each time), warning signs flanking the gate.
+		scatterCornerDecor( scene, models, roadHalf, [ 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red' ] );
 		buildWarningSign( scene, -4.5, roadHalf - 1, Math.PI );
 		buildWarningSign( scene, 4.5, roadHalf - 1, Math.PI );
 
@@ -3346,12 +3435,13 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 }
 
 // ─── AR floating arena (Stage 4) ────────────────────────────
-// A plain open square for drifting — flat asphalt with the track's own
+// An open square for drifting — flat asphalt with the track's own
 // red/white barrier around all 4 edges (buildBarrierSegment, same as the
-// real track, world=null for visual-only/no physics) and nothing else
-// inside: no walls, no decoration, no track loop. Grabbable/movable/
-// scalable (PlaceableObject) and a simple kinematic car, same mechanic
-// as the floating track.
+// real track, world=null for visual-only/no physics), a curb-striped
+// edge line, and corner dressing (floodlight poles, tire stacks, parked
+// decoration cars) — but no walls/track loop of its own. Grabbable/
+// movable/scalable (PlaceableObject) and a simple kinematic car, same
+// mechanic as the floating track.
 function buildDriftPad( half, models ) {
 
 	const pad = new THREE.Group();
@@ -3385,6 +3475,27 @@ function buildDriftPad( half, models ) {
 	pad.add( edgeOverlay );
 
 	buildBarrierLoop( pad, null, half, 0, 4 );
+
+	// Floodlight poles + scattered tire stacks/parked decoration cars at
+	// the 4 corners, same dressing as the web free-roam arena — added to
+	// `pad` itself (not `scene`) so it grabs/moves/scales together with
+	// the rest of the arena instead of staying behind at world scale.
+	// Mesh-only poles (buildFloodlightPoleVisual, no real THREE.SpotLight)
+	// since `pad` gets scaled down to tabletop size later — a real
+	// light's intensity/distance don't scale down with it and would
+	// blow out this tiny scene.
+	const poleInset = half * 0.82;
+	for ( const cx of [ -1, 1 ] ) {
+
+		for ( const cz of [ -1, 1 ] ) {
+
+			buildFloodlightPoleVisual( pad, cx * poleInset, cz * poleInset, { x: 0, z: 0 } );
+
+		}
+
+	}
+
+	scatterCornerDecor( pad, models, half, [ 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red' ] );
 
 	return pad;
 
