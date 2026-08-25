@@ -86,7 +86,7 @@ window.addEventListener( 'resize', () => {
 const loader = new ColorMapGLTFLoader();
 
 const modelNames = [
-	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
+	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-black', 'vehicle-truck-red', 'vehicle-truck-purple',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
 ];
@@ -320,10 +320,11 @@ function createModeMenu( { arAvailable } ) {
 		menu.dir = 'rtl';
 
 		const VEHICLE_OPTIONS = [
-			{ key: 'vehicle-truck-purple', label: 'أسود', thumb: 'images/menu/thumb-black.png' },
+			{ key: 'vehicle-truck-black', label: 'أسود', thumb: 'images/menu/thumb-black.png' },
 			{ key: 'vehicle-truck-red', label: 'أحمر', thumb: 'images/menu/thumb-red.png' },
 			{ key: 'vehicle-truck-yellow', label: 'أصفر', thumb: 'images/menu/thumb-yellow.png' },
-			{ key: 'vehicle-truck-green', label: 'رملي', thumb: 'images/menu/thumb-green.png' },
+			{ key: 'vehicle-truck-purple', label: 'بنفسجي', thumb: 'images/menu/thumb-purple.png' },
+			{ key: 'vehicle-truck-green', label: 'أخضر', thumb: 'images/menu/thumb-green.png' },
 		];
 		let selectedVehicle = VEHICLE_OPTIONS[ 0 ].key;
 		const vehicleSwatches = [];
@@ -1697,7 +1698,19 @@ function addVehicleFlag( vehicleGroup, imageUrl ) {
 // left/right taillights at x:∓0.4, y:0.43, z:-1.3. Attached to the
 // same "body" node as the text decals, so they move and scale with
 // the car (including the live resize control) automatically.
-function addVehicleLights( vehicleGroup ) {
+// `realHazards`: true only for the PLAYER's own car (see the 4 call
+// sites that pass it) — gives that one car's hazard lights a real
+// THREE.PointLight per corner (same settings as the taillights just
+// below: baseDistance 0.9 / baseIntensity 0.8 / decay 2 — reused
+// as-is per feedback that they already look right), so they actually
+// look lit, not just a flat glow mesh. AI cars keep the cheap unlit
+// lens-glow version (the default, `realHazards` omitted) — with
+// several AI cars blinking hazards at once, real lights per corner
+// per car was the likely cause of the earlier reported hang, and
+// there's no gameplay reason for an AI car's hazards to illuminate
+// anything. One player car adding 4 real lights back is negligible
+// by comparison.
+function addVehicleLights( vehicleGroup, realHazards = false ) {
 
 	const vehicleModel = vehicleGroup.children[ 0 ];
 	let bodyNode = null;
@@ -1863,14 +1876,21 @@ function addVehicleLights( vehicleGroup ) {
 	}
 
 	// Hazard/emergency lights: orange, blinking, at all 4 corners. Off
-	// by default — toggled by the player, blink handled per-frame. Also
-	// a pure unlit lens glow now, same reasoning as reverseLights above
-	// — a real car's hazard blinkers don't illuminate the road either,
-	// they're a signal, not a light source. AI cars in web mode run
-	// these permanently blinking for the entire session (see
-	// setupWebAIExtras), so this was the single biggest concentration of
-	// real always-cycling dynamic lights in free-roam with several AI
-	// cars on screen at once.
+	// by default — toggled by the player, blink handled per-frame.
+	//
+	// AI cars (realHazards=false, the default): a pure unlit lens glow,
+	// same reasoning as reverseLights above — a real car's hazard
+	// blinkers don't illuminate the road either, they're a signal, not
+	// a light source. AI cars in web mode run these permanently
+	// blinking for the entire session (see setupWebAIExtras), so this
+	// was the single biggest concentration of real always-cycling
+	// dynamic lights in free-roam with several AI cars on screen at
+	// once.
+	//
+	// The player's own car (realHazards=true): a real THREE.PointLight
+	// per corner instead, same construction/settings as the taillights
+	// above — just one car, so the earlier hang-risk reasoning doesn't
+	// apply, and a real light actually looks lit up at the bump.
 	const hazards = [];
 	const hazardPositions = [
 		[ -0.4, 0.3, 1.42 ], [ 0.4, 0.3, 1.42 ],
@@ -1879,6 +1899,20 @@ function addVehicleLights( vehicleGroup ) {
 	for ( const [ x, y, z ] of hazardPositions ) {
 
 		const basePosition = new THREE.Vector3( x, y, z );
+
+		if ( realHazards ) {
+
+			const baseDistance = 0.9;
+			const baseIntensity = 0.8;
+			const light = new THREE.PointLight( 0xff8c1a, baseIntensity, baseDistance, 2 );
+			light.position.copy( basePosition );
+			light.visible = false;
+			bodyNode.add( light );
+			hazards.push( { light, basePosition, baseDistance, baseIntensity } );
+			continue;
+
+		}
+
 		const group = new THREE.Group();
 		group.position.copy( basePosition );
 		group.rotation.y = z > 0 ? 0 : Math.PI; // front bumps face forward, rear bumps face backward
@@ -1931,7 +1965,10 @@ function toggleHazards( vehicleLights ) {
 	vehicleLights.hazardsOn = ! vehicleLights.hazardsOn;
 	if ( ! vehicleLights.hazardsOn ) {
 
-		vehicleLights.hazards.forEach( ( h ) => { h.group.visible = false; } );
+		// h.light for the player's real-PointLight hazards (see
+		// addVehicleLights' realHazards param), h.group for AI cars'
+		// unlit lens-glow version.
+		vehicleLights.hazards.forEach( ( h ) => { if ( h.light ) h.light.visible = false; else h.group.visible = false; } );
 
 	}
 
@@ -1988,18 +2025,23 @@ function setHighBeam( vehicleLights, on, scale = 1 ) {
 // a light's `.distance` is in local units and does NOT automatically
 // scale with its parent's transform the way position/rotation do.
 //
-// `hazardScale` is now vestigial: hazards used to be real THREE.PointLights
-// with their own AR-damping quirk (see the old note this replaced — kept
-// out of the diff since it's git history now), but they (and
-// reverseLights) were converted to pure unlit lens-glow meshes to cut
-// down the number of real dynamic lights active at once — each one costs
-// real per-pixel shader time in three.js's default forward lighting
-// regardless of how dim/short-range it is, and with several vehicles
-// hazard-blinking/reversing simultaneously that was a likely cause of
-// reported stutter/hangs. Mesh geometry scales for free via the parent
-// transform, so there's no more per-light distance/intensity math needed
-// for either. The parameter stays in the signature only so every existing
-// call site (which still passes it) doesn't need touching.
+// `hazardScale` is vestigial for AI cars: their hazards (and every
+// vehicle's reverseLights) are pure unlit lens-glow meshes, converted
+// from real THREE.PointLights to cut down the number of real dynamic
+// lights active at once — each one costs real per-pixel shader time in
+// three.js's default forward lighting regardless of how dim/short-range
+// it is, and with several AI cars hazard-blinking/reversing
+// simultaneously that was a likely cause of reported stutter/hangs. Mesh
+// geometry scales for free via the parent transform, so no per-light
+// distance/intensity math is needed for those. The parameter stays in
+// the signature only so every existing call site (which still passes
+// it) doesn't need touching.
+// The PLAYER's own car is the one exception (see addVehicleLights'
+// realHazards param): its hazards ARE real PointLights again, same as
+// its taillights, since a single car's worth of extra lights is
+// negligible and looking properly lit matters more there. Handled below
+// by the same real-vs-mesh branch already used for headlights/
+// taillights vs reverseLights.
 function updateVehicleLights( vehicleLights, dt, scale, isReversing = false, hazardScale = null ) {
 
 	if ( ! vehicleLights ) return;
@@ -2056,14 +2098,27 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false, haz
 
 	}
 
-	// Hazards are also a pure unlit lens glow now (see
-	// addVehicleLights()) — same reasoning as reverseLights above, just
-	// toggled by the blink timer instead of isReversing.
+	// Hazards: AI cars use a pure unlit lens glow (see addVehicleLights())
+	// which needs no per-frame distance/intensity math, just visibility.
+	// The player's own car (realHazards=true) uses real PointLights
+	// instead, same as taillights above, so those DO need the same
+	// distance/intensity scaling every frame regardless of blink state.
+	if ( vehicleLights.hazards && vehicleLights.hazards[ 0 ] && vehicleLights.hazards[ 0 ].light ) {
+
+		vehicleLights.hazards.forEach( ( h ) => {
+
+			h.light.distance = h.baseDistance * s;
+			h.light.intensity = h.baseIntensity * intensityScale;
+
+		} );
+
+	}
+
 	if ( vehicleLights.hazardsOn ) {
 
 		vehicleLights._blinkTimer = ( vehicleLights._blinkTimer || 0 ) + dt;
 		const on = Math.floor( vehicleLights._blinkTimer / 0.4 ) % 2 === 0;
-		vehicleLights.hazards.forEach( ( h ) => { h.group.visible = on; } );
+		vehicleLights.hazards.forEach( ( h ) => { if ( h.light ) h.light.visible = on; else h.group.visible = on; } );
 
 	}
 
@@ -2881,7 +2936,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 		// Tire stacks + parked decoration cars scattered near all 4
 		// corners (randomized each time), warning signs flanking the gate.
-		scatterCornerDecor( scene, models, roadHalf, roadHalf, [ 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red' ], world );
+		scatterCornerDecor( scene, models, roadHalf, roadHalf, [ 'vehicle-truck-green', 'vehicle-truck-black', 'vehicle-truck-red' ], world );
 		buildWarningSign( scene, -4.5, roadHalf - 1, Math.PI );
 		buildWarningSign( scene, 4.5, roadHalf - 1, Math.PI );
 
@@ -2978,7 +3033,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
 	scene.add( vehicleGroup );
 	addCustomTextDecals( vehicleGroup, customText );
-	const vehicleLights = addVehicleLights( vehicleGroup );
+	const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
 	// flagImage comes from the main menu's image picker (a data: URL, see
 	// createModeMenu) — falls back to the placeholder banner in Flag.js
 	// if the player didn't pick one.
@@ -4092,7 +4147,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			// needed at all.
 			arRoot.add( vehicleGroup );
 			addCustomTextDecals( vehicleGroup, customText );
-			const vehicleLights = addVehicleLights( vehicleGroup );
+			const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
 			const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 
 			const audio = new GameAudio();
@@ -4377,7 +4432,7 @@ function buildDriftPad( halfX, halfZ, models, scale = 1 ) {
 	// world is created) — stash the returned placement list on the group
 	// itself so lockInAndStart() can build matching colliders later from
 	// these exact captured positions/rotations instead of re-randomizing.
-	pad.userData.decor = scatterCornerDecor( pad, models, halfX, halfZ, [ 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red' ] );
+	pad.userData.decor = scatterCornerDecor( pad, models, halfX, halfZ, [ 'vehicle-truck-green', 'vehicle-truck-black', 'vehicle-truck-red' ] );
 
 	return pad;
 
@@ -4682,7 +4737,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		// transform needed anywhere in this function.
 		arenaGroup.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
-		const vehicleLights = addVehicleLights( vehicleGroup );
+		const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
 		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 
 		const audio = new GameAudio();
@@ -4888,7 +4943,7 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
 		scene.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
-		const vehicleLights = addVehicleLights( vehicleGroup );
+		const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
 		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 
 		dirLight.target = vehicleGroup;
