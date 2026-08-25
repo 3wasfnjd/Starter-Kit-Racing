@@ -629,7 +629,7 @@ function showFeaturesModal() {
 		{ icon: '💡', label: 'إضاءة كاملة', desc: 'أمامية، خلفية، طوارئ' },
 		{ icon: '🔊', label: 'صوت واقعي', desc: 'محرك، بوق، ارتطام' },
 		{ icon: '📻', label: 'راديو', desc: '3 مقاطع صوتية' },
-		{ icon: '🛠️', label: 'محرر مضامير', desc: 'صمم مضمارك الخاص' },
+		{ icon: '🛠️', label: 'محرر مضامير', desc: 'صمم مضمارك، ويب و AR' },
 		{ icon: '📱', label: 'كل الأجهزة', desc: 'كيبورد، لمس، يد Quest' },
 	];
 
@@ -3679,7 +3679,7 @@ function createFloatingHomeButton( scene ) {
 
 }
 
-async function startARWithFloatingMenu( { mapParam, customText, vehicleKey, flagImage, sessionPromise } ) {
+async function startARWithFloatingMenu( { mapParam, customCells, customText, vehicleKey, flagImage, sessionPromise } ) {
 
 	const arManager = new ARManager( { renderer, scene, models } );
 	await arManager.requestSession( sessionPromise );
@@ -3715,7 +3715,7 @@ async function startARWithFloatingMenu( { mapParam, customText, vehicleKey, flag
 
 			if ( chosenId === 'track' ) {
 
-				subMode = await startARFloatingTrack( { arManager, vehicleKey, customText, flagImage } );
+				subMode = await startARFloatingTrack( { arManager, vehicleKey, customText, flagImage, customCells } );
 
 			} else if ( chosenId === 'arena' ) {
 
@@ -3857,7 +3857,7 @@ async function startARWithFloatingMenu( { mapParam, customText, vehicleKey, flag
 
 }
 
-async function startARFloatingTrack( { arManager, vehicleKey, customText, flagImage } ) {
+async function startARFloatingTrack( { arManager, vehicleKey, customText, flagImage, customCells } ) {
 
 	// STAGE 1 (placement) + STAGE 2 (rebuild): place + lock the track,
 	// then spawn a full-featured real-physics car on it — same feature
@@ -3871,10 +3871,15 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	arManager.previewGroup.visible = false;
 
 	const placeholderCamera = new THREE.PerspectiveCamera();
-	const { trackGroup, npcConfigs } = buildTrack( scene, models, null, { skipDeco: true } );
-	const spawn = computeSpawnPosition( null );
-	const bounds = computeTrackBounds( TRACK_CELLS );
-	const trackPath = computeTrackPath( null );
+	// customCells (from a track made in the editor, via ?map=) is threaded
+	// through the exact same way NORMAL/web mode already uses it — this
+	// used to always pass null here (forcing the built-in TRACK_CELLS
+	// regardless of what was loaded), which is why a custom track worked
+	// in web mode but silently reverted to the default track in AR.
+	const { trackGroup, npcConfigs } = buildTrack( scene, models, customCells, { skipDeco: true } );
+	const spawn = computeSpawnPosition( customCells );
+	const bounds = computeTrackBounds( customCells || TRACK_CELLS );
+	const trackPath = computeTrackPath( customCells );
 	let totalTime = 0;
 
 	// ✏️ EASY RETUNING KNOBS — both are purely cosmetic/pacing, safe to
@@ -4043,7 +4048,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			// coordinates already work, just wrapped in one extra parent
 			// transform for placement.
 			const world = createPhysicsWorld();
-			buildWallColliders( world, null, null );
+			buildWallColliders( world, null, customCells );
 
 			// Same ground-collider sizing as NORMAL mode's own track
 			// branch (see startNormalMode): padded well beyond the track's
@@ -5304,6 +5309,7 @@ async function init() {
 			const { sessionPromise } = await showArResumeOverlay();
 			activeMode = await startARWithFloatingMenu( {
 				mapParam,
+				customCells,
 				customText: returnToArMenu.customText,
 				vehicleKey: returnToArMenu.vehicleKey,
 				flagImage: returnToArMenu.flagImage,
@@ -5328,7 +5334,7 @@ async function init() {
 
 			try {
 
-				activeMode = await startARWithFloatingMenu( { mapParam, customText, vehicleKey, flagImage, sessionPromise } );
+				activeMode = await startARWithFloatingMenu( { mapParam, customCells, customText, vehicleKey, flagImage, sessionPromise } );
 				break;
 
 			} catch ( e ) {
