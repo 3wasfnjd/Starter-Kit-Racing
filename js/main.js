@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { LightProbeGrid } from 'three/addons/lighting/LightProbeGrid.js';
 import { LightProbeGridHelper } from 'three/addons/helpers/LightProbeGridHelper.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, cylinder, MotionType } from 'crashcat';
@@ -24,6 +25,7 @@ const renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true, output
 renderer.setSize( window.innerWidth, window.innerHeight );
 renderer.setPixelRatio( window.devicePixelRatio );
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap; // softer shadow edges than the default PCFShadowMap
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 renderer.xr.enabled = true; // required so main.js can offer AR MODE; NORMAL mode is unaffected
@@ -75,6 +77,32 @@ scene.add( dirLight );
 const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 2 );
 hemiLight.position.copy( dirLight.position )
 scene.add( hemiLight );
+
+// ─── AR environment map (image-based lighting) ─────────────
+// Every vehicle/track material is a real PBR MeshStandardMaterial, but
+// without scene.environment set there's nothing for a moderately smooth
+// surface to reflect — direct lights alone read as flat/dull no matter
+// how bright they are. RoomEnvironment is a small procedural "generic
+// room" scene built into three.js itself (no HDRI file to fetch/host),
+// pre-filtered once into a PMREM cubemap here and reused for the rest of
+// the session. AR-only, per feedback that the cars specifically look
+// washed-out up close on a tabletop — called from each of the 3 AR mode
+// start functions, never from NORMAL/web mode, so that look stays
+// exactly as it was.
+let arEnvironmentTexture = null;
+function ensureAREnvironment() {
+
+	if ( ! arEnvironmentTexture ) {
+
+		const pmremGenerator = new THREE.PMREMGenerator( renderer );
+		arEnvironmentTexture = pmremGenerator.fromScene( new RoomEnvironment(), 0.04 ).texture;
+		pmremGenerator.dispose();
+
+	}
+
+	scene.environment = arEnvironmentTexture;
+
+}
 
 
 window.addEventListener( 'resize', () => {
@@ -2161,10 +2189,14 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false, haz
 	// to the AR track/arena rather than blowing it out.
 	const s = Math.max( scale, 0.001 );
 	const intensityScale = s;
-	// `hazardScale`/`hazards` no longer drive a real light's distance/
-	// intensity — see the comment above hazards' construction in
-	// addVehicleLights() for why — so it's accepted here only for call-
-	// site compatibility and otherwise unused now.
+	// Hazards use their OWN scale factor (see below) instead of `s` —
+	// `hazardScale`, when the caller passes one, is the plain geometric
+	// FIXED_SCALE for that AR mode (no extra headlight-style damping on
+	// top, unlike `s`/`raceCtx.arScale`). Falls back to `s` itself when
+	// no hazardScale is given (every non-tabletop-AR call site — web mode
+	// and room-drive AR both pass their real scale as `scale` directly
+	// with nothing extra layered on).
+	const hazS = Math.max( hazardScale !== null ? hazardScale : scale, 0.001 );
 
 	if ( vehicleLights.headlights ) {
 
@@ -2207,23 +2239,22 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false, haz
 	// Hazards: AI cars use a pure unlit lens glow (see addVehicleLights())
 	// which needs no per-frame distance/intensity math, just visibility.
 	// The player's own car (realHazards=true) uses a real PointLight
-	// instead, same construction as taillights above — but UNLIKE
-	// taillights/headlights, its distance/intensity are deliberately left
-	// at their constructed base values here, never multiplied by AR's
-	// tiny `s` (feedback: AR's hazard light no longer looked/matched like
-	// NORMAL/web mode's own hazard light — scaling it down by the same
-	// ~0.01× factor headlights need shrank an already short-range, modest
-	// light to the point of barely registering). A hazard light's whole
-	// job is to be a clearly visible blinking signal, not physically-
-	// accurate room illumination the way headlights are, so keeping it at
-	// full "web-strength" regardless of AR's tabletop scale is the
-	// correct behavior here, not a bug to fix later.
+	// instead, same construction as taillights above. Distance/intensity
+	// scale with `hazS` (the plain geometric scale, see above) — NOT the
+	// extra-damped `s` headlights/taillights use, and NOT left fully
+	// unscaled either: undamped "web-strength" (0.9m/0.8 intensity) was
+	// tried first and looked oversized — several times the size of the
+	// whole tabletop car — since a real 0.9m light radius makes no sense
+	// next to a ~15-20cm AR miniature. Scaling by the plain FIXED_SCALE
+	// (same ratio the car model itself shrinks by) keeps the light's
+	// size relative to the car identical to how it looks in web mode,
+	// just correctly small there instead of room-illumination-sized.
 	if ( vehicleLights.hazards && vehicleLights.hazards[ 0 ] && vehicleLights.hazards[ 0 ].light ) {
 
 		vehicleLights.hazards.forEach( ( h ) => {
 
-			h.light.distance = h.baseDistance;
-			h.light.intensity = h.baseIntensity;
+			h.light.distance = h.baseDistance * hazS;
+			h.light.intensity = h.baseIntensity * hazS;
 
 		} );
 
@@ -4189,14 +4220,16 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	//    physics/AI/particle updates below (see simDt), never to input
 	//    reading or blink timers, so controls/UI still feel responsive
 	//    at a normal rate.
-	// Bumped up (0.02 → 0.026, ~30%) per feedback that the car should read
-	// a bit bigger — this is the ONE shared knob (see the CAR_VISUAL_BOOST
-	// removal note above): it scales arRoot as a whole, so car, track,
-	// and every decoration piece all grow together, keeping their
-	// relative proportions exactly as they were instead of just the car
-	// alone getting bigger (which is what caused the original car/AI/
-	// decoration size-mismatch bug this session started by fixing).
-	const FIXED_SCALE = 0.026;
+	// Bumped up (0.02 → 0.026 → 0.033, ~27% this time) per feedback that
+	// the car still read small — this is the ONE shared knob (see the
+	// CAR_VISUAL_BOOST removal note above): it scales arRoot as a whole,
+	// so car, track, and every decoration piece all grow together,
+	// keeping their relative proportions exactly as they were instead of
+	// just the car alone getting bigger (which is what caused the
+	// original car/AI/decoration size-mismatch bug this session started
+	// by fixing) — the car looks bigger, but its size relative to the
+	// track stays identical to before.
+	const FIXED_SCALE = 0.033;
 	// Reset to the game's base speed (1 = identical pacing to NORMAL/web
 	// mode) — an earlier 2.5x was tuned to fix a reported "feels slow"
 	// issue at very small AR scale, but overshot and read as sped-up.
@@ -4266,6 +4299,22 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	light.shadow.camera.updateProjectionMatrix();
 	scene.add( light );
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.6 ) );
+
+	// Fill light from the opposite side, no shadow (cheap — a second
+	// shadow-casting light here would double the shadow-map cost this
+	// mode already went out of its way to avoid, see dirLight below) —
+	// softens the side of the car facing away from `light` above instead
+	// of it reading pure black. The track/car placement is frozen once
+	// locked in (frameUpdate stops moving arRoot after that point), so a
+	// static position here is fine — nothing needs to track it per frame.
+	const fillLight = new THREE.DirectionalLight( 0xffffff, 1.1 );
+	fillLight.position.set( -0.6, 0.5, -0.6 );
+	scene.add( fillLight );
+
+	// See ensureAREnvironment()'s own comment (top of file) — gives the
+	// car's PBR materials real reflections instead of the flat/dull look
+	// with no environment set. AR-only.
+	ensureAREnvironment();
 
 	// dirLight (module-level, top of file) is created once at page load
 	// and stays castShadow=true forever — nothing ever turned it back off
@@ -4890,11 +4939,12 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	// of FIXED_SCALE being the one, consistent size knob) and why they're
 	// all safe to change freely (purely cosmetic/pacing, no
 	// physics-stability impact).
-	// Bumped up (0.03 → 0.039, ~30%) — same reasoning and same relative
-	// bump as the identical change in startARFloatingTrack.
+	// Bumped up (0.03 → 0.039 → 0.05, ~28% this time) — same reasoning
+	// and same relative bump as the identical change in
+	// startARFloatingTrack.
 	// Declared before buildDriftPad() (moved up from below) so it can be
 	// forwarded into the pole lights' distance/intensity scaling.
-	const FIXED_SCALE = 0.039;
+	const FIXED_SCALE = 0.05;
 	const arenaGroup = buildDriftPad( PAD_HALF_X, PAD_HALF_Z, models, FIXED_SCALE );
 
 	// buildDriftPad() starts at identity transform (no internal offset
@@ -4934,6 +4984,15 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	light.shadow.camera.updateProjectionMatrix();
 	scene.add( light );
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.6 ) );
+
+	// Fill light + environment map — see the identical comments in
+	// startARFloatingTrack for why each one is here (no shadow on the
+	// fill light to avoid doubling shadow-map cost; static position since
+	// the arena is frozen in place once locked in).
+	const fillLight = new THREE.DirectionalLight( 0xffffff, 1.1 );
+	fillLight.position.set( -0.6, 0.5, -0.6 );
+	scene.add( fillLight );
+	ensureAREnvironment();
 
 	// Same fix as startARFloatingTrack: dirLight (module-level, top of
 	// file) is created once at page load and stays castShadow=true
@@ -5259,6 +5318,16 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 }
 
 async function startARMode( { arManager, mapParam, customText, vehicleKey, flagImage } ) {
+
+	// See ensureAREnvironment()'s own comment (top of file) — same
+	// reflections fix as the floating track/arena. No scale bump and no
+	// extra fill light here: this mode already drives the shared, real-
+	// scale dirLight/hemiLight every frame (see the dirLight.position.set
+	// below) and the car's own size is directly player-controlled
+	// (gameState.vehicleScale, thumbstick-resizable), not a fixed knob
+	// like FIXED_SCALE in the tabletop modes — there's no "track/arena"
+	// footprint here for a bigger car to stay proportional against.
+	ensureAREnvironment();
 
 	const world = createPhysicsWorld();
 	arManager.setWorld( world );
