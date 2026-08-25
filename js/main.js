@@ -309,10 +309,10 @@ function createModeMenu( { arAvailable } ) {
 			#hajwalah-menu .hw-step.hidden { display: none; }
 			#hajwalah-menu .hw-footer { margin-top: 6px; color: #6b6680; font-size: 11.5px; text-align: center; letter-spacing: 0.5px; }
 			#hajwalah-menu .hw-footer b { color: #9d8fd4; }
-			#hajwalah-menu .hw-features-link {
+			#hajwalah-menu .hw-features-link, #hajwalah-menu .hw-controls-link {
 				color: #5B8CFF; text-decoration: none; font-size: 12px; display: inline-block; margin-top: 4px;
 			}
-			#hajwalah-menu .hw-features-link:hover { text-decoration: underline; }
+			#hajwalah-menu .hw-features-link:hover, #hajwalah-menu .hw-controls-link:hover { text-decoration: underline; }
 		`;
 
 		const menu = document.createElement( 'div' );
@@ -412,6 +412,8 @@ function createModeMenu( { arAvailable } ) {
 				<div class="hw-footer">
 					<b>ABODEN GAMES</b> &nbsp;&middot;&nbsp; &copy; 2026 &nbsp;&middot;&nbsp; جميع الحقوق محفوظة
 					<br/><a href="#" class="hw-features-link">✨ عن اللعبة</a>
+					&nbsp;&middot;&nbsp;
+					<a href="#" class="hw-controls-link">🎮 التحكم</a>
 				</div>
 			</div>
 		`;
@@ -554,6 +556,14 @@ function createModeMenu( { arAvailable } ) {
 
 		} );
 
+		const controlsLink = menu.querySelector( '.hw-controls-link' );
+		controlsLink.addEventListener( 'click', ( e ) => {
+
+			e.preventDefault();
+			showControlsModal();
+
+		} );
+
 		document.body.appendChild( menu );
 
 		// Background music starts on the very first interaction with the
@@ -650,6 +660,131 @@ function showFeaturesModal() {
 	document.body.appendChild( overlay );
 
 	overlay.querySelector( '.hwf-close' ).addEventListener( 'click', () => overlay.remove() );
+	overlay.addEventListener( 'click', ( e ) => { if ( e.target === overlay ) overlay.remove(); } );
+
+}
+
+// ─── Controls guide ─────────────────────────────────────────
+// Every binding here is read straight from the actual input code
+// (Controls.js's keyboard/gamepad section, main.js's own key checks,
+// and ARManager.js's controller-button map) — not re-derived/guessed,
+// so this stays accurate as those change. Grouped by input method since
+// a given session only ever uses one at a time; each row is a key/
+// button badge + a 2-4 word action, no long sentences (same short style
+// as the features modal).
+function showControlsModal() {
+
+	const style = document.createElement( 'style' );
+	style.textContent = `
+		#hw-controls-overlay {
+			position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+			background: rgba(5,5,10,0.75); font-family: 'Segoe UI', Tahoma, Arial, sans-serif; padding: 24px 16px;
+		}
+		#hw-controls-overlay .hwc-card {
+			max-width: 460px; width: 100%; max-height: 82vh; overflow-y: auto;
+			background: radial-gradient(circle at 50% 0%, #201436 0%, #0d0d16 70%);
+			border: 1px solid rgba(139,95,191,0.4); border-radius: 20px; padding: 26px 22px;
+			box-shadow: 0 0 50px rgba(91,60,140,0.25);
+		}
+		#hw-controls-overlay .hwc-title {
+			font-size: 26px; font-weight: 800; text-align: center;
+			background: linear-gradient(90deg, #8B5FBF 0%, #5B8CFF 50%, #4FD8E8 100%);
+			-webkit-background-clip: text; background-clip: text; color: transparent;
+			margin-bottom: 4px;
+		}
+		#hw-controls-overlay .hwc-sub { color: #9a94b0; font-size: 12px; text-align: center; margin-bottom: 18px; }
+		#hw-controls-overlay .hwc-group { margin-bottom: 16px; }
+		#hw-controls-overlay .hwc-group-title {
+			display: flex; align-items: center; gap: 8px; color: #cfc9e0; font-size: 13.5px;
+			font-weight: 700; margin-bottom: 8px;
+		}
+		#hw-controls-overlay .hwc-row {
+			display: flex; align-items: center; gap: 10px; padding: 7px 0;
+			border-top: 1px solid rgba(255,255,255,0.07);
+		}
+		#hw-controls-overlay .hwc-group .hwc-row:first-of-type { border-top: none; }
+		#hw-controls-overlay .hwc-key {
+			flex-shrink: 0; min-width: 44px; text-align: center; padding: 3px 8px; border-radius: 7px;
+			background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14);
+			color: #fff; font-size: 11.5px; font-weight: 700; font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+		}
+		#hw-controls-overlay .hwc-action { color: #a79fc4; font-size: 12.5px; }
+		#hw-controls-overlay .hwc-close {
+			display: block; width: 100%; margin-top: 6px; padding: 13px; border: none; border-radius: 999px;
+			background: linear-gradient(90deg, #8B5FBF, #5B8CFF); color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
+		}
+	`;
+
+	const GROUPS = [
+		{
+			icon: '⌨️', title: 'لوحة المفاتيح', rows: [
+				[ 'WASD', 'قيادة' ],
+				[ 'B', 'فرملة يد' ],
+				[ 'مسافة', 'بوق' ],
+				[ 'L', 'أضواء أمامية' ],
+				[ 'H', 'طوارئ' ],
+				[ 'N (مسّك)', 'إضاءة عالية' ],
+				[ 'R', 'الأغنية التالية' ],
+				[ 'T', 'تشغيل/إيقاف الراديو' ],
+			]
+		},
+		{
+			icon: '👆', title: 'اللمس (جوال)', rows: [
+				[ 'سحب', 'قيادة' ],
+				[ '⏭ ⏯', 'الراديو' ],
+				[ '💡 ⚠️', 'أضواء / طوارئ' ],
+				[ '🔆 (مسّك)', 'إضاءة عالية' ],
+				[ '⛶', 'ملء الشاشة' ],
+			]
+		},
+		{
+			icon: '🎮', title: 'يد تحكم (Gamepad)', rows: [
+				[ 'العصا اليسرى', 'قيادة يمين/يسار' ],
+				[ 'RT / LT', 'دفع / فرملة' ],
+			]
+		},
+		{
+			icon: '🕶️', title: 'يد Quest (وضع AR)', rows: [
+				[ 'عصا يمين', 'قيادة يمين/يسار' ],
+				[ 'زناد يمين', 'دفع' ],
+				[ 'زناد يسار', 'فرملة/رجوع' ],
+				[ 'عصا يسار', 'تكبير/تصغير السيارة' ],
+				[ 'X / Y يسار', 'الراديو (تالي/تشغيل)' ],
+				[ 'ضغط عصا يمين', 'أضواء أمامية' ],
+				[ 'A يمين', 'طوارئ' ],
+				[ 'B يمين (مسّك)', 'إضاءة عالية' ],
+				[ 'قبضة يسار (مسّك)', 'بوق' ],
+				[ 'ضغط عصا يسار (مسّك)', 'فرملة يد' ],
+			]
+		},
+	];
+
+	const overlay = document.createElement( 'div' );
+	overlay.id = 'hw-controls-overlay';
+	overlay.dir = 'rtl';
+	overlay.innerHTML = `
+		<div class="hwc-card">
+			<div class="hwc-title">التحكم</div>
+			<div class="hwc-sub">حسب طريقة اللعب اللي تستخدمها</div>
+			${ GROUPS.map( ( g ) => `
+				<div class="hwc-group">
+					<div class="hwc-group-title"><span>${ g.icon }</span><span>${ g.title }</span></div>
+					${ g.rows.map( ( [ key, action ] ) => `
+						<div class="hwc-row">
+							<div class="hwc-key">${ key }</div>
+							<div class="hwc-action">${ action }</div>
+						</div>
+					` ).join( '' ) }
+				</div>
+			` ).join( '' ) }
+			<button class="hwc-close">رجوع</button>
+		</div>
+	`;
+
+	document.head.appendChild( style );
+	document.body.appendChild( overlay );
+
+	overlay.querySelector( '.hwc-close' ).addEventListener( 'click', () => overlay.remove() );
 	overlay.addEventListener( 'click', ( e ) => { if ( e.target === overlay ) overlay.remove(); } );
 
 }
@@ -2348,6 +2483,12 @@ function createAIDrivers( npcConfigs, gridSlots, models, scene, world, path, rad
 			stuckStrikes: 0,
 			sampleTimer: 0,
 			samplePos: { x: slot.position[ 0 ], z: slot.position[ 2 ] },
+			// See the "Start-Zone Guard" in AIController.js's
+			// updateRaceAIDrivers: cars start this close to path index 0
+			// (just behind the finish line), so the first apparent
+			// wrap-to-0 must NOT count as a completed lap until the car
+			// has genuinely been driven through the middle of the track.
+			hasLeftStartZone: false,
 		};
 
 	} );

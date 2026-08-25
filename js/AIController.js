@@ -107,6 +107,41 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 
 		if ( racing && ! d.finished ) {
 
+			// 0. Start-Zone Guard (phantom first-lap fix)
+			//
+			// AI cars are placed on the grid BEHIND the start/finish line,
+			// which in path-index terms means their starting d.idx is very
+			// close to path.length (a handful of steps back from index 0 —
+			// see createAIDrivers in main.js). Both the forward-window
+			// search below (section 2, checks d.idx .. d.idx+8) and the
+			// single-step check further down wrap around modulo
+			// path.length, so for a car starting only a few indices before
+			// the end, that window can reach all the way past 0 into low
+			// indices on literally the FIRST frame, before the car has
+			// driven anywhere — and since the start/finish line's low
+			// indices are also physically right next to the car's spawn
+			// point, the nearest-point search can genuinely pick one of
+			// them, registering a false "wrap to 0" and counting a lap the
+			// car never drove. That phantom lap is why AI cars finish
+			// (i.e. reach TOTAL_RACE_LAPS) one real lap early — they only
+			// ever needed to drive TOTAL_RACE_LAPS - 1 more laps after this
+			// free one at the green light.
+			//
+			// Fixed by not trusting ANY wrap-to-low-index as a real lap
+			// until the car has first been observed clearly in the middle
+			// of the path (more than SAFE_ZONE_MARGIN steps from both
+			// ends) — which can only happen after actually driving there.
+			// Once that happens once, d.hasLeftStartZone latches true for
+			// the rest of the race, so every later, genuine finish-line
+			// crossing still counts normally.
+			const SAFE_ZONE_MARGIN = 15;
+			if ( ! d.hasLeftStartZone && path.length > SAFE_ZONE_MARGIN * 2 &&
+				d.idx > SAFE_ZONE_MARGIN && d.idx < path.length - SAFE_ZONE_MARGIN ) {
+
+				d.hasLeftStartZone = true;
+
+			}
+
 			// 1. Stuck Recovery Watchdog
 			d.sampleTimer = ( d.sampleTimer || 0 ) + dt;
 			if ( d.sampleTimer >= 0.4 ) {
@@ -188,6 +223,56 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 
 				}
 
+				// This resync can move d.idx across the lap-boundary (index
+				// 0) in EITHER direction without going through either of
+				// the normal forward-progress lap-counting checks in
+				// section 2 below (both of those only ever move d.idx
+				// forward by a bounded amount — this search is
+				// bidirectional, -2..+10). A forward jump across the
+				// boundary would silently skip counting a completed lap
+				// (the AI would then need an extra real lap to reach
+				// TOTAL_RACE_LAPS — never a problem noticed as "stops
+				// too early"). A BACKWARD jump across the boundary is the
+				// one that causes exactly that symptom: it silently
+				// un-crosses a lap that was already counted, and when the
+				// car naturally re-crosses forward again minutes later —
+				// re-driving what is physically only the last stretch
+				// before the finish line, not a genuine extra lap — the
+				// normal forward check counts it AGAIN, so lapsCompleted
+				// reaches TOTAL_RACE_LAPS one real lap early. This can
+				// happen for real: the stuck/circling recovery above is
+				// most likely to trigger right where the track is
+				// hardest to drive, and a hairpin or tight chicane right
+				// after the start/finish line is a common example.
+				// Detected the same way the forward checks above detect a
+				// crossing (comparing raw index order), just for
+				// whichever direction this jump actually went, and
+				// applied here so d.lapsCompleted stays correct no matter
+				// which of the two places moved d.idx last.
+				const oldIdx = d.idx;
+				const pathLen = path.length;
+				const fwdJumpDist = ( bestJ - oldIdx + pathLen ) % pathLen;
+				const backJumpDist = ( oldIdx - bestJ + pathLen ) % pathLen;
+				if ( fwdJumpDist <= backJumpDist ) {
+
+					if ( bestJ < oldIdx && d.hasLeftStartZone ) {
+
+						d.lapsCompleted = ( d.lapsCompleted || 0 ) + 1;
+						if ( d.lapsCompleted >= TOTAL_RACE_LAPS ) {
+
+							d.finished = true;
+							d.finishTime = totalTime;
+
+						}
+
+					}
+
+				} else if ( bestJ > oldIdx && d.hasLeftStartZone ) {
+
+					d.lapsCompleted = Math.max( 0, ( d.lapsCompleted || 0 ) - 1 );
+
+				}
+
 				d.idx = bestJ;
 				const p = path[ bestJ ];
 				const pNext = path[ ( bestJ + 1 ) % path.length ];
@@ -255,7 +340,7 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 
 			if ( bestWindowIdx !== d.idx ) {
 
-				if ( bestWindowIdx < d.idx ) {
+				if ( bestWindowIdx < d.idx && d.hasLeftStartZone ) {
 
 					d.lapsCompleted = ( d.lapsCompleted || 0 ) + 1;
 					if ( d.lapsCompleted >= TOTAL_RACE_LAPS ) {
@@ -295,7 +380,7 @@ export function updateRaceAIDrivers( drivers, path, dt, racing, totalTime, playe
 				if ( dToCur < 2.0 || forwardProgress > 0.5 ) {
 
 					d.idx = ( d.idx + 1 ) % path.length;
-					if ( d.idx === 0 ) {
+					if ( d.idx === 0 && d.hasLeftStartZone ) {
 
 						d.lapsCompleted = ( d.lapsCompleted || 0 ) + 1;
 						if ( d.lapsCompleted >= TOTAL_RACE_LAPS ) {
