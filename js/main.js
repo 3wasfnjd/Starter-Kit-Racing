@@ -101,6 +101,12 @@ function ensureAREnvironment() {
 	}
 
 	scene.environment = arEnvironmentTexture;
+	// Full-strength (1.0) reflections stacked on top of this scene's own
+	// direct lights pushed AR exposure too high — colors were clipping
+	// toward white under ACES tone mapping instead of looking richer.
+	// Dialed back to a fraction so surfaces still pick up real
+	// reflections/ambient tint without washing out saturation.
+	scene.environmentIntensity = 0.4;
 
 }
 
@@ -4311,7 +4317,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	// of it reading pure black. The track/car placement is frozen once
 	// locked in (frameUpdate stops moving arRoot after that point), so a
 	// static position here is fine — nothing needs to track it per frame.
-	const fillLight = new THREE.DirectionalLight( 0xffffff, 1.1 );
+	const fillLight = new THREE.DirectionalLight( 0xffffff, 0.4 );
 	fillLight.position.set( -0.6, 0.5, -0.6 );
 	scene.add( fillLight );
 
@@ -4993,7 +4999,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	// startARFloatingTrack for why each one is here (no shadow on the
 	// fill light to avoid doubling shadow-map cost; static position since
 	// the arena is frozen in place once locked in).
-	const fillLight = new THREE.DirectionalLight( 0xffffff, 1.1 );
+	const fillLight = new THREE.DirectionalLight( 0xffffff, 0.4 );
 	fillLight.position.set( -0.6, 0.5, -0.6 );
 	scene.add( fillLight );
 	ensureAREnvironment();
