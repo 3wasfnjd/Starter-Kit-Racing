@@ -381,14 +381,12 @@ function createModeMenu( { arAvailable } ) {
 					<div class="hw-icon-slot">
 						<button type="button" class="hw-mode-card hw-flag-icon-btn" title="صورة العلم الخلفي">
 							<img src="images/menu/icon-flag.png" alt="العلم" />
-							<div class="hw-m-label">العلم</div>
 						</button>
 						<button type="button" class="hw-flag-clear-badge hidden" title="إزالة الصورة">×</button>
 					</div>
 					<div class="hw-icon-slot">
 						<button type="button" class="hw-mode-card hw-name-icon-btn" title="نص مخصص">
 							<img src="images/menu/icon-name.png" alt="الاسم" />
-							<div class="hw-m-label">الاسم</div>
 						</button>
 						<span class="hw-name-badge"></span>
 					</div>
@@ -2208,15 +2206,24 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false, haz
 
 	// Hazards: AI cars use a pure unlit lens glow (see addVehicleLights())
 	// which needs no per-frame distance/intensity math, just visibility.
-	// The player's own car (realHazards=true) uses real PointLights
-	// instead, same as taillights above, so those DO need the same
-	// distance/intensity scaling every frame regardless of blink state.
+	// The player's own car (realHazards=true) uses a real PointLight
+	// instead, same construction as taillights above — but UNLIKE
+	// taillights/headlights, its distance/intensity are deliberately left
+	// at their constructed base values here, never multiplied by AR's
+	// tiny `s` (feedback: AR's hazard light no longer looked/matched like
+	// NORMAL/web mode's own hazard light — scaling it down by the same
+	// ~0.01× factor headlights need shrank an already short-range, modest
+	// light to the point of barely registering). A hazard light's whole
+	// job is to be a clearly visible blinking signal, not physically-
+	// accurate room illumination the way headlights are, so keeping it at
+	// full "web-strength" regardless of AR's tabletop scale is the
+	// correct behavior here, not a bug to fix later.
 	if ( vehicleLights.hazards && vehicleLights.hazards[ 0 ] && vehicleLights.hazards[ 0 ].light ) {
 
 		vehicleLights.hazards.forEach( ( h ) => {
 
-			h.light.distance = h.baseDistance * s;
-			h.light.intensity = h.baseIntensity * intensityScale;
+			h.light.distance = h.baseDistance;
+			h.light.intensity = h.baseIntensity;
 
 		} );
 
@@ -2491,11 +2498,25 @@ function setupRadioTouchUI( radio, vehicleLights ) {
 
 	}
 
+	const homeBtn = makeTapButton( '🏠' );
 	const nextBtn = makeTapButton( '⏭' );
 	const toggleBtn = makeTapButton( '⏯' );
 	const headlightBtn = makeTapButton( '💡' );
 	const hazardBtn = makeTapButton( '⚠️' );
 	const highBeamBtn = makeTapButton( '🔆' );
+
+	// Back to the main menu — added alongside the rest of this dock's
+	// buttons per feedback that WEB mode (both track and free-roam, since
+	// both call this same function) had no way back except reloading the
+	// tab by hand. A plain navigation, no confirmation dialog — same
+	// no-friction, single-tap pattern as every other button in this dock.
+	homeBtn.title = 'الرجوع للقائمة الرئيسية';
+	homeBtn.addEventListener( 'pointerdown', ( e ) => {
+
+		e.stopPropagation();
+		location.href = location.pathname;
+
+	} );
 
 	// pointerdown (not click) for lower latency and to match the steering
 	// zone's own event type; stopPropagation so the tap doesn't also get
@@ -2552,6 +2573,7 @@ function setupRadioTouchUI( radio, vehicleLights ) {
 
 	} );
 
+	wrap.appendChild( homeBtn );
 	wrap.appendChild( nextBtn );
 	wrap.appendChild( toggleBtn );
 	wrap.appendChild( headlightBtn );
@@ -4631,14 +4653,31 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 						raceCtx.resultsShown = true;
 						const standings = computeStandings( raceCtx.aiDrivers, trackPath, raceCtx.raceState.totalTime );
-						showRaceResultsOverlay( standings, {
-							// AR sessions can only be (re)started from a real user
-							// gesture (WebXR requirement), so unlike NORMAL/web
-							// mode's seamless same-session restart, both buttons
-							// here just return to the main menu — the player taps
-							// VR again to re-enter.
-							onRestart: () => location.reload(),
-							onMenu: () => { location.href = location.pathname; },
+
+						// End the AR session BEFORE showing the results card —
+						// feedback confirmed the card (and its two buttons)
+						// never actually appeared in AR. Unlike the 3D
+						// countdown above (a real scene object, always
+						// rendered), this results screen is the game's normal
+						// 2D DOM overlay, which only draws on top of an
+						// immersive-ar view through the WebXR 'dom-overlay'
+						// feature — support for that varies by browser/
+						// headset, so it's not a dependable place to put
+						// anything with real clickable buttons. Ending the
+						// session first drops back to the plain 2D page,
+						// where this exact overlay already works everywhere,
+						// same as NORMAL/web mode.
+						arManager.session.end().finally( () => {
+
+							showRaceResultsOverlay( standings, {
+								// A fresh session needs a real user gesture to
+								// start again (WebXR requirement) — both
+								// buttons return to the main menu; the player
+								// taps VR again to re-enter.
+								onRestart: () => location.reload(),
+								onMenu: () => { location.href = location.pathname; },
+							} );
+
 						} );
 
 					}
