@@ -111,8 +111,13 @@ const DECO_CELLS = [
 
 export const NPC_TRUCKS = [
 	[ 'vehicle-truck-green',  -3.51, -0.01,  12.70,  98.0 ],
-	[ 'vehicle-truck-black',  -23.78, -0.14, -13.56,   0.0 ],
+	[ 'vehicle-truck-purple', -23.78, -0.14, -13.56,   0.0 ],
 	[ 'vehicle-truck-red',    -1.36, -0.15, -23.80, 155.9 ],
+	// Added per request — parked in the same open grass verge as the
+	// other three (a `decoration-empty` cell just west of the upper-left
+	// straight, grid ~(-3,1)), not verified against an actual render
+	// since this environment can't preview the scene visually.
+	[ 'vehicle-truck-yellow', -18.73, -0.05,  11.24,  90.0 ],
 ];
 
 export function buildTrack( scene, models, customCells, { compactDeco = false, skipDeco = false } = {} ) {
