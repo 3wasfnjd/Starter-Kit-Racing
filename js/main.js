@@ -291,7 +291,11 @@ function createModeMenu( { arAvailable } ) {
 				background: rgba(14,11,24,0.6); border: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(6px);
 			}
 			#hajwalah-menu .hw-icon-slot { position: relative; flex: 1; }
-			#hajwalah-menu .hw-icon-slot .hw-mode-card { width: 100%; }
+			#hajwalah-menu .hw-icon-slot .hw-mode-card {
+				width: 100%; height: 117px; padding: 0;
+				display: flex; align-items: center; justify-content: center;
+			}
+			#hajwalah-menu .hw-icon-slot .hw-mode-card img { margin-bottom: 0; }
 			#hajwalah-menu .hw-flag-clear-badge {
 				position: absolute; top: -6px; left: -6px; width: 18px; height: 18px; border-radius: 50%;
 				background: #ff5a5a; color: #fff; font-size: 12px; line-height: 17px; text-align: center;
@@ -348,10 +352,10 @@ function createModeMenu( { arAvailable } ) {
 			#hajwalah-menu .hw-mode-card.vr { box-shadow: 0 0 0 1px rgba(180,95,232,0.3) inset; }
 			#hajwalah-menu .hw-mode-card:disabled { opacity: 0.45; cursor: not-allowed; }
 			#hajwalah-menu .hw-mode-card img {
-				width: 40px; height: 40px; object-fit: contain; margin-bottom: 6px;
-				filter: drop-shadow(0 0 8px rgba(140,180,255,0.5));
+				width: 48px; height: 48px; object-fit: contain; margin-bottom: 6px;
+				filter: drop-shadow(0 0 1px rgba(255,255,255,0.6)) drop-shadow(0 0 4px rgba(140,180,255,0.5));
 			}
-			#hajwalah-menu .hw-mode-card svg { width: 40px; height: 40px; margin-bottom: 6px; }
+			#hajwalah-menu .hw-mode-card svg { width: 48px; height: 48px; margin-bottom: 6px; }
 			#hajwalah-menu .hw-m-label { font-size: 14px; font-weight: 800; }
 			#hajwalah-menu .hw-m-sub { font-size: 9.5px; color: #b7bfe0; margin-top: 2px; }
 			#hajwalah-menu .hw-back-link {
