@@ -1057,6 +1057,35 @@ function buildGrandstandWall( scene, axis, length, fixedCoord, baseDistance, dir
 // Stadium floodlight pole: a tall mast + lamp head, with a real SpotLight
 // aiming down at the track — matching the bright white floodlights over
 // a real night "تفحيط" show.
+// A bright core + soft additive halo on a lamp's front face, so the
+// fixture itself reads as actively lit/glowing rather than a plain dark
+// box — same technique as the vehicle's own headlight lens overlay
+// (createGlowTexture + an unlit core circle), just added as a child of
+// the lamp mesh itself so it automatically inherits the lamp's own
+// position/tilt (rotation.x = -0.5) instead of needing that geometry
+// recomputed here. Warm creamy-yellow to match the real SpotLight color.
+function addFloodlightLensGlow( lamp ) {
+
+	const core = new THREE.Mesh(
+		new THREE.CircleGeometry( 0.13, 16 ),
+		new THREE.MeshBasicMaterial( { color: 0xfff2cc, toneMapped: false } )
+	);
+	core.position.z = 0.076; // just proud of the lamp box's front face (half-depth 0.15/2)
+	lamp.add( core );
+
+	const halo = new THREE.Mesh(
+		new THREE.CircleGeometry( 0.32, 20 ),
+		new THREE.MeshBasicMaterial( {
+			map: createGlowTexture( '255, 219, 160' ), color: 0xffdba0,
+			transparent: true, toneMapped: false, depthWrite: false,
+			blending: THREE.AdditiveBlending,
+		} )
+	);
+	halo.position.z = 0.074; // just behind the core, avoids z-fighting
+	lamp.add( halo );
+
+}
+
 function buildFloodlightPole( scene, x, z, aimTarget, world = null ) {
 
 	const poleHeight = 9;
@@ -1081,10 +1110,13 @@ function buildFloodlightPole( scene, x, z, aimTarget, world = null ) {
 		lamp.position.set( i * 0.6, 0, 0.3 );
 		lamp.rotation.x = -0.5;
 		headGroup.add( lamp );
+		addFloodlightLensGlow( lamp );
 
 	}
 
-	const light = new THREE.SpotLight( 0xf5f7ff, 45, 70, THREE.MathUtils.degToRad( 42 ), 0.4, 1.0 );
+	// Warm creamy-yellow, like a real stadium floodlight (not cool white) —
+	// same base intensity/distance/cone as before, only the color changed.
+	const light = new THREE.SpotLight( 0xffdba0, 45, 70, THREE.MathUtils.degToRad( 42 ), 0.4, 1.0 );
 	light.position.set( x, poleHeight - 0.1, z );
 	light.target.position.set( aimTarget.x, 0, aimTarget.z );
 	light.castShadow = false; // 4 shadow-casting spotlights would be very expensive; dirLight still casts the car's shadow
@@ -1267,6 +1299,7 @@ function buildFloodlightPoleVisual( parent, x, z, aimTarget, poleHeight = 9, sca
 		lamp.position.set( i * 0.6, 0, 0.3 );
 		lamp.rotation.x = -0.5;
 		headGroup.add( lamp );
+		addFloodlightLensGlow( lamp );
 
 	}
 
@@ -1276,8 +1309,10 @@ function buildFloodlightPoleVisual( parent, x, z, aimTarget, poleHeight = 9, sca
 	// shadow (4+ shadow-casting spotlights on top of the arena's own
 	// directional light is exactly the double-shadow-pass cost that
 	// caused the AR reprojection judder fixed earlier this session).
+	// Warm creamy-yellow — same color as buildFloodlightPole's real
+	// SpotLight, just scaled down here like everything else in AR.
 	const s = Math.max( scale, 0.001 );
-	const light = new THREE.SpotLight( 0xf5f7ff, 45 * s, 70 * s, THREE.MathUtils.degToRad( 42 ), 0.4, 1.0 );
+	const light = new THREE.SpotLight( 0xffdba0, 45 * s, 70 * s, THREE.MathUtils.degToRad( 42 ), 0.4, 1.0 );
 	light.position.set( x, poleHeight - 0.1, z );
 	light.target.position.set( aimTarget.x, 0, aimTarget.z );
 	light.castShadow = false;
@@ -1646,35 +1681,60 @@ function addVehicleLights( vehicleGroup ) {
 	// Reverse (backup) lights: white glow at the rear, next to the
 	// taillights, only lit while the car is actually reversing (driven
 	// from linearSpeed < 0 in updateVehicleLights — no manual toggle,
-	// same as a real car). Small lens glow like the headlight bumps —
-	// intentionally subtle/small (a real backup light is a dim little
-	// bulb, not a headlight-strength beam).
+	// same as a real car). Pure unlit lens glow (core + additive halo,
+	// same technique as the headlight lens / floodlight pole lamps) —
+	// NOT a real THREE.PointLight anymore. A real backup light doesn't
+	// meaningfully illuminate anything at this range either (same as the
+	// taillights' own comment above), so the only thing lost by dropping
+	// the real light is a faint, largely pointless ground spill — while
+	// what's gained is one fewer real dynamic light per vehicle, per
+	// side, that the renderer has to evaluate for every pixel of every
+	// surface in the scene every frame. With several vehicles reversing
+	// at once (or hazards below, same idea) those real point lights were
+	// a likely cause of the reported "reversing/hazards sometimes causes
+	// a hang" — three.js's default forward lighting pays a real, fixed
+	// per-pixel shader cost for every additional active light, unrelated
+	// to how dim or short-range it is.
 	const reverseLights = [];
 	for ( const side of [ -1, 1 ] ) {
 
-		const baseDistance = 0.8;
-		const baseIntensity = 1.2;
-		const light = new THREE.PointLight( 0xf5f9ff, baseIntensity, baseDistance, 2 );
 		const basePosition = new THREE.Vector3( side * 0.25, 0.43, -1.34 );
-		light.position.copy( basePosition );
-		light.visible = false;
-		bodyNode.add( light );
+		const group = new THREE.Group();
+		group.position.copy( basePosition );
+		group.rotation.y = Math.PI; // face backward, out through the taillight bump
+		group.visible = false;
+		bodyNode.add( group );
 
-		const lens = new THREE.Mesh(
+		const core = new THREE.Mesh(
 			new THREE.CircleGeometry( 0.035, 16 ),
 			new THREE.MeshBasicMaterial( { color: 0xffffff, toneMapped: false } )
 		);
-		lens.position.copy( basePosition );
-		lens.rotation.y = Math.PI; // face backward, out through the taillight bump
-		lens.visible = false;
-		bodyNode.add( lens );
+		group.add( core );
 
-		reverseLights.push( { light, lens, basePosition, baseDistance, baseIntensity } );
+		const halo = new THREE.Mesh(
+			new THREE.CircleGeometry( 0.09, 16 ),
+			new THREE.MeshBasicMaterial( {
+				map: createGlowTexture( '245, 249, 255' ), color: 0xf5f9ff,
+				transparent: true, toneMapped: false, depthWrite: false,
+				blending: THREE.AdditiveBlending,
+			} )
+		);
+		halo.position.z = -0.002; // just behind the core, avoids z-fighting
+		group.add( halo );
+
+		reverseLights.push( { group, basePosition } );
 
 	}
 
 	// Hazard/emergency lights: orange, blinking, at all 4 corners. Off
-	// by default — toggled by the player, blink handled per-frame.
+	// by default — toggled by the player, blink handled per-frame. Also
+	// a pure unlit lens glow now, same reasoning as reverseLights above
+	// — a real car's hazard blinkers don't illuminate the road either,
+	// they're a signal, not a light source. AI cars in web mode run
+	// these permanently blinking for the entire session (see
+	// setupWebAIExtras), so this was the single biggest concentration of
+	// real always-cycling dynamic lights in free-roam with several AI
+	// cars on screen at once.
 	const hazards = [];
 	const hazardPositions = [
 		[ -0.4, 0.3, 1.42 ], [ 0.4, 0.3, 1.42 ],
@@ -1682,14 +1742,31 @@ function addVehicleLights( vehicleGroup ) {
 	];
 	for ( const [ x, y, z ] of hazardPositions ) {
 
-		const baseDistance = 0.8;
-		const baseIntensity = 3;
-		const light = new THREE.PointLight( 0xff8c1a, baseIntensity, baseDistance, 2 );
 		const basePosition = new THREE.Vector3( x, y, z );
-		light.position.copy( basePosition );
-		light.visible = false;
-		bodyNode.add( light );
-		hazards.push( { light, basePosition, baseDistance, baseIntensity } );
+		const group = new THREE.Group();
+		group.position.copy( basePosition );
+		group.rotation.y = z > 0 ? 0 : Math.PI; // front bumps face forward, rear bumps face backward
+		group.visible = false;
+		bodyNode.add( group );
+
+		const core = new THREE.Mesh(
+			new THREE.CircleGeometry( 0.05, 12 ),
+			new THREE.MeshBasicMaterial( { color: 0xff8c1a, toneMapped: false } )
+		);
+		group.add( core );
+
+		const halo = new THREE.Mesh(
+			new THREE.CircleGeometry( 0.14, 16 ),
+			new THREE.MeshBasicMaterial( {
+				map: createGlowTexture( '255, 140, 26' ), color: 0xff8c1a,
+				transparent: true, toneMapped: false, depthWrite: false,
+				blending: THREE.AdditiveBlending,
+			} )
+		);
+		halo.position.z = -0.002;
+		group.add( halo );
+
+		hazards.push( { group, basePosition } );
 
 	}
 
@@ -1718,7 +1795,7 @@ function toggleHazards( vehicleLights ) {
 	vehicleLights.hazardsOn = ! vehicleLights.hazardsOn;
 	if ( ! vehicleLights.hazardsOn ) {
 
-		vehicleLights.hazards.forEach( ( h ) => { h.light.visible = false; } );
+		vehicleLights.hazards.forEach( ( h ) => { h.group.visible = false; } );
 
 	}
 
@@ -1775,15 +1852,18 @@ function setHighBeam( vehicleLights, on, scale = 1 ) {
 // a light's `.distance` is in local units and does NOT automatically
 // scale with its parent's transform the way position/rotation do.
 //
-// hazardScale: optional separate scale for hazards only, defaulting to
-// `scale` when omitted. Needed because AR floating-track/arena pass a
-// `scale` that already has AR_LIGHT_DAMPING baked in (added specifically
-// because the headlights — baseIntensity 500 — were blindingly strong at
-// close range in AR). Hazards start from a much weaker baseIntensity (3),
-// so that same damping on top of AR's already-tiny FIXED_SCALE crushed
-// them down to barely visible. Callers that want hazards undamped (i.e.
-// scaled only by the real AR size, not the extra headlight-only factor)
-// pass the undamped FIXED_SCALE here explicitly.
+// `hazardScale` is now vestigial: hazards used to be real THREE.PointLights
+// with their own AR-damping quirk (see the old note this replaced — kept
+// out of the diff since it's git history now), but they (and
+// reverseLights) were converted to pure unlit lens-glow meshes to cut
+// down the number of real dynamic lights active at once — each one costs
+// real per-pixel shader time in three.js's default forward lighting
+// regardless of how dim/short-range it is, and with several vehicles
+// hazard-blinking/reversing simultaneously that was a likely cause of
+// reported stutter/hangs. Mesh geometry scales for free via the parent
+// transform, so there's no more per-light distance/intensity math needed
+// for either. The parameter stays in the signature only so every existing
+// call site (which still passes it) doesn't need touching.
 function updateVehicleLights( vehicleLights, dt, scale, isReversing = false, hazardScale = null ) {
 
 	if ( ! vehicleLights ) return;
@@ -1797,7 +1877,10 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false, haz
 	// to the AR track/arena rather than blowing it out.
 	const s = Math.max( scale, 0.001 );
 	const intensityScale = s;
-	const hs = Math.max( hazardScale ?? scale, 0.001 );
+	// `hazardScale`/`hazards` no longer drive a real light's distance/
+	// intensity — see the comment above hazards' construction in
+	// addVehicleLights() for why — so it's accepted here only for call-
+	// site compatibility and otherwise unused now.
 
 	if ( vehicleLights.headlights ) {
 
@@ -1821,35 +1904,30 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false, haz
 
 	}
 
-	if ( vehicleLights.hazards ) {
-
-		vehicleLights.hazards.forEach( ( h ) => {
-
-			h.light.distance = h.baseDistance * hs;
-			h.light.intensity = h.baseIntensity * hs;
-
-		} );
-
-	}
-
+	// Reverse lights are a pure unlit lens glow now, not a real
+	// THREE.PointLight — see addVehicleLights(). Visibility only; the
+	// mesh's own size already scales correctly via the vehicle's parent
+	// transform (AR resize/placement), unlike a real light's .distance/
+	// .intensity which don't follow object scale and needed the manual
+	// `s`/`intensityScale` math above.
 	if ( vehicleLights.reverseLights ) {
 
 		vehicleLights.reverseLights.forEach( ( r ) => {
 
-			r.light.distance = r.baseDistance * s;
-			r.light.intensity = r.baseIntensity * intensityScale;
-			r.light.visible = isReversing;
-			if ( r.lens ) r.lens.visible = isReversing;
+			r.group.visible = isReversing;
 
 		} );
 
 	}
 
+	// Hazards are also a pure unlit lens glow now (see
+	// addVehicleLights()) — same reasoning as reverseLights above, just
+	// toggled by the blink timer instead of isReversing.
 	if ( vehicleLights.hazardsOn ) {
 
 		vehicleLights._blinkTimer = ( vehicleLights._blinkTimer || 0 ) + dt;
 		const on = Math.floor( vehicleLights._blinkTimer / 0.4 ) % 2 === 0;
-		vehicleLights.hazards.forEach( ( h ) => { h.light.visible = on; } );
+		vehicleLights.hazards.forEach( ( h ) => { h.group.visible = on; } );
 
 	}
 
@@ -2463,7 +2541,7 @@ function setupWebAIExtras( aiDrivers, idPrefix ) {
 		lights.headlights.forEach( ( h ) => { h.light.removeFromParent(); h.target.removeFromParent(); } );
 		lights.headlightLenses.forEach( ( lens ) => lens.removeFromParent() );
 		lights.taillights.forEach( ( t ) => t.light.removeFromParent() );
-		lights.reverseLights.forEach( ( r ) => { r.light.removeFromParent(); r.lens.removeFromParent(); } );
+		lights.reverseLights.forEach( ( r ) => r.group.removeFromParent() );
 
 		const flag = addVehicleFlag( group, aiFlagUrl );
 		const driftMarks = new DriftMarks( scene, idPrefix + '-' + i, 1, AI_DRIFT_MARK_LIFETIME );
