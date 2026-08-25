@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { LightProbeGrid } from 'three/addons/lighting/LightProbeGrid.js';
 import { LightProbeGridHelper } from 'three/addons/helpers/LightProbeGridHelper.js';
-import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
+import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, cylinder, MotionType } from 'crashcat';
 import { Vehicle, MAX_SPEED } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
@@ -171,6 +171,64 @@ function requestFullscreenSafe() {
 	}
 
 }
+
+function isFullscreenActive() {
+
+	return !! ( document.fullscreenElement || document.webkitFullscreenElement ||
+		document.mozFullScreenElement || document.msFullscreenElement );
+
+}
+
+function exitFullscreenSafe() {
+
+	const exit = document.exitFullscreen || document.webkitExitFullscreen ||
+		document.mozCancelFullScreen || document.msExitFullscreen;
+
+	if ( ! exit ) return;
+
+	try {
+
+		const result = exit.call( document );
+		if ( result && result.catch ) result.catch( ( e ) => console.warn( 'Fullscreen exit failed:', e ) );
+
+	} catch ( e ) {
+
+		console.warn( 'Fullscreen exit failed:', e );
+
+	}
+
+}
+
+// Arms fullscreen to fire on the very first tap/click ANYWHERE on the
+// page — as close to "fullscreen the instant the game opens" as a
+// website is actually allowed to get. No browser permits requesting
+// fullscreen with zero user interaction at all (a hard, universal
+// security rule — every site is bound by it, not something specific to
+// this game); the first genuine gesture is the earliest legal moment.
+// Runs once, then removes itself — except it deliberately skips a tap on
+// the AR entry button, since requestSession() there needs that exact
+// click's own transient user-activation (see the comment on
+// arEntryBtn's own listener below) and requesting fullscreen first would
+// consume it and silently break entering AR. Fullscreen is moot for AR
+// anyway — the XR session already takes over the whole display. If the
+// very first tap happens to land on that button, this just waits for the
+// next one instead of firing.
+function armAutoFullscreen() {
+
+	function trigger( e ) {
+
+		if ( e.target.closest && e.target.closest( '.hw-ar-entry-btn' ) ) return;
+
+		document.removeEventListener( 'pointerdown', trigger );
+		requestFullscreenSafe();
+
+	}
+
+	document.addEventListener( 'pointerdown', trigger );
+
+}
+
+armAutoFullscreen();
 
 function createModeMenu( { arAvailable } ) {
 
@@ -999,7 +1057,7 @@ function buildGrandstandWall( scene, axis, length, fixedCoord, baseDistance, dir
 // Stadium floodlight pole: a tall mast + lamp head, with a real SpotLight
 // aiming down at the track — matching the bright white floodlights over
 // a real night "تفحيط" show.
-function buildFloodlightPole( scene, x, z, aimTarget ) {
+function buildFloodlightPole( scene, x, z, aimTarget, world = null ) {
 
 	const poleHeight = 9;
 	const pole = new THREE.Mesh(
@@ -1032,6 +1090,24 @@ function buildFloodlightPole( scene, x, z, aimTarget ) {
 	light.castShadow = false; // 4 shadow-casting spotlights would be very expensive; dirLight still casts the car's shadow
 	scene.add( light );
 	scene.add( light.target );
+
+	// Solid collider so the car actually crashes into the pole instead of
+	// driving straight through it — a Y-axis cylinder (crashcat has a real
+	// cylinder shape, registered via registerAll()) matching the pole
+	// mesh's own radius/height, so it's a snug fit rather than a boxy
+	// approximation.
+	if ( world ) {
+
+		rigidBody.create( world, {
+			shape: cylinder.create( { halfHeight: poleHeight / 2, radius: 0.16 } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position: [ x, poleHeight / 2, z ],
+			friction: 0.4,
+			restitution: 0.15,
+		} );
+
+	}
 
 }
 
@@ -1162,12 +1238,14 @@ function buildWarningSign( scene, x, z, rotationY ) {
 
 }
 
-// Mesh-only floodlight pole (pole + lamp head, no THREE.SpotLight) — for
-// contexts like the AR floating arena where the whole group gets scaled
-// down to tabletop size and a real light with real-world-scale
-// intensity/distance would blow out the tiny scene instead of scaling
-// down with it. Visual twin of buildFloodlightPole's non-light parts.
-function buildFloodlightPoleVisual( parent, x, z, aimTarget, poleHeight = 9 ) {
+// Floodlight pole for contexts like the AR floating arena where the whole
+// group gets scaled down to tabletop size — takes a `scale` (the same
+// FIXED_SCALE knob used everywhere else) and scales the SpotLight's
+// distance/intensity down by it too, exactly like updateVehicleLights()
+// scales headlight/taillight/hazard base values. A real-world-scale light
+// (base 45/70, matching buildFloodlightPole) would blow out the tiny
+// scaled-down scene, hence the scaling instead of just omitting the light.
+function buildFloodlightPoleVisual( parent, x, z, aimTarget, poleHeight = 9, scale = 1 ) {
 
 	const pole = new THREE.Mesh(
 		new THREE.CylinderGeometry( 0.12, 0.16, poleHeight, 8 ),
@@ -1192,6 +1270,20 @@ function buildFloodlightPoleVisual( parent, x, z, aimTarget, poleHeight = 9 ) {
 
 	}
 
+	// Real light, scaled down with `scale` — object scale on the parent
+	// group moves the light's position correctly but does NOT scale
+	// .distance/.intensity, so those are scaled here explicitly. No
+	// shadow (4+ shadow-casting spotlights on top of the arena's own
+	// directional light is exactly the double-shadow-pass cost that
+	// caused the AR reprojection judder fixed earlier this session).
+	const s = Math.max( scale, 0.001 );
+	const light = new THREE.SpotLight( 0xf5f7ff, 45 * s, 70 * s, THREE.MathUtils.degToRad( 42 ), 0.4, 1.0 );
+	light.position.set( x, poleHeight - 0.1, z );
+	light.target.position.set( aimTarget.x, 0, aimTarget.z );
+	light.castShadow = false;
+	parent.add( light );
+	parent.add( light.target );
+
 }
 
 // Tire stacks + a parked decoration car scattered near each of the
@@ -1206,12 +1298,20 @@ function buildFloodlightPoleVisual( parent, x, z, aimTarget, poleHeight = 9 ) {
 // halfZ defaults to halfX (square, backward-compatible); a rectangular
 // caller passes both independently so each corner cluster sits inset
 // proportionally on both axes instead of assuming a square footprint.
-function scatterCornerDecor( parent, models, halfX, halfZ = halfX, truckKeys ) {
+// Always returns the list of what it actually placed (position/rotation/
+// tire count) so a caller can build matching physics colliders — either
+// right away by passing `world` (web free-roam, where the physics world
+// already exists at call time), or later from the returned list once it
+// does exist (the AR arena, whose physics world isn't created until
+// lock-in, well after this runs at preview time — see buildDriftPad).
+function scatterCornerDecor( parent, models, halfX, halfZ = halfX, truckKeys, world = null ) {
 
 	const marginX = halfX * 0.14; // how far inside the corner the cluster sits
 	const marginZ = halfZ * 0.14;
 	const jitterX = halfX * 0.05;
 	const jitterZ = halfZ * 0.05;
+
+	const decor = [];
 
 	for ( const sx of [ -1, 1 ] ) {
 
@@ -1224,6 +1324,7 @@ function scatterCornerDecor( parent, models, halfX, halfZ = halfX, truckKeys ) {
 			const tireX = cx + ( Math.random() - 0.5 ) * jitterX * 2;
 			const tireZ = cz + ( Math.random() - 0.5 ) * jitterZ * 2;
 			buildTireStack( parent, tireX, tireZ, tireCount );
+			decor.push( { type: 'tires', x: tireX, z: tireZ, count: tireCount } );
 
 			if ( truckKeys.length > 0 && Math.random() < 0.85 ) {
 
@@ -1246,10 +1347,63 @@ function scatterCornerDecor( parent, models, halfX, halfZ = halfX, truckKeys ) {
 
 					} );
 					parent.add( car );
+					decor.push( { type: 'car', x: carX, z: carZ, rotationY: car.rotation.y } );
 
 				}
 
 			}
+
+		}
+
+	}
+
+	if ( world ) addDecorColliders( world, decor );
+
+	return decor;
+
+}
+
+// Static colliders matching scatterCornerDecor()'s placed tire stacks/
+// decoration cars, so the car actually crashes into them instead of
+// driving straight through — same idea as buildFloodlightPole's new
+// collider. The tire stack (a bundle of tori) is approximated as a
+// cylinder of the same footprint/height; crashcat has no compound-mesh
+// shape that would match the real stacked-tire silhouette. The
+// decoration car is a rotated box (crashcat's `quaternion` body setting)
+// sized like a real pickup truck, matching its randomized rotation.y so
+// the collider actually lines up with however the model was placed.
+function addDecorColliders( world, decorList, yOffset = 0 ) {
+
+	const _q = new THREE.Quaternion();
+	const _up = new THREE.Vector3( 0, 1, 0 );
+
+	for ( const d of decorList ) {
+
+		if ( d.type === 'tires' ) {
+
+			const stackHeight = 0.12 + d.count * 0.23; // matches buildTireStack's own y progression
+			rigidBody.create( world, {
+				shape: cylinder.create( { halfHeight: stackHeight / 2, radius: 0.42 } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position: [ d.x, stackHeight / 2 + yOffset, d.z ],
+				friction: 0.5,
+				restitution: 0.2,
+			} );
+
+		} else if ( d.type === 'car' ) {
+
+			_q.setFromAxisAngle( _up, d.rotationY );
+			const halfW = 0.95, halfH = 0.65, halfL = 1.95; // rough real-world pickup-truck footprint
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents: [ halfW, halfH, halfL ] } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position: [ d.x, halfH + yOffset, d.z ],
+				quaternion: [ _q.x, _q.y, _q.z, _q.w ],
+				friction: 0.4,
+				restitution: 0.25,
+			} );
 
 		}
 
@@ -1756,6 +1910,78 @@ function createCountdownUI() {
 		},
 		remove() { el.remove(); },
 	};
+
+}
+
+// ─── Fullscreen toggle (web mode only — an AR session already takes
+// over the whole display, see the comment at the AR entry button). ────
+// requestFullscreenSafe() already fires once automatically when picking
+// a web mode from the menu, but that single attempt can silently fail
+// (some mobile browsers are stricter about what counts as a "direct
+// enough" gesture) or get backed out of later (OS gesture, alt-tab,
+// notification pull-down) with no way back in — this is a persistent
+// on-screen button so fullscreen can be (re)requested or exited at any
+// point during play, not just once at the very start. Top-left corner:
+// top-right is the lap timer's own corner (LapTimer.js), bottom-left is
+// the radio dock below.
+function setupFullscreenToggle() {
+
+	// Same feature test as requestFullscreenSafe() — skip creating the
+	// button at all on browsers with no Fullscreen API support (notably
+	// iPhone Safari), since a button that could never do anything would
+	// just be confusing clutter.
+	const docEl = document.documentElement;
+	const supported = !! ( docEl.requestFullscreen || docEl.webkitRequestFullscreen ||
+		docEl.mozRequestFullScreen || docEl.msRequestFullscreen );
+	if ( ! supported ) return;
+
+	const style = document.createElement( 'style' );
+	style.textContent = `
+		#hw-fullscreen-btn {
+			position: fixed; left: 14px; top: 14px; z-index: 30;
+			width: 46px; height: 46px; border-radius: 50%; border: none; padding: 0;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 19px; color: #fff;
+			background: linear-gradient(165deg, rgba(32,20,54,0.72), rgba(13,13,22,0.72));
+			border: 1px solid rgba(139,95,191,0.35);
+			backdrop-filter: blur(6px);
+			box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+			touch-action: manipulation; transition: background 0.12s, transform 0.08s;
+		}
+		#hw-fullscreen-btn:active {
+			background: linear-gradient(135deg, #8B5FBF, #5B8CFF);
+			transform: scale(0.94);
+		}
+	`;
+	document.head.appendChild( style );
+
+	const btn = document.createElement( 'button' );
+	btn.id = 'hw-fullscreen-btn';
+	document.body.appendChild( btn );
+
+	function sync() {
+
+		btn.textContent = isFullscreenActive() ? '✕' : '⛶';
+		btn.title = isFullscreenActive() ? 'الخروج من ملء الشاشة' : 'ملء الشاشة';
+
+	}
+
+	// pointerdown (not click), same as the radio dock's own buttons: lower
+	// latency, and stopPropagation keeps the tap from also registering as
+	// a steering-zone touch (Controls.js's steer-zone covers the whole
+	// screen underneath this button).
+	btn.addEventListener( 'pointerdown', ( e ) => {
+
+		e.stopPropagation();
+		if ( isFullscreenActive() ) exitFullscreenSafe();
+		else requestFullscreenSafe();
+
+	} );
+
+	[ 'fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange' ]
+		.forEach( ( evt ) => document.addEventListener( evt, sync ) );
+
+	sync();
 
 }
 
@@ -2358,7 +2584,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 			for ( const cz of [ -1, 1 ] ) {
 
-				buildFloodlightPole( scene, cx * poleInset, cz * poleInset, { x: 0, z: 0 } );
+				buildFloodlightPole( scene, cx * poleInset, cz * poleInset, { x: 0, z: 0 }, world );
 
 			}
 
@@ -2435,7 +2661,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 		// Tire stacks + parked decoration cars scattered near all 4
 		// corners (randomized each time), warning signs flanking the gate.
-		scatterCornerDecor( scene, models, roadHalf, roadHalf, [ 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red' ] );
+		scatterCornerDecor( scene, models, roadHalf, roadHalf, [ 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red' ], world );
 		buildWarningSign( scene, -4.5, roadHalf - 1, Math.PI );
 		buildWarningSign( scene, 4.5, roadHalf - 1, Math.PI );
 
@@ -2546,6 +2772,12 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const controls = new Controls();
 
 	const particles = new SmokeTrails( scene );
+	// AI cars share ONE dedicated, deliberately light smoke emitter — same
+	// idea as the AR floating-track/arena fix that stopped the smoke
+	// freeze (real-world scale here, so scale stays 1, only emitMultiplier
+	// is cut) — separate from the player's own full-strength `particles`
+	// so AI stays a light background effect rather than competing with it.
+	const aiParticles = new SmokeTrails( scene, 1, 0.15 );
 	const driftMarks = new DriftMarks( scene, mapParam );
 
 	const audio = new GameAudio();
@@ -2553,6 +2785,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	const radio = new Radio( audio.listener, vehicleGroup );
 	const touchState = setupRadioTouchUI( radio, vehicleLights );
+	setupFullscreenToggle();
 
 	const _forward = new THREE.Vector3();
 	const _camLead = new THREE.Vector3();
@@ -2667,6 +2900,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 				updateVehicleLights( extra.lights, dt, 1, d.vehicle.linearSpeed < -0.01 );
 				if ( extra.flag ) extra.flag.updateFlutter( dt, Math.abs( d.vehicle.linearSpeed / MAX_SPEED ) );
 				if ( extra.driftMarks ) extra.driftMarks.update( dt, d.vehicle );
+				aiParticles.update( dt, d.vehicle );
 
 			}
 
@@ -2942,7 +3176,6 @@ function showFloatingModeMenu( arManager, scene ) {
 		const options = [ 'room', 'track', 'arena' ];
 
 		const menuGroup = new THREE.Group();
-		menuGroup.position.set( 0, 1.2, - 0.8 );
 		scene.add( menuGroup );
 
 		const cards = options.map( ( id, i ) => {
@@ -2957,8 +3190,36 @@ function showFloatingModeMenu( arManager, scene ) {
 		} );
 
 		const light = new THREE.PointLight( 0xffffff, 2, 3 );
-		light.position.set( 0, 1.2, - 0.5 );
 		scene.add( light );
+
+		// Eye-level follow: a fixed y=1.2 read as "too high" or "too low"
+		// depending on the person's actual height/posture, since it had
+		// nothing to do with where their headset actually was. Recomputed
+		// every frame from the real XR camera pose instead — position.y
+		// matches real eye height exactly, x/z sit a fixed distance ahead
+		// along the camera's current horizontal facing (pitch/roll from
+		// looking up/down ignored, so the panel stays upright rather than
+		// tilting with the headset), and lookAt (menu and camera at the
+		// same y) naturally comes out level with no extra tilt math needed.
+		const _mmCamPos = new THREE.Vector3();
+		const _mmCamQuat = new THREE.Quaternion();
+		const _mmFwd = new THREE.Vector3();
+		function followEyeLevel( dt ) {
+
+			const cam = renderer.xr.getCamera();
+			cam.getWorldPosition( _mmCamPos );
+			cam.getWorldQuaternion( _mmCamQuat );
+			_mmFwd.set( 0, 0, -1 ).applyQuaternion( _mmCamQuat );
+			_mmFwd.y = 0;
+			if ( _mmFwd.lengthSq() < 1e-6 ) _mmFwd.set( 0, 0, -1 );
+			_mmFwd.normalize();
+
+			menuGroup.position.set( _mmCamPos.x + _mmFwd.x * 0.8, _mmCamPos.y, _mmCamPos.z + _mmFwd.z * 0.8 );
+			menuGroup.lookAt( _mmCamPos.x, _mmCamPos.y, _mmCamPos.z );
+
+			light.position.set( _mmCamPos.x + _mmFwd.x * 0.5, _mmCamPos.y, _mmCamPos.z + _mmFwd.z * 0.5 );
+
+		}
 
 		const raycaster = new THREE.Raycaster();
 		const tmpDir = new THREE.Vector3();
@@ -2975,6 +3236,8 @@ function showFloatingModeMenu( arManager, scene ) {
 		this._floatingMenuUpdate = ( dt ) => {
 
 			if ( resolved ) return;
+
+			followEyeLevel( dt );
 
 			let hoveredCard = null;
 
@@ -3045,8 +3308,27 @@ function showExitConfirm( arManager, scene ) {
 	return new Promise( ( resolve ) => {
 
 		const group = new THREE.Group();
-		group.position.set( 0, 1.2, - 0.6 );
 		scene.add( group );
+
+		// Same eye-level follow as showFloatingModeMenu above — see its
+		// comment for why a fixed y=1.2 was wrong.
+		const _ecCamPos = new THREE.Vector3();
+		const _ecCamQuat = new THREE.Quaternion();
+		const _ecFwd = new THREE.Vector3();
+		function followEyeLevel() {
+
+			const cam = renderer.xr.getCamera();
+			cam.getWorldPosition( _ecCamPos );
+			cam.getWorldQuaternion( _ecCamQuat );
+			_ecFwd.set( 0, 0, -1 ).applyQuaternion( _ecCamQuat );
+			_ecFwd.y = 0;
+			if ( _ecFwd.lengthSq() < 1e-6 ) _ecFwd.set( 0, 0, -1 );
+			_ecFwd.normalize();
+
+			group.position.set( _ecCamPos.x + _ecFwd.x * 0.6, _ecCamPos.y, _ecCamPos.z + _ecFwd.z * 0.6 );
+			group.lookAt( _ecCamPos.x, _ecCamPos.y, _ecCamPos.z );
+
+		}
 
 		function makeCard( text, color ) {
 
@@ -3087,6 +3369,9 @@ function showExitConfirm( arManager, scene ) {
 		function update( dt ) {
 
 			if ( resolved ) return;
+
+			followEyeLevel();
+
 			let hovered = null;
 
 			for ( const hand of [ 'left', 'right' ] ) {
@@ -3605,6 +3890,11 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			// four cars all emitting into the same fixed-size pool at
 			// default emission rate is exactly what caused the freeze.
 			const particles = new SmokeTrails( scene, FIXED_SCALE * 0.7, 0.15 );
+			// AI now gets its own separate, even-lighter pool instead of
+			// sharing the player's — per feedback that AI smoke should be
+			// lighter everywhere. Splitting it out also removes the AI cars'
+			// share of load from the player's own pool.
+			const aiParticles = new SmokeTrails( scene, FIXED_SCALE * 0.7, 0.06 );
 			// Drift marks fade out after DRIFT_MARK_LIFETIME seconds instead
 			// of staying forever — appropriate for AR (a live tabletop
 			// scene, not a persisted record like NORMAL mode's track), and
@@ -3658,7 +3948,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 			} );
 
-			raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, arScale: FIXED_SCALE * AR_LIGHT_DAMPING };
+			raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, aiParticles, arScale: FIXED_SCALE * AR_LIGHT_DAMPING };
 
 		} catch ( e ) {
 
@@ -3764,7 +4054,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 					raceCtx.aiDrivers.forEach( ( d, i ) => {
 
 						const extra = raceCtx.aiExtras[ i ];
-						raceCtx.ctx.particles.update( simDt, d.vehicle );
+						raceCtx.aiParticles.update( simDt, d.vehicle );
 						extra.driftMarks.update( simDt, d.vehicle );
 						updateVehicleLights( extra.lights, dt, raceCtx.arScale, d.vehicle.linearSpeed < -0.01, FIXED_SCALE );
 						if ( extra.flag ) extra.flag.updateFlutter( simDt, Math.abs( d.vehicle.linearSpeed / MAX_SPEED ) );
@@ -3797,7 +4087,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 // mechanic as the floating track. halfX/halfZ are independent (was a
 // single `half`, square-only) per feedback that the pad should be
 // rectangular and bigger rather than a square.
-function buildDriftPad( halfX, halfZ, models ) {
+function buildDriftPad( halfX, halfZ, models, scale = 1 ) {
 
 	const pad = new THREE.Group();
 
@@ -3842,23 +4132,27 @@ function buildDriftPad( halfX, halfZ, models ) {
 	// the 4 corners, same dressing as the web free-roam arena — added to
 	// `pad` itself (not `scene`) so it grabs/moves/scales together with
 	// the rest of the arena instead of staying behind at world scale.
-	// Mesh-only poles (buildFloodlightPoleVisual, no real THREE.SpotLight)
-	// since `pad` gets scaled down to tabletop size later — a real
-	// light's intensity/distance don't scale down with it and would
-	// blow out this tiny scene.
+	// `scale` (the caller's FIXED_SCALE) is forwarded to each pole so its
+	// real SpotLight's distance/intensity scale down with the arena
+	// instead of blowing out the tiny scaled-down scene.
 	const poleInsetX = halfX * 0.82;
 	const poleInsetZ = halfZ * 0.82;
 	for ( const cx of [ -1, 1 ] ) {
 
 		for ( const cz of [ -1, 1 ] ) {
 
-			buildFloodlightPoleVisual( pad, cx * poleInsetX, cz * poleInsetZ, { x: 0, z: 0 } );
+			buildFloodlightPoleVisual( pad, cx * poleInsetX, cz * poleInsetZ, { x: 0, z: 0 }, 9, scale );
 
 		}
 
 	}
 
-	scatterCornerDecor( pad, models, halfX, halfZ, [ 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red' ] );
+	// No `world` yet at this point (buildDriftPad runs during AR
+	// placement/preview, before the arena is locked in and its physics
+	// world is created) — stash the returned placement list on the group
+	// itself so lockInAndStart() can build matching colliders later from
+	// these exact captured positions/rotations instead of re-randomizing.
+	pad.userData.decor = scatterCornerDecor( pad, models, halfX, halfZ, [ 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red' ] );
 
 	return pad;
 
@@ -3962,15 +4256,13 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	// the long side. buildDriftPad/buildBarrierLoop/scatterCornerDecor/
 	// the AI helpers below all take independent halfX/halfZ now instead of
 	// one square `half`.
-	const PAD_HALF_X = 16;
-	const PAD_HALF_Z = 10;
-	const arenaGroup = buildDriftPad( PAD_HALF_X, PAD_HALF_Z, models );
+	// Bumped up from 16×10 per feedback that the arena felt small —
+	// same ~1.3× per side (≈75% more floor area). Every wall/ground
+	// collider and visual dressing below is already derived from these
+	// two constants, so nothing else needs to change to match.
+	const PAD_HALF_X = 21;
+	const PAD_HALF_Z = 13;
 
-	// buildDriftPad() starts at identity transform (no internal offset
-	// baked in, unlike buildTrack()'s trackGroup) — so unlike the
-	// floating track, arenaGroup's own scale/position can be set
-	// directly here without needing an extra wrapper group.
-	//
 	// ✏️ EASY RETUNING KNOBS — see the identical comment in
 	// startARFloatingTrack for what each one does (including TIME_SCALE,
 	// used below via simDt, and why CAR_VISUAL_BOOST was removed in favor
@@ -3979,7 +4271,15 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	// physics-stability impact).
 	// Bumped up (0.03 → 0.039, ~30%) — same reasoning and same relative
 	// bump as the identical change in startARFloatingTrack.
+	// Declared before buildDriftPad() (moved up from below) so it can be
+	// forwarded into the pole lights' distance/intensity scaling.
 	const FIXED_SCALE = 0.039;
+	const arenaGroup = buildDriftPad( PAD_HALF_X, PAD_HALF_Z, models, FIXED_SCALE );
+
+	// buildDriftPad() starts at identity transform (no internal offset
+	// baked in, unlike buildTrack()'s trackGroup) — so unlike the
+	// floating track, arenaGroup's own scale/position can be set
+	// directly here without needing an extra wrapper group.
 	// Reset to the game's base speed — see the identical note in
 	// startARFloatingTrack.
 	const TIME_SCALE = 1;
@@ -4101,6 +4401,40 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 		}
 
+		// Floodlight pole colliders — same real-scale local coordinate
+		// space as the ground/wall colliders above (this physics `world`
+		// runs at real scale, with arenaGroup's own scale+placement
+		// transform doing the visual shrink/positioning — see the long
+		// comment above this function). Same 0.82 inset formula as
+		// buildDriftPad's own pole placement, since arenaGroup === the
+		// `pad` group buildDriftPad built, so their local spaces match
+		// exactly.
+		const poleInsetX = PAD_HALF_X * 0.82;
+		const poleInsetZ = PAD_HALF_Z * 0.82;
+		const poleHeight = 9;
+		for ( const cx of [ -1, 1 ] ) {
+
+			for ( const cz of [ -1, 1 ] ) {
+
+				rigidBody.create( world, {
+					shape: cylinder.create( { halfHeight: poleHeight / 2, radius: 0.16 } ),
+					motionType: MotionType.STATIC,
+					objectLayer: world._OL_STATIC,
+					position: [ cx * poleInsetX, poleHeight / 2, cz * poleInsetZ ],
+					friction: 0.4,
+					restitution: 0.15,
+				} );
+
+			}
+
+		}
+
+		// Tire stack / decoration car colliders, from the exact positions
+		// scatterCornerDecor() actually placed them at (stashed on
+		// arenaGroup.userData.decor by buildDriftPad) — not re-randomized,
+		// so they line up with the visuals.
+		if ( arenaGroup.userData.decor ) addDecorColliders( world, arenaGroup.userData.decor );
+
 		// Real 0.5m car radius, spawned at the arena's own local center —
 		// same defaults NORMAL mode's own free-roam arena uses.
 		const sphereBody = createSphereBody( world, [ 0, 0.5, 0 ] );
@@ -4136,6 +4470,8 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		// freeze/hang: real-meter-sized puffs, at default emission rate,
 		// shared across the player AND all 3 AI every frame).
 		const particles = new SmokeTrails( scene, FIXED_SCALE * 0.7, 0.15 );
+		// Same AI-gets-its-own-lighter-pool split as startARFloatingTrack.
+		const aiParticles = new SmokeTrails( scene, FIXED_SCALE * 0.7, 0.06 );
 		// Drift marks fade out after DRIFT_MARK_LIFETIME seconds — see the
 		// identical note in startARFloatingTrack.
 		const driftMarks = new DriftMarks( scene, 'ar-floating-arena', FIXED_SCALE, DRIFT_MARK_LIFETIME );
@@ -4184,7 +4520,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 		} );
 
-		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, arScale: FIXED_SCALE * AR_LIGHT_DAMPING };
+		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, aiParticles, arScale: FIXED_SCALE * AR_LIGHT_DAMPING };
 		phase = 'racing';
 
 		} catch ( e ) {
@@ -4278,7 +4614,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 					raceCtx.aiDrivers.forEach( ( d, i ) => {
 
 						const extra = raceCtx.aiExtras[ i ];
-						raceCtx.ctx.particles.update( simDt, d.vehicle );
+						raceCtx.aiParticles.update( simDt, d.vehicle );
 						extra.driftMarks.update( simDt, d.vehicle );
 						updateVehicleLights( extra.lights, dt, raceCtx.arScale, d.vehicle.linearSpeed < -0.01, FIXED_SCALE );
 						if ( extra.flag ) extra.flag.updateFlutter( simDt, Math.abs( d.vehicle.linearSpeed / MAX_SPEED ) );
@@ -4345,7 +4681,12 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 		// so shrink smoke drastically or it renders as room-filling clouds
 		// — a likely cause of the GPU overdraw/lag reported during drifting.
 		const particles = new SmokeTrails( scene, 0.12 );
-		const driftMarks = new DriftMarks( scene, mapParam || 'ar-freeroam' );
+		// Fades after 9s instead of the default Infinity+localStorage
+		// persistence — room-drive draws directly on the player's real
+		// floor, so marks sticking around forever (and being saved/
+		// restored across sessions) made less sense here than on a
+		// purpose-built track.
+		const driftMarks = new DriftMarks( scene, mapParam || 'ar-freeroam', 1, 9 );
 
 		const audio = new GameAudio();
 		audio.init( renderer.xr.getCamera(), vehicleGroup ); // XR camera rig instead of the NORMAL-mode chase Camera
