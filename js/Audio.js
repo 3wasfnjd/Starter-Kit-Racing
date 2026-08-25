@@ -444,7 +444,7 @@ export class GameAudio {
 			this.engineRpmParam.value = RPM_IDLE + ( RPM_MAX - RPM_IDLE ) * this.rpm;
 			this.engineLoadParam.value = shifting ? 0 : load;
 
-			const targetVol = remap( absSpeed + load * 0.5, 0, 1.5, 0.06, 0.3 );
+			const targetVol = remap( absSpeed + load * 0.5, 0, 1.5, 0.04, 0.2 ); // lowered per feedback — engine was drowning out the radio
 			this.engineGain.gain.setTargetAtTime( targetVol, now, 0.08 );
 
 		}
@@ -458,7 +458,7 @@ export class GameAudio {
 
 				skidVol = remap(
 					THREE.MathUtils.clamp( driftIntensity, 0.5, 2.0 ),
-					0.5, 2.0, 0.25, 0.75
+					0.5, 2.0, 0.15, 0.45 // lowered per feedback — skid was drowning out the radio
 				);
 
 			}
@@ -563,7 +563,7 @@ export class GameAudio {
 		sound.setBuffer( buffer );
 
 		const volume = THREE.MathUtils.clamp(
-			remap( impactVelocity, 0, IMPACT_MAX_VELOCITY, 0.01, 1.0 ), 0.01, 1.0 );
+			remap( impactVelocity, 0, IMPACT_MAX_VELOCITY, 0.01, 0.6 ), 0.01, 0.6 ); // lowered ceiling per feedback
 		sound.setVolume( volume );
 
 		// Variation on top of the seeded buffers: pitch jitter per hit,

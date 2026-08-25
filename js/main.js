@@ -589,7 +589,7 @@ function createModeMenu( { arAvailable } ) {
 			overlay.innerHTML = `
 				<div class="hwn-card">
 					<div class="hwn-label">نص مخصص (الزجاج الأمامي والباب الخلفي) — اختياري</div>
-					<input type="text" maxlength="12" placeholder="مثال: سباق" />
+					<input type="text" maxlength="12" placeholder="مثال: عتابه" />
 					<button type="button" class="hwn-save">تم</button>
 				</div>
 			`;
