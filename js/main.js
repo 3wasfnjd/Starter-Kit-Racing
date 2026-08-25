@@ -239,80 +239,126 @@ function createModeMenu( { arAvailable } ) {
 			#hajwalah-menu * { box-sizing: border-box; }
 			#hajwalah-menu {
 				position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
-				background: radial-gradient(circle at 50% 20%, #1a1030 0%, #0a0a12 55%, #050508 100%);
-				font-family: 'Segoe UI', Tahoma, Arial, sans-serif; padding: 24px 16px; overflow-y: auto;
+				background:
+					linear-gradient(to bottom, rgba(6,4,14,0.55) 0%, rgba(6,4,14,0.1) 18%, rgba(6,4,14,0.0) 32%, rgba(6,4,14,0.08) 55%, rgba(6,4,14,0.8) 72%, rgba(4,3,10,0.97) 100%),
+					url('images/menu/menu-bg.jpg') center/cover no-repeat, #0a0a12;
+				font-family: 'Segoe UI', Tahoma, Arial, sans-serif; padding: 22px 16px; overflow-y: auto;
 			}
-			#hajwalah-menu .hw-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 420px; width: 100%; }
-			#hajwalah-menu .hw-logo { width: 120px; height: 120px; border-radius: 20px; filter: drop-shadow(0 0 22px rgba(139,95,191,0.55)); }
-			#hajwalah-menu .hw-title {
-				font-size: 32px; font-weight: 800; text-align: center; letter-spacing: 1px;
-				background: linear-gradient(90deg, #8B5FBF 0%, #5B8CFF 50%, #4FD8E8 100%);
-				-webkit-background-clip: text; background-clip: text; color: transparent;
-				margin: 4px 0 0;
+			#hajwalah-menu .hw-wrap {
+				display: flex; flex-direction: column; align-items: center;
+				width: 100%; max-width: 400px; min-height: min(680px, 88vh);
 			}
-			#hajwalah-menu .hw-subtitle { color: #9a94b0; font-size: 12px; letter-spacing: 2px; margin-bottom: 6px; }
-			#hajwalah-menu .hw-panel {
-				width: 100%; background: rgba(255,255,255,0.04); border: 1px solid rgba(139,95,191,0.35);
-				border-radius: 18px; padding: 20px; display: flex; flex-direction: column; gap: 14px;
-				backdrop-filter: blur(10px);
+			#hajwalah-menu .hw-brand { text-align: center; }
+			#hajwalah-menu .hw-brand img {
+				width: 68px; height: 68px; border-radius: 16px; object-fit: cover;
+				box-shadow: 0 0 20px rgba(139,95,191,0.55);
 			}
-			#hajwalah-menu .hw-field-label { color: #b9b3cc; font-size: 12.5px; text-align: center; margin-bottom: 8px; }
-			#hajwalah-menu input[type=text] {
-				padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12);
-				background: rgba(255,255,255,0.06); color: #fff; font-size: 15px; text-align: center; width: 100%; outline: none;
+			#hajwalah-menu .hw-title-name {
+				text-align: center; margin-top: 8px; font-size: 24px; font-weight: 800; color: #fff; letter-spacing: 0.5px;
+				text-shadow: 0 0 18px rgba(120,180,255,0.55), 0 2px 6px rgba(0,0,0,0.6);
 			}
-			#hajwalah-menu .hw-swatches { display: flex; gap: 10px; justify-content: center; }
-			#hajwalah-menu .hw-swatch {
-				width: 60px; height: 60px; border-radius: 12px; cursor: pointer; padding: 0;
-				border: 2px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.05);
-				display: flex; align-items: center; justify-content: center; overflow: hidden;
+			#hajwalah-menu .hw-icon-box {
+				margin: 14px auto 0; display: flex; align-items: center; justify-content: center; gap: 22px;
+				width: fit-content; padding: 12px 26px;
+				background: rgba(8,7,14,0.72); border: 1px solid rgba(255,255,255,0.12);
+				border-radius: 16px; backdrop-filter: blur(3px);
 			}
-			#hajwalah-menu .hw-swatch img { width: 90%; height: 90%; object-fit: contain; }
-			#hajwalah-menu .hw-swatch.selected { border-color: #5B8CFF; box-shadow: 0 0 14px rgba(91,140,255,0.55); }
-			#hajwalah-menu .hw-flag-row { display: flex; align-items: center; gap: 12px; justify-content: center; }
-			#hajwalah-menu .hw-flag-pick {
-				display: flex; align-items: center; justify-content: center; gap: 8px;
-				padding: 10px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14);
-				background: rgba(255,255,255,0.06); color: #cfc9e0; font-size: 13px; cursor: pointer;
+			#hajwalah-menu .hw-icon-slot { position: relative; }
+			#hajwalah-menu .hw-icon-box button { background: none; border: none; padding: 0; cursor: pointer; display: block; }
+			#hajwalah-menu .hw-icon-box img {
+				width: 40px; height: 40px; object-fit: contain;
+				filter: drop-shadow(0 0 8px rgba(140,180,255,0.4));
 			}
-			#hajwalah-menu .hw-flag-pick:active { background: rgba(255,255,255,0.12); }
-			#hajwalah-menu .hw-flag-preview {
-				width: 44px; height: 44px; border-radius: 8px; object-fit: cover;
-				border: 1px solid rgba(255,255,255,0.18); display: none;
+			#hajwalah-menu .hw-flag-clear-badge {
+				position: absolute; top: -6px; left: -6px; width: 18px; height: 18px; border-radius: 50%;
+				background: #ff5a5a; color: #fff; font-size: 12px; line-height: 17px; text-align: center;
+				border: 1px solid rgba(255,255,255,0.5); padding: 0; cursor: pointer; display: block;
 			}
-			#hajwalah-menu .hw-flag-preview.shown { display: block; }
-			#hajwalah-menu .hw-flag-clear {
-				display: none; color: #ff8a8a; font-size: 12px; background: none; border: none; cursor: pointer;
+			#hajwalah-menu .hw-flag-clear-badge.hidden { display: none; }
+			#hajwalah-menu .hw-name-badge {
+				position: absolute; top: -4px; left: -4px; width: 12px; height: 12px; border-radius: 50%;
+				background: #5B8CFF; border: 1px solid rgba(255,255,255,0.6); display: none; pointer-events: none;
 			}
-			#hajwalah-menu .hw-flag-clear.shown { display: inline-block; }
-			#hajwalah-menu .hw-checkbox-row { display: flex; align-items: center; gap: 10px; color: #cfc9e0; font-size: 13.5px; justify-content: center; cursor: pointer; }
-			#hajwalah-menu .hw-checkbox-row input { width: 20px; height: 20px; accent-color: #8B5FBF; }
-			#hajwalah-menu .hw-mode-row { display: flex; gap: 12px; }
-			#hajwalah-menu .hw-mode-card {
-				flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px;
-				padding: 16px 10px; border-radius: 14px; cursor: pointer; border: none;
-				border: 1.5px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: #fff;
+			#hajwalah-menu .hw-name-badge.shown { display: block; }
+			#hajwalah-menu .hw-bottom-panel {
+				margin-top: auto; width: 100%; border-radius: 20px; overflow: hidden;
+				background: rgba(14,11,24,0.6); border: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(6px);
 			}
-			#hajwalah-menu .hw-mode-card.primary {
-				border-color: rgba(91,140,255,0.7);
-				background: linear-gradient(160deg, rgba(139,95,191,0.28), rgba(91,140,255,0.14));
-				box-shadow: 0 4px 22px rgba(91,140,255,0.25);
-			}
-			#hajwalah-menu .hw-mode-card:disabled { opacity: 0.45; cursor: not-allowed; }
-			#hajwalah-menu .hw-mode-card svg { width: 40px; height: 40px; }
-			#hajwalah-menu .hw-mode-label { font-size: 13.5px; font-weight: 600; text-align: center; }
-			#hajwalah-menu .hw-mode-sub { font-size: 10.5px; color: #a79fc4; text-align: center; }
-			#hajwalah-menu .hw-back-link {
-				color: #a79fc4; text-decoration: none; font-size: 12px; text-align: center; cursor: pointer; margin-top: -4px;
-			}
-			#hajwalah-menu .hw-step { display: flex; flex-direction: column; gap: 12px; }
 			#hajwalah-menu .hw-step.hidden { display: none; }
-			#hajwalah-menu .hw-footer { margin-top: 6px; color: #6b6680; font-size: 11.5px; text-align: center; letter-spacing: 0.5px; }
-			#hajwalah-menu .hw-footer b { color: #9d8fd4; }
-			#hajwalah-menu .hw-features-link, #hajwalah-menu .hw-controls-link {
-				color: #5B8CFF; text-decoration: none; font-size: 12px; display: inline-block; margin-top: 4px;
+			#hajwalah-menu .hw-car-showcase {
+				padding: 10px 10px 8px;
+				background: radial-gradient(circle at 50% 25%, rgba(80,60,140,0.3), rgba(10,8,20,0.1) 75%);
+				position: relative;
 			}
-			#hajwalah-menu .hw-features-link:hover, #hajwalah-menu .hw-controls-link:hover { text-decoration: underline; }
+			#hajwalah-menu .hw-car-stage { position: relative; height: 92px; display: flex; align-items: center; justify-content: center; }
+			#hajwalah-menu .hw-car-stage .hw-glow {
+				position: absolute; width: 110px; height: 26px; bottom: 4px; left: 50%; transform: translateX(-50%);
+				background: radial-gradient(ellipse at center, rgba(180,140,255,0.42), transparent 70%); filter: blur(2px);
+			}
+			#hajwalah-menu .hw-car-stage img {
+				position: relative; width: 112px; height: 112px; object-fit: contain;
+				filter: drop-shadow(0 8px 10px rgba(0,0,0,0.5));
+			}
+			#hajwalah-menu .hw-car-nav {
+				position: absolute; top: 50%; transform: translateY(-50%);
+				width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.1);
+				color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px;
+				border: 1px solid rgba(255,255,255,0.18); cursor: pointer; user-select: none;
+			}
+			#hajwalah-menu .hw-car-nav.prev { right: 4px; }
+			#hajwalah-menu .hw-car-nav.next { left: 4px; }
+			#hajwalah-menu .hw-car-name { text-align: center; color: #fff; font-size: 13.5px; font-weight: 700; margin-top: 2px; }
+			#hajwalah-menu .hw-car-dots { display: flex; justify-content: center; gap: 7px; margin-top: 6px; padding-bottom: 2px; }
+			#hajwalah-menu .hw-car-dots span {
+				width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.25);
+				cursor: pointer; display: block;
+			}
+			#hajwalah-menu .hw-car-dots span.active { border-color: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.55); }
+			#hajwalah-menu .hw-modes { display: flex; gap: 2px; border-top: 1px solid rgba(255,255,255,0.1); }
+			#hajwalah-menu .hw-mode-card {
+				flex: 1; position: relative; padding: 16px 8px 14px; text-align: center; cursor: pointer;
+				overflow: hidden; border: none; color: #fff;
+				background: linear-gradient(160deg, rgba(30,20,55,0.35), rgba(10,8,20,0.42));
+			}
+			#hajwalah-menu .hw-mode-card.web { box-shadow: 0 0 0 1px rgba(79,216,232,0.25) inset; }
+			#hajwalah-menu .hw-mode-card.vr { box-shadow: 0 0 0 1px rgba(180,95,232,0.3) inset; }
+			#hajwalah-menu .hw-mode-card:disabled { opacity: 0.45; cursor: not-allowed; }
+			#hajwalah-menu .hw-mode-card img {
+				width: 40px; height: 40px; object-fit: contain; margin-bottom: 6px;
+				filter: drop-shadow(0 0 8px rgba(140,180,255,0.5));
+			}
+			#hajwalah-menu .hw-mode-card svg { width: 40px; height: 40px; margin-bottom: 6px; }
+			#hajwalah-menu .hw-m-label { font-size: 14px; font-weight: 800; }
+			#hajwalah-menu .hw-m-sub { font-size: 9.5px; color: #b7bfe0; margin-top: 2px; }
+			#hajwalah-menu .hw-back-link {
+				display: block; text-align: center; padding: 9px 0 3px; color: #a79fc4; font-size: 12px; cursor: pointer;
+			}
+			#hajwalah-menu .hw-footer-text {
+				text-align: center; margin-top: 14px; padding: 4px 0 2px; color: #e8e4f2; font-size: 12px;
+				text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+			}
+			#hajwalah-menu .hw-footer-text a { color: #e8e4f2; text-decoration: none; }
+			#hajwalah-menu .hw-footer-text a:hover { text-decoration: underline; }
+			#hajwalah-menu .hw-footer-text span { margin: 0 6px; color: rgba(255,255,255,0.4); }
+
+			#hw-name-popup-overlay {
+				position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center;
+				background: rgba(5,5,10,0.75); font-family: 'Segoe UI', Tahoma, Arial, sans-serif; padding: 24px 16px;
+			}
+			#hw-name-popup-overlay .hwn-card {
+				max-width: 320px; width: 100%;
+				background: radial-gradient(circle at 50% 0%, #201436 0%, #0d0d16 70%);
+				border: 1px solid rgba(139,95,191,0.4); border-radius: 18px; padding: 22px 20px;
+			}
+			#hw-name-popup-overlay .hwn-label { color: #b9b3cc; font-size: 12.5px; text-align: center; margin-bottom: 10px; }
+			#hw-name-popup-overlay input[type=text] {
+				width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12);
+				background: rgba(255,255,255,0.06); color: #fff; font-size: 15px; text-align: center; outline: none; margin-bottom: 14px;
+			}
+			#hw-name-popup-overlay .hwn-save {
+				display: block; width: 100%; padding: 12px; border: none; border-radius: 999px;
+				background: linear-gradient(90deg, #8B5FBF, #5B8CFF); color: #fff; font-size: 14.5px; font-weight: 700; cursor: pointer;
+			}
 		`;
 
 		const menu = document.createElement( 'div' );
@@ -326,129 +372,146 @@ function createModeMenu( { arAvailable } ) {
 			{ key: 'vehicle-truck-purple', label: 'بنفسجي', thumb: 'images/menu/thumb-purple.png' },
 			{ key: 'vehicle-truck-green', label: 'أخضر', thumb: 'images/menu/thumb-green.png' },
 		];
-		let selectedVehicle = VEHICLE_OPTIONS[ 0 ].key;
-		const vehicleSwatches = [];
-
-		function refreshSwatchSelection() {
-
-			vehicleSwatches.forEach( ( sw ) => {
-
-				sw.classList.toggle( 'selected', sw.dataset.key === selectedVehicle );
-
-			} );
-
-		}
+		let selectedVehicleIndex = 0; // black is the default car
+		let customTextValue = '';
+		let flagImageDataUrl = null;
 
 		menu.innerHTML = `
 			<div class="hw-wrap">
-				<img class="hw-logo" src="images/menu/logo.png" alt="Aboden Games" />
-				<div class="hw-title">هجولة عتابة</div>
-				<div class="hw-subtitle">HAJWALAH &middot; AR RACING</div>
-				<div class="hw-panel">
-					<div>
-						<div class="hw-field-label">نص مخصص (الزجاج الأمامي والباب الخلفي) — اختياري</div>
-						<input type="text" class="hw-text-input" maxlength="12" placeholder="مثال: سباق" />
+				<div class="hw-brand"><img src="images/menu/logo.png" alt="Aboden Games" /></div>
+				<div class="hw-title-name">هجولة عتابة</div>
+
+				<div class="hw-icon-box">
+					<div class="hw-icon-slot">
+						<button type="button" class="hw-flag-icon-btn" title="صورة العلم الخلفي">
+							<img src="images/menu/icon-flag.png" alt="العلم" />
+						</button>
+						<button type="button" class="hw-flag-clear-badge hidden" title="إزالة الصورة">×</button>
 					</div>
-					<div>
-						<div class="hw-field-label">لون السيارة</div>
-						<div class="hw-swatches"></div>
+					<div class="hw-icon-slot">
+						<button type="button" class="hw-name-icon-btn" title="نص مخصص">
+							<img src="images/menu/icon-name.png" alt="الاسم" />
+						</button>
+						<span class="hw-name-badge"></span>
 					</div>
-					<div>
-						<div class="hw-field-label">صورة العلم الخلفي — اختياري</div>
-						<div class="hw-flag-row">
-							<label class="hw-flag-pick">
-								📷 اختر صورة
-								<input type="file" accept="image/*" class="hw-flag-input" hidden />
-							</label>
-							<img class="hw-flag-preview" />
-							<button type="button" class="hw-flag-clear">إزالة</button>
-						</div>
-					</div>
+				</div>
+				<input type="file" accept="image/*" class="hw-flag-input" hidden />
+
+				<div class="hw-bottom-panel">
 					<div class="hw-step hw-step-top">
-						<div class="hw-mode-row">
-							<button class="hw-mode-card primary hw-web-btn">
-								<svg viewBox="0 0 24 24" fill="none" stroke="#5B8CFF" stroke-width="1.6">
-									<rect x="2.5" y="4.5" width="19" height="13" rx="2"/>
-									<path d="M8 21h8M12 17.5v3.5"/>
-								</svg>
-								<div class="hw-mode-label">وضع الويب</div>
-								<div class="hw-mode-sub">أيفون / كمبيوتر</div>
+						<div class="hw-car-showcase">
+							<div class="hw-car-nav prev">‹</div>
+							<div class="hw-car-nav next">›</div>
+							<div class="hw-car-stage">
+								<div class="hw-glow"></div>
+								<img class="hw-car-img" src="" alt="" />
+							</div>
+							<div class="hw-car-name"></div>
+							<div class="hw-car-dots"></div>
+						</div>
+						<div class="hw-modes">
+							<button class="hw-mode-card vr hw-ar-entry-btn" ${ arAvailable ? '' : 'disabled' }>
+								<img src="images/menu/icon-vr.png" alt="VR" />
+								<div class="hw-m-label">VR</div>
+								<div class="hw-m-sub">${ arAvailable ? 'Meta Quest 3' : 'غير متاح على هذا الجهاز' }</div>
 							</button>
-							<button class="hw-mode-card hw-ar-entry-btn" ${ arAvailable ? '' : 'disabled' }>
-								<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
-									<rect x="2.5" y="8" width="19" height="9" rx="3.5"/>
-									<circle cx="8.3" cy="12.5" r="1.9"/>
-									<circle cx="15.7" cy="12.5" r="1.9"/>
-									<path d="M9.8 12.5h4.4"/>
-									<path d="M6 8c0-2.2 1.8-4 4-4h4c2.2 0 4 1.8 4 4"/>
-								</svg>
-								<div class="hw-mode-label">وضع AR</div>
-								<div class="hw-mode-sub">${ arAvailable ? 'Meta Quest 3' : 'غير متاح على هذا الجهاز' }</div>
+							<button class="hw-mode-card web hw-web-btn">
+								<img src="images/menu/icon-web.png" alt="WEB" />
+								<div class="hw-m-label">WEB</div>
+								<div class="hw-m-sub">لمس أو كيبورد</div>
 							</button>
 						</div>
 					</div>
 
 					<div class="hw-step hw-step-web hidden">
-						<div class="hw-mode-row">
-							<button class="hw-mode-card primary hw-web-track-btn">
+						<div class="hw-modes">
+							<button class="hw-mode-card web hw-web-track-btn">
 								<svg viewBox="0 0 24 24" fill="none" stroke="#5B8CFF" stroke-width="1.6">
 									<circle cx="12" cy="12" r="9"/>
 									<circle cx="12" cy="12" r="2.4" fill="#5B8CFF" stroke="none"/>
 									<path d="M12 5v4.6M6.2 15.5l3.6-2.2M17.8 15.5l-3.6-2.2"/>
 								</svg>
-								<div class="hw-mode-label">المضمار</div>
-								<div class="hw-mode-sub">سباق كلاسيكي</div>
+								<div class="hw-m-label">المضمار</div>
+								<div class="hw-m-sub">سباق كلاسيكي</div>
 							</button>
 							<button class="hw-mode-card hw-web-free-btn">
 								<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
 									<path d="M4 20V9l8-5 8 5v11" /><path d="M9 20v-6h6v6" />
 								</svg>
-								<div class="hw-mode-label">الوضع الحر</div>
-								<div class="hw-mode-sub">تحكم حر بدون مضمار</div>
+								<div class="hw-m-label">الوضع الحر</div>
+								<div class="hw-m-sub">تحكم حر بدون مضمار</div>
 							</button>
 						</div>
-						<a href="#" class="hw-back-link-web">‹ رجوع</a>
+						<a href="#" class="hw-back-link hw-back-link-web">‹ رجوع</a>
 					</div>
 				</div>
-				<div class="hw-footer">
-					<b>ABODEN GAMES</b> &nbsp;&middot;&nbsp; &copy; 2026 &nbsp;&middot;&nbsp; جميع الحقوق محفوظة
-					<br/><a href="#" class="hw-features-link">✨ عن اللعبة</a>
-					&nbsp;&middot;&nbsp;
-					<a href="#" class="hw-controls-link">🎮 التحكم</a>
+
+				<div class="hw-footer-text">
+					<a href="#" class="hw-features-link">نبذة عن اللعبة</a>
+					<span>—</span>
+					<a href="#" class="hw-controls-link">التحكم</a>
 				</div>
 			</div>
 		`;
 
 		document.head.appendChild( style );
 
-		const swatchRow = menu.querySelector( '.hw-swatches' );
-		VEHICLE_OPTIONS.forEach( ( opt ) => {
+		// ─── Car showcase (prev/next + dots cycling through VEHICLE_OPTIONS) ───
+		const carImg = menu.querySelector( '.hw-car-img' );
+		const carNameEl = menu.querySelector( '.hw-car-name' );
+		const carDotsRow = menu.querySelector( '.hw-car-dots' );
+		const carDots = [];
 
-			const sw = document.createElement( 'button' );
-			sw.className = 'hw-swatch';
-			sw.dataset.key = opt.key;
-			sw.title = opt.label;
-			sw.innerHTML = `<img src="${ opt.thumb }" alt="${ opt.label }" />`;
-			sw.addEventListener( 'click', () => {
+		VEHICLE_OPTIONS.forEach( ( opt, i ) => {
 
-				selectedVehicle = opt.key;
-				refreshSwatchSelection();
+			const dot = document.createElement( 'span' );
+			dot.className = `hw-car-dot c-${ i }`;
+			dot.style.background = { 'vehicle-truck-black': '#171717', 'vehicle-truck-red': '#e03b3b', 'vehicle-truck-yellow': '#e8c23b', 'vehicle-truck-purple': '#8b5fe0', 'vehicle-truck-green': '#3ba85c' }[ opt.key ] || '#666';
+			dot.addEventListener( 'click', () => {
+
+				selectedVehicleIndex = i;
+				refreshCarDisplay();
 
 			} );
-			vehicleSwatches.push( sw );
-			swatchRow.appendChild( sw );
+			carDots.push( dot );
+			carDotsRow.appendChild( dot );
 
 		} );
-		refreshSwatchSelection();
 
-		// Flag image: read locally as a data URL via FileReader — no
-		// server/upload involved, works fully offline, and the resulting
-		// data: URL is exactly what THREE.TextureLoader/createFlag()
-		// already accepts as an imageUrl.
-		let flagImageDataUrl = null;
+		function refreshCarDisplay() {
+
+			const opt = VEHICLE_OPTIONS[ selectedVehicleIndex ];
+			carImg.src = opt.thumb;
+			carImg.alt = opt.label;
+			carNameEl.textContent = opt.label;
+			carDots.forEach( ( d, i ) => d.classList.toggle( 'active', i === selectedVehicleIndex ) );
+
+		}
+
+		refreshCarDisplay();
+
+		menu.querySelector( '.hw-car-nav.prev' ).addEventListener( 'click', () => {
+
+			selectedVehicleIndex = ( selectedVehicleIndex - 1 + VEHICLE_OPTIONS.length ) % VEHICLE_OPTIONS.length;
+			refreshCarDisplay();
+
+		} );
+		menu.querySelector( '.hw-car-nav.next' ).addEventListener( 'click', () => {
+
+			selectedVehicleIndex = ( selectedVehicleIndex + 1 ) % VEHICLE_OPTIONS.length;
+			refreshCarDisplay();
+
+		} );
+
+		// ─── Flag image icon (file picker, read locally as a data URL) ───
+		// Same FileReader approach as before — no server/upload involved,
+		// works fully offline, and the resulting data: URL is exactly what
+		// THREE.TextureLoader/createFlag() already accepts as an imageUrl.
+		const flagIconBtn = menu.querySelector( '.hw-flag-icon-btn' );
 		const flagInput = menu.querySelector( '.hw-flag-input' );
-		const flagPreview = menu.querySelector( '.hw-flag-preview' );
-		const flagClear = menu.querySelector( '.hw-flag-clear' );
+		const flagClearBadge = menu.querySelector( '.hw-flag-clear-badge' );
+
+		flagIconBtn.addEventListener( 'click', () => flagInput.click() );
 
 		flagInput.addEventListener( 'change', () => {
 
@@ -459,25 +522,62 @@ function createModeMenu( { arAvailable } ) {
 			reader.onload = () => {
 
 				flagImageDataUrl = reader.result;
-				flagPreview.src = flagImageDataUrl;
-				flagPreview.classList.add( 'shown' );
-				flagClear.classList.add( 'shown' );
+				flagClearBadge.classList.remove( 'hidden' );
 
 			};
 			reader.readAsDataURL( file );
 
 		} );
 
-		flagClear.addEventListener( 'click', () => {
+		flagClearBadge.addEventListener( 'click', ( e ) => {
 
+			e.stopPropagation();
 			flagImageDataUrl = null;
 			flagInput.value = '';
-			flagPreview.classList.remove( 'shown' );
-			flagClear.classList.remove( 'shown' );
+			flagClearBadge.classList.add( 'hidden' );
 
 		} );
 
-		const textInput = menu.querySelector( '.hw-text-input' );
+		// ─── Name icon (opens a small popup with the custom-text field) ───
+		// The compact icon-box design has no room for a permanently visible
+		// text field, so the input only exists inside this on-demand popup.
+		// customTextValue is kept in sync on every keystroke (not just on
+		// "save"), so closing the popup any way (save button, backdrop tap)
+		// never loses what was typed.
+		const nameIconBtn = menu.querySelector( '.hw-name-icon-btn' );
+		const nameBadge = menu.querySelector( '.hw-name-badge' );
+
+		function openNamePopup() {
+
+			const overlay = document.createElement( 'div' );
+			overlay.id = 'hw-name-popup-overlay';
+			overlay.dir = 'rtl';
+			overlay.innerHTML = `
+				<div class="hwn-card">
+					<div class="hwn-label">نص مخصص (الزجاج الأمامي والباب الخلفي) — اختياري</div>
+					<input type="text" maxlength="12" placeholder="مثال: سباق" />
+					<button type="button" class="hwn-save">تم</button>
+				</div>
+			`;
+
+			const input = overlay.querySelector( 'input' );
+			input.value = customTextValue;
+			input.addEventListener( 'input', () => { customTextValue = input.value; nameBadge.classList.toggle( 'shown', customTextValue.trim() !== '' ); } );
+			input.addEventListener( 'keydown', ( e ) => { if ( e.key === 'Enter' ) overlay.remove(); } );
+
+			overlay.querySelector( '.hwn-save' ).addEventListener( 'click', () => overlay.remove() );
+			overlay.addEventListener( 'click', ( e ) => { if ( e.target === overlay ) overlay.remove(); } );
+
+			document.body.appendChild( overlay );
+			input.focus();
+
+		}
+
+		nameIconBtn.addEventListener( 'click', openNamePopup );
+
+		// ─── Mode navigation (WEB reveals track/free-roam choice; VR enters
+		// the AR session directly) — same two-step flow as before, just
+		// reskinned into the new panel. ───
 		const webBtn = menu.querySelector( '.hw-web-btn' );
 		const arEntryBtn = menu.querySelector( '.hw-ar-entry-btn' );
 		const stepTop = menu.querySelector( '.hw-step-top' );
@@ -506,7 +606,10 @@ function createModeMenu( { arAvailable } ) {
 			requestFullscreenSafe();
 			startBgMusic();
 			menu.remove();
-			resolve( { choice: 'normal', customText: textInput.value.trim(), freeRoam, vehicleKey: selectedVehicle, flagImage: flagImageDataUrl } );
+			resolve( {
+				choice: 'normal', customText: customTextValue.trim(), freeRoam,
+				vehicleKey: VEHICLE_OPTIONS[ selectedVehicleIndex ].key, flagImage: flagImageDataUrl,
+			} );
 
 		}
 
@@ -543,8 +646,8 @@ function createModeMenu( { arAvailable } ) {
 
 			menu.remove();
 			resolve( {
-				choice: 'ar', customText: textInput.value.trim(),
-				vehicleKey: selectedVehicle, flagImage: flagImageDataUrl, sessionPromise,
+				choice: 'ar', customText: customTextValue.trim(),
+				vehicleKey: VEHICLE_OPTIONS[ selectedVehicleIndex ].key, flagImage: flagImageDataUrl, sessionPromise,
 			} );
 
 		} );
