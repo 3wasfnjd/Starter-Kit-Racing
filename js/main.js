@@ -246,7 +246,7 @@ function createModeMenu( { arAvailable } ) {
 			}
 			#hajwalah-menu .hw-wrap {
 				display: flex; flex-direction: column; align-items: center;
-				width: 100%; max-width: 400px; min-height: min(680px, 88vh);
+				width: 100%; max-width: 400px; min-height: min(760px, 94vh);
 			}
 			#hajwalah-menu .hw-brand { text-align: center; }
 			#hajwalah-menu .hw-brand img {
@@ -257,18 +257,13 @@ function createModeMenu( { arAvailable } ) {
 				text-align: center; margin-top: 8px; font-size: 24px; font-weight: 800; color: #fff; letter-spacing: 0.5px;
 				text-shadow: 0 0 18px rgba(120,180,255,0.55), 0 2px 6px rgba(0,0,0,0.6);
 			}
-			#hajwalah-menu .hw-icon-box {
-				margin: 14px auto 0; display: flex; align-items: center; justify-content: center; gap: 22px;
-				width: fit-content; padding: 12px 26px;
-				background: rgba(8,7,14,0.72); border: 1px solid rgba(255,255,255,0.12);
-				border-radius: 16px; backdrop-filter: blur(3px);
+			#hajwalah-menu .hw-icon-panel {
+				margin: 14px auto 0; width: 100%; display: flex; gap: 2px;
+				border-radius: 20px; overflow: hidden;
+				background: rgba(14,11,24,0.6); border: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(6px);
 			}
-			#hajwalah-menu .hw-icon-slot { position: relative; }
-			#hajwalah-menu .hw-icon-box button { background: none; border: none; padding: 0; cursor: pointer; display: block; }
-			#hajwalah-menu .hw-icon-box img {
-				width: 40px; height: 40px; object-fit: contain;
-				filter: drop-shadow(0 0 8px rgba(140,180,255,0.4));
-			}
+			#hajwalah-menu .hw-icon-slot { position: relative; flex: 1; }
+			#hajwalah-menu .hw-icon-slot .hw-mode-card { width: 100%; }
 			#hajwalah-menu .hw-flag-clear-badge {
 				position: absolute; top: -6px; left: -6px; width: 18px; height: 18px; border-radius: 50%;
 				background: #ff5a5a; color: #fff; font-size: 12px; line-height: 17px; text-align: center;
@@ -319,6 +314,7 @@ function createModeMenu( { arAvailable } ) {
 				flex: 1; position: relative; padding: 16px 8px 14px; text-align: center; cursor: pointer;
 				overflow: hidden; border: none; color: #fff;
 				background: linear-gradient(160deg, rgba(30,20,55,0.35), rgba(10,8,20,0.42));
+				box-shadow: 0 0 0 1px rgba(255,255,255,0.14) inset;
 			}
 			#hajwalah-menu .hw-mode-card.web { box-shadow: 0 0 0 1px rgba(79,216,232,0.25) inset; }
 			#hajwalah-menu .hw-mode-card.vr { box-shadow: 0 0 0 1px rgba(180,95,232,0.3) inset; }
@@ -381,16 +377,18 @@ function createModeMenu( { arAvailable } ) {
 				<div class="hw-brand"><img src="images/menu/logo.png" alt="Aboden Games" /></div>
 				<div class="hw-title-name">هجولة عتابة</div>
 
-				<div class="hw-icon-box">
+				<div class="hw-icon-panel">
 					<div class="hw-icon-slot">
-						<button type="button" class="hw-flag-icon-btn" title="صورة العلم الخلفي">
+						<button type="button" class="hw-mode-card hw-flag-icon-btn" title="صورة العلم الخلفي">
 							<img src="images/menu/icon-flag.png" alt="العلم" />
+							<div class="hw-m-label">العلم</div>
 						</button>
 						<button type="button" class="hw-flag-clear-badge hidden" title="إزالة الصورة">×</button>
 					</div>
 					<div class="hw-icon-slot">
-						<button type="button" class="hw-name-icon-btn" title="نص مخصص">
+						<button type="button" class="hw-mode-card hw-name-icon-btn" title="نص مخصص">
 							<img src="images/menu/icon-name.png" alt="الاسم" />
+							<div class="hw-m-label">الاسم</div>
 						</button>
 						<span class="hw-name-badge"></span>
 					</div>
@@ -638,9 +636,16 @@ function createModeMenu( { arAvailable } ) {
 			// browsers only honor user-activation for a call made directly
 			// in the event handler, not after several chained await hops.
 			// The resulting promise is handed off and awaited downstream.
+			// 'dom-overlay' (optional — ignored harmlessly if unsupported)
+			// is what lets the game's existing 2D DOM HUD (lap timer,
+			// race-results card, etc.) actually render on top of the AR
+			// passthrough view at all; without it every DOM overlay in the
+			// game is silently invisible for the whole AR session, which is
+			// why the lap timer previously never appeared once inside AR.
 			const sessionPromise = navigator.xr.requestSession( 'immersive-ar', {
 				requiredFeatures: [ 'local-floor', 'hit-test' ],
-				optionalFeatures: [ 'plane-detection', 'mesh-detection' ],
+				optionalFeatures: [ 'plane-detection', 'mesh-detection', 'dom-overlay' ],
+				domOverlay: { root: document.body },
 			} );
 			startBgMusic();
 
@@ -2281,6 +2286,92 @@ function createCountdownUI() {
 
 		},
 		remove() { el.remove(); },
+	};
+
+}
+
+// ─── 3D race countdown (AR) ─────────────────────────────────
+// AR's floating-menu cards proved a 2D DOM overlay reads as flat/out of
+// place floating over a real-world passthrough scene — this is the same
+// "3…2…1…GO!" countdown as createCountdownUI() above, but drawn as a real
+// object in the 3D scene: a billboard sprite (always faces the camera,
+// same trick as Three.js's own Sprite class) parented under the track's
+// own transform group so it sits at a fixed spot above the track and
+// shrinks/moves/rotates in sync with it automatically, with no manual
+// per-frame placement math needed. Each digit change re-draws the same
+// canvas (cheap — this only happens 4 times total per race: 3, 2, 1, GO!)
+// and pops in with a quick scale-down-to-rest tween, driven by update(dt)
+// every frame from the caller's own render loop.
+function create3DRaceCountdown( parent, localPosition, scale = 6 ) {
+
+	const size = 256;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = canvas.height = size;
+	const ctx2d = canvas.getContext( '2d' );
+	const texture = new THREE.CanvasTexture( canvas );
+
+	function draw( text ) {
+
+		ctx2d.clearRect( 0, 0, size, size );
+
+		const glow = ctx2d.createRadialGradient( size / 2, size / 2, 0, size / 2, size / 2, size / 2 );
+		glow.addColorStop( 0, 'rgba(91,140,255,0.38)' );
+		glow.addColorStop( 0.55, 'rgba(139,95,191,0.18)' );
+		glow.addColorStop( 1, 'rgba(139,95,191,0)' );
+		ctx2d.fillStyle = glow;
+		ctx2d.fillRect( 0, 0, size, size );
+
+		ctx2d.textAlign = 'center';
+		ctx2d.textBaseline = 'middle';
+		ctx2d.font = `900 ${ text.length > 1 ? 92 : 148 }px 'Segoe UI', Tahoma, Arial, sans-serif`;
+		ctx2d.lineWidth = 10;
+		ctx2d.strokeStyle = 'rgba(8,7,14,0.85)';
+		ctx2d.strokeText( text, size / 2, size / 2 + 6 );
+
+		const textGrad = ctx2d.createLinearGradient( size * 0.15, 0, size * 0.85, 0 );
+		textGrad.addColorStop( 0, '#8B5FBF' );
+		textGrad.addColorStop( 0.5, '#5B8CFF' );
+		textGrad.addColorStop( 1, '#4FD8E8' );
+		ctx2d.fillStyle = textGrad;
+		ctx2d.fillText( text, size / 2, size / 2 + 6 );
+
+		texture.needsUpdate = true;
+
+	}
+
+	const material = new THREE.SpriteMaterial( { map: texture, transparent: true, depthWrite: false, toneMapped: false } );
+	const sprite = new THREE.Sprite( material );
+	sprite.position.copy( localPosition );
+	sprite.scale.setScalar( scale );
+	sprite.visible = false;
+	parent.add( sprite );
+
+	let popTimer = 0;
+
+	return {
+		set( text ) {
+
+			draw( text );
+			sprite.visible = true;
+			popTimer = 0;
+
+		},
+		update( dt ) {
+
+			if ( ! sprite.visible ) return;
+			popTimer += dt;
+			const t = Math.min( popTimer / 0.32, 1 );
+			const eased = 1 - Math.pow( 1 - t, 3 );
+			sprite.scale.setScalar( scale * ( 1.5 - 0.5 * eased ) );
+
+		},
+		remove() {
+
+			parent.remove( sprite );
+			material.map.dispose();
+			material.dispose();
+
+		},
 	};
 
 }
@@ -4304,6 +4395,21 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 			const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer: null, contactListener, vehicleFlag };
 
+			// Player lap timer — the SAME LapTimer class NORMAL/web mode's
+			// own track race uses (finish-line crossing detection, 3-lap
+			// counting, best-lap storage), wired in via ctx.lapTimer so
+			// updateVehicleAndFx() above drives it automatically every
+			// frame exactly like web mode, with no separate call needed
+			// here. Previously this stayed `null` (see ctx above), so the
+			// player's own laps were never tracked in AR at all — only the
+			// AI silently raced against a finish line the player's car
+			// couldn't cross. Its small top-right HUD is a 2D DOM element
+			// (LapTimer.js's own buildUI()) that now actually renders
+			// during the AR session thanks to the 'dom-overlay' feature
+			// added to the immersive-ar session request.
+			const lapTimer = new LapTimer( customCells, 'ar-floating-track' );
+			ctx.lapTimer = lapTimer;
+
 			// AI opponents — the exact same real Vehicle physics as the
 			// player (createAIDrivers is NORMAL mode's own function,
 			// reused unchanged), parented under arRoot (passed in place of
@@ -4331,7 +4437,31 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 			} );
 
-			raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, aiParticles, arScale: FIXED_SCALE * AR_LIGHT_DAMPING };
+			// Pre-race countdown + lap-race state machine — same
+			// 'countdown' → 'racing' → 'finished' phases as NORMAL/web
+			// mode's own track race (see startNormalMode), but the
+			// countdown itself is a real 3D object floating above the
+			// start line (create3DRaceCountdown, above) instead of a flat
+			// 2D corner overlay — a screen-space countdown read oddly over
+			// a real passthrough view. isRace mirrors LapTimer's own
+			// `enabled` check (false only if the loaded track has no
+			// finish-line cell), so a finish-line-less custom track keeps
+			// its previous behavior (AI loops immediately, no countdown/
+			// results for the player) instead of stalling forever waiting
+			// for a race that can't finish.
+			const isRace = !! lapTimer.enabled;
+			const raceState = { phase: isRace ? 'countdown' : 'racing', countdown: 3, countdownTimer: 0, totalTime: 0 };
+			const countdown3D = isRace
+				? create3DRaceCountdown( arRoot, new THREE.Vector3( spawn.position[ 0 ], 6, spawn.position[ 2 ] ), 6 )
+				: null;
+			if ( countdown3D ) countdown3D.set( String( raceState.countdown ) );
+			if ( isRace ) lapTimer.onFinish = () => { raceState.phase = 'finished'; };
+
+			raceCtx = {
+				world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, aiParticles,
+				arScale: FIXED_SCALE * AR_LIGHT_DAMPING,
+				lapTimer, isRace, raceState, countdown3D, resultsShown: false,
+			};
 
 		} catch ( e ) {
 
@@ -4393,14 +4523,60 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 				} else if ( raceCtx ) {
 
+					// Advance the pre-race countdown on real `dt` (not
+					// simDt) — same reasoning as NORMAL mode's own
+					// countdown: UI timing should feel immediate, not sped
+					// up by TIME_SCALE. Mirrors startNormalMode's raceState
+					// machine exactly, just driving a 3D sprite instead of
+					// a DOM element.
+					if ( raceCtx.isRace ) {
+
+						const rs = raceCtx.raceState;
+						if ( rs.phase === 'countdown' ) {
+
+							rs.countdownTimer += dt;
+							if ( rs.countdownTimer >= 1 ) {
+
+								rs.countdownTimer -= 1;
+								rs.countdown -= 1;
+
+								if ( rs.countdown > 0 ) {
+
+									if ( raceCtx.countdown3D ) raceCtx.countdown3D.set( String( rs.countdown ) );
+
+								} else {
+
+									if ( raceCtx.countdown3D ) raceCtx.countdown3D.set( 'GO!' );
+									rs.phase = 'racing';
+									setTimeout( () => { if ( raceCtx.countdown3D ) { raceCtx.countdown3D.remove(); raceCtx.countdown3D = null; } }, 500 );
+
+								}
+
+							}
+
+						} else if ( rs.phase !== 'countdown' ) {
+
+							// Keeps advancing after the player finishes too
+							// ('finished'), not just during 'racing' — same
+							// reasoning as NORMAL mode: AI opponents still
+							// racing shouldn't freeze the clock.
+							rs.totalTime += dt;
+
+						}
+
+						if ( raceCtx.countdown3D ) raceCtx.countdown3D.update( dt );
+
+					}
+
+					const racing = ! raceCtx.isRace || raceCtx.raceState.phase === 'racing';
 					const kbInput = controls.update();
 					const arInput = arManager.getDriveInput();
-					const input = {
+					const input = racing ? {
 						x: Math.abs( arInput.x ) > Math.abs( kbInput.x ) ? arInput.x : kbInput.x,
 						z: Math.abs( arInput.z ) > Math.abs( kbInput.z ) ? arInput.z : kbInput.z,
 						touchActive: kbInput.touchActive,
 						handbrake: kbInput.handbrake || arManager.getHandbrakeHold(),
-					};
+					} : { x: 0, z: 0, touchActive: false, handbrake: false };
 					// simDt (not dt) drives physics/AI/particles/drift-marks
 					// — see the TIME_SCALE comment above for why: a real
 					// car at real speed, shrunk to fit a table but viewed
@@ -4433,7 +4609,14 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 					// keeps pace instead of visually lagging behind a
 					// player who now moves 2.5× faster in sim-time.
 					totalTime += simDt;
-					updateRaceAIDrivers( raceCtx.aiDrivers, trackPath, simDt, true, totalTime, raceCtx.vehicle );
+					// Only the pre-race countdown holds the AI back now —
+					// once the player finishes ('finished' phase) the AI
+					// keep racing to their own TOTAL_RACE_LAPS instead of
+					// freezing (same bug/fix as NORMAL mode's own aiRacing
+					// note: gating on `racing` here would zero every AI's
+					// input the instant the player crosses the line first).
+					const aiRacing = ! raceCtx.isRace || raceCtx.raceState.phase !== 'countdown';
+					updateRaceAIDrivers( raceCtx.aiDrivers, trackPath, simDt, aiRacing, totalTime, raceCtx.vehicle );
 					raceCtx.aiDrivers.forEach( ( d, i ) => {
 
 						const extra = raceCtx.aiExtras[ i ];
@@ -4443,6 +4626,22 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 						if ( extra.flag ) extra.flag.updateFlutter( simDt, Math.abs( d.vehicle.linearSpeed / MAX_SPEED ) );
 
 					} );
+
+					if ( raceCtx.isRace && raceCtx.raceState.phase === 'finished' && ! raceCtx.resultsShown ) {
+
+						raceCtx.resultsShown = true;
+						const standings = computeStandings( raceCtx.aiDrivers, trackPath, raceCtx.raceState.totalTime );
+						showRaceResultsOverlay( standings, {
+							// AR sessions can only be (re)started from a real user
+							// gesture (WebXR requirement), so unlike NORMAL/web
+							// mode's seamless same-session restart, both buttons
+							// here just return to the main menu — the player taps
+							// VR again to re-enter.
+							onRestart: () => location.reload(),
+							onMenu: () => { location.href = location.pathname; },
+						} );
+
+					}
 
 				}
 
@@ -5342,9 +5541,11 @@ function showArResumeOverlay() {
 			// handler, same reasoning as createModeMenu()'s own AR button —
 			// some browsers only honor user-activation for a call made
 			// directly in the event handler, not after any await hops.
+			// 'dom-overlay' — see createModeMenu()'s own AR button for why.
 			const sessionPromise = navigator.xr.requestSession( 'immersive-ar', {
 				requiredFeatures: [ 'local-floor', 'hit-test' ],
-				optionalFeatures: [ 'plane-detection', 'mesh-detection' ],
+				optionalFeatures: [ 'plane-detection', 'mesh-detection', 'dom-overlay' ],
+				domOverlay: { root: document.body },
 			} );
 			startBgMusic();
 			box.remove();
