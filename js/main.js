@@ -2021,17 +2021,15 @@ const TRUCK_LAYOUT = {
 	flag: [ -0.6, 0.143, -1.358 ],
 	windshieldDecal: [ 0, 0.663, 0.574 ],
 	tailgateDecal: [ 0, 0.286, -1.4 ],
-	// headlightSpot's z (how far past headlightLens the actual light
-	// SOURCE floats, in open air above the roof — see addVehicleLights())
-	// pulled in per feedback that the lighting read as sitting too far
-	// forward of the car. y (height above the roof — what actually keeps
-	// the beam from clipping/overexposing the car's own hood) is untouched.
-	// headlightSpotTarget's z ALSO pulled way in — this is what actually
-	// decides where the visible lit patch lands on the ground (the previous
-	// value made the beam meet the ground ~18-33 world units ahead, visibly
-	// detached from the car — confirmed on-device). Now lands ~9 units past
-	// the (also pulled-in) source, a believable close-range headlight pool.
-	headlightSpot: [ 0.6, 2.0995, 1.7612 ],
+	// headlightSpot (the light SOURCE, floating in open air above the roof
+	// — see addVehicleLights()) is back at its original position; an
+	// earlier attempt to pull its z in wasn't what fixed the reported
+	// problem, so it's reverted. headlightSpotTarget's z IS pulled way
+	// in, though — that's what actually decides where the visible lit
+	// patch lands on the ground, which was the real complaint (the old
+	// value made the beam meet the ground ~18-33 world units ahead,
+	// visibly detached from the car — confirmed on-device).
+	headlightSpot: [ 0.6, 2.0995, 2.002 ],
 	headlightSpotTarget: [ 0.6, 0.2002, 10.7612 ],
 	hazards: [
 		[ -0.3975, 0.299, 1.4 ], [ 0.3975, 0.299, 1.4 ],
@@ -2057,15 +2055,9 @@ const CAMRY_LAYOUT = {
 	flag: [ -0.8744, 0.0342, -2.5813 ],
 	windshieldDecal: [ 0, 0.6635, 1.0567 ],
 	tailgateDecal: [ 0, 0.2073, -2.6611 ],
-	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
-	// The Camry's old z carried a disproportionately large forward offset
-	// (≈66% of its own lens-z, vs ≈43-49% for the truck/Camaro) — a relic
-	// of the same naive truck-fraction scaling that originally put its
-	// headlightLens in the wrong spot too — so it's pulled in further
-	// (to ≈45% of the old offset, vs 60% for the other two) to land at a
-	// comparable proportion.
-	headlightSpot: [ 0.8744, 2.4018, 2.8763 ],
-	// headlightSpotTarget's z pulled in too — see TRUCK_LAYOUT's comment.
+	// headlightSpot back at its original position — see TRUCK_LAYOUT's
+	// comment. headlightSpotTarget's z IS pulled in (the actual fix).
+	headlightSpot: [ 0.8744, 2.4018, 3.6857 ],
 	headlightSpotTarget: [ 0.8744, 0.1034, 11.8763 ],
 	hazards: [
 		[ -0.6535, 0.5198, 2.214 ], [ 0.6535, 0.5198, 2.214 ],
@@ -2080,9 +2072,9 @@ const CAMARO_LAYOUT = {
 	flag: [ -0.4603, 0.0862, -1.4774 ],
 	windshieldDecal: [ 0, 0.4013, 0.569 ],
 	tailgateDecal: [ 0, 0.1729, -1.5231 ],
-	// headlightSpot's z pulled in, headlightSpotTarget's z pulled in too —
-	// same reasoning as TRUCK_LAYOUT above.
-	headlightSpot: [ 0.4603, 1.2719, 1.7232 ],
+	// headlightSpot back at its original position, headlightSpotTarget's z
+	// pulled in — see TRUCK_LAYOUT's comment.
+	headlightSpot: [ 0.4603, 1.2719, 1.9846 ],
 	headlightSpotTarget: [ 0.4603, 0.1209, 10.7232 ],
 	hazards: [
 		[ -0.3584, 0.336, 1.3312 ], [ 0.3584, 0.336, 1.3312 ],
