@@ -268,27 +268,43 @@ function fixCamryVehicleNaming( scene ) {
 // Requested Camry paint color: "سماوي" (sky blue) / Deep Sky Blue.
 const CAMRY_BODY_COLOR = 0x00bfff;
 
-// vehicle-camry.glb's paint comes from the shared colormap.png atlas (see
-// Loader.js's ColorMapGLTFLoader, used for every vehicle/track model) — the
-// body mesh's UVs just sample one flat-color swatch from that shared
-// atlas (a dark navy, as shipped), not a real painted texture with panel
-// highlights/AO baked in. Multiplying that swatch by a tint color
-// (material.color with the map still applied) only ever darkens/muddies
-// it, since the swatch itself is already dark — confirmed by a rendered
-// comparison. Dropping the map entirely and using a flat material.color
-// instead reproduces the requested color exactly. Safe to do: the body
-// mesh has its own material instance (not shared with the wheel/tire
-// materials, or with any other vehicle's materials), so this has zero
-// effect on anything else, including the shared colormap.png texture
-// object itself (only this material's own .map reference is cleared).
-function applyCamryBodyColor( scene, hexColor ) {
+// vehicle-camry.glb's "body" mesh is textured with a real shaded paint
+// bake (via the shared colormap.png atlas, see Loader.js's
+// ColorMapGLTFLoader) — NOT a flat color swatch. Sampling it face-by-face
+// confirmed a wide gradient from near-black (window glass, shadowed
+// underbody, tire-well) up through mid-tone grays to a lit blue-gray on
+// the panels, i.e. real per-pixel shading/AO baked in, and the window
+// glass is literally part of this same mesh/material (there's no separate
+// glass material at all).
+// First attempt dropped the texture map and used a flat material.color —
+// that recolored the ENTIRE mesh uniformly, including the windows, which
+// is the bug reported (the glass turned sky blue along with the body).
+// Fixed by keeping the map and MULTIPLYING it by a tint color instead
+// (material.color with the map still applied): near-black pixels
+// (windows, shadow) stay near-black after multiplying by anything, so
+// the glass stays dark/tinted-looking exactly as before, while the
+// lighter body-panel pixels shift toward the requested hue and keep
+// their baked highlights/shading. The extra ×COLOR_BOOST multiplier
+// compensates for the base paint texture being fairly dark to begin
+// with (plain ×1 tinting looked muddy/underlit) — 1.8 was picked by
+// rendering a few options side by side and comparing against the
+// requested "سماوي"/Deep Sky Blue. Channels are clamped to 1 so it can't
+// overshoot into invalid color values.
+const CAMRY_BODY_COLOR_BOOST = 1.8;
+
+function applyCamryBodyColor( scene, hexColor, boost ) {
+
+	const target = new THREE.Color( hexColor );
 
 	scene.traverse( ( child ) => {
 
 		if ( child.isMesh && child.material && child.material.name === 'body' ) {
 
-			child.material.map = null;
-			child.material.color.setHex( hexColor );
+			child.material.color.setRGB(
+				Math.min( 1, target.r * boost ),
+				Math.min( 1, target.g * boost ),
+				Math.min( 1, target.b * boost ),
+			);
 			child.material.needsUpdate = true;
 
 		}
@@ -309,7 +325,7 @@ async function loadModels() {
 				if ( name === 'vehicle-camry' ) {
 
 					fixCamryVehicleNaming( gltf.scene );
-					applyCamryBodyColor( gltf.scene, CAMRY_BODY_COLOR );
+					applyCamryBodyColor( gltf.scene, CAMRY_BODY_COLOR, CAMRY_BODY_COLOR_BOOST );
 
 				}
 
