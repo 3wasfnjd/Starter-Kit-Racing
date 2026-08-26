@@ -2024,12 +2024,15 @@ const TRUCK_LAYOUT = {
 	// headlightSpot's z (how far past headlightLens the actual light
 	// SOURCE floats, in open air above the roof — see addVehicleLights())
 	// pulled in per feedback that the lighting read as sitting too far
-	// forward of the car. Only z moves; y (height above the roof — what
-	// actually keeps the beam from clipping/overexposing the car's own
-	// hood) and headlightSpotTarget (aim point far ahead, unaffected by
-	// this small a shift in the source) are untouched.
+	// forward of the car. y (height above the roof — what actually keeps
+	// the beam from clipping/overexposing the car's own hood) is untouched.
+	// headlightSpotTarget's z ALSO pulled way in — this is what actually
+	// decides where the visible lit patch lands on the ground (the previous
+	// value made the beam meet the ground ~18-33 world units ahead, visibly
+	// detached from the car — confirmed on-device). Now lands ~9 units past
+	// the (also pulled-in) source, a believable close-range headlight pool.
 	headlightSpot: [ 0.6, 2.0995, 1.7612 ],
-	headlightSpotTarget: [ 0.6, 0.2002, 18.004 ],
+	headlightSpotTarget: [ 0.6, 0.2002, 10.7612 ],
 	hazards: [
 		[ -0.3975, 0.299, 1.4 ], [ 0.3975, 0.299, 1.4 ],
 		[ -0.3975, 0.429, -1.33 ], [ 0.3975, 0.429, -1.33 ],
@@ -2062,7 +2065,8 @@ const CAMRY_LAYOUT = {
 	// (to ≈45% of the old offset, vs 60% for the other two) to land at a
 	// comparable proportion.
 	headlightSpot: [ 0.8744, 2.4018, 2.8763 ],
-	headlightSpotTarget: [ 0.8744, 0.1034, 33.1454 ],
+	// headlightSpotTarget's z pulled in too — see TRUCK_LAYOUT's comment.
+	headlightSpotTarget: [ 0.8744, 0.1034, 11.8763 ],
 	hazards: [
 		[ -0.6535, 0.5198, 2.214 ], [ 0.6535, 0.5198, 2.214 ],
 		[ -0.7639, 0.7748, -2.3324 ], [ 0.7639, 0.7748, -2.3324 ],
@@ -2076,9 +2080,10 @@ const CAMARO_LAYOUT = {
 	flag: [ -0.4603, 0.0862, -1.4774 ],
 	windshieldDecal: [ 0, 0.4013, 0.569 ],
 	tailgateDecal: [ 0, 0.1729, -1.5231 ],
-	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
+	// headlightSpot's z pulled in, headlightSpotTarget's z pulled in too —
+	// same reasoning as TRUCK_LAYOUT above.
 	headlightSpot: [ 0.4603, 1.2719, 1.7232 ],
-	headlightSpotTarget: [ 0.4603, 0.1209, 17.8476 ],
+	headlightSpotTarget: [ 0.4603, 0.1209, 10.7232 ],
 	hazards: [
 		[ -0.3584, 0.336, 1.3312 ], [ 0.3584, 0.336, 1.3312 ],
 		[ -0.3123, 0.3876, -1.5104 ], [ 0.3123, 0.3876, -1.5104 ],
