@@ -1117,7 +1117,7 @@ function showControlsModal() {
 				[ 'سحب', 'قيادة' ],
 				[ '💡 ⚠️', 'أضواء / طوارئ' ],
 				[ '🔆 (مسّك)', 'إضاءة عالية' ],
-				[ '✋ (مسّك)', 'فرملة يد' ],
+				[ '⛶', 'ملء الشاشة' ],
 			]
 		},
 		{
@@ -2021,14 +2021,7 @@ const TRUCK_LAYOUT = {
 	flag: [ -0.6, 0.143, -1.358 ],
 	windshieldDecal: [ 0, 0.663, 0.574 ],
 	tailgateDecal: [ 0, 0.286, -1.4 ],
-	// headlightSpot's z (how far past headlightLens the actual light
-	// SOURCE floats, in open air above the roof — see addVehicleLights())
-	// pulled in per feedback that the lighting read as sitting too far
-	// forward of the car. Only z moves; y (height above the roof — what
-	// actually keeps the beam from clipping/overexposing the car's own
-	// hood) and headlightSpotTarget (aim point far ahead, unaffected by
-	// this small a shift in the source) are untouched.
-	headlightSpot: [ 0.6, 2.0995, 1.7612 ],
+	headlightSpot: [ 0.6, 2.0995, 2.002 ],
 	headlightSpotTarget: [ 0.6, 0.2002, 18.004 ],
 	hazards: [
 		[ -0.3975, 0.299, 1.4 ], [ 0.3975, 0.299, 1.4 ],
@@ -2054,14 +2047,7 @@ const CAMRY_LAYOUT = {
 	flag: [ -0.8744, 0.0342, -2.5813 ],
 	windshieldDecal: [ 0, 0.6635, 1.0567 ],
 	tailgateDecal: [ 0, 0.2073, -2.6611 ],
-	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
-	// The Camry's old z carried a disproportionately large forward offset
-	// (≈66% of its own lens-z, vs ≈43-49% for the truck/Camaro) — a relic
-	// of the same naive truck-fraction scaling that originally put its
-	// headlightLens in the wrong spot too — so it's pulled in further
-	// (to ≈45% of the old offset, vs 60% for the other two) to land at a
-	// comparable proportion.
-	headlightSpot: [ 0.8744, 2.4018, 2.8763 ],
+	headlightSpot: [ 0.8744, 2.4018, 3.6857 ],
 	headlightSpotTarget: [ 0.8744, 0.1034, 33.1454 ],
 	hazards: [
 		[ -0.6535, 0.5198, 2.214 ], [ 0.6535, 0.5198, 2.214 ],
@@ -2076,8 +2062,7 @@ const CAMARO_LAYOUT = {
 	flag: [ -0.4603, 0.0862, -1.4774 ],
 	windshieldDecal: [ 0, 0.4013, 0.569 ],
 	tailgateDecal: [ 0, 0.1729, -1.5231 ],
-	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
-	headlightSpot: [ 0.4603, 1.2719, 1.7232 ],
+	headlightSpot: [ 0.4603, 1.2719, 1.9846 ],
 	headlightSpotTarget: [ 0.4603, 0.1209, 17.8476 ],
 	hazards: [
 		[ -0.3584, 0.336, 1.3312 ], [ 0.3584, 0.336, 1.3312 ],
@@ -2836,7 +2821,7 @@ function setupFullscreenToggle() {
 
 function setupTouchUI( vehicleLights ) {
 
-	if ( ! ( 'ontouchstart' in window ) ) return { highBeamHeld: false, handbrakeHeld: false };
+	if ( ! ( 'ontouchstart' in window ) ) return { highBeamHeld: false };
 
 	const style = document.createElement( 'style' );
 	style.textContent = `
@@ -2877,7 +2862,6 @@ function setupTouchUI( vehicleLights ) {
 	const headlightBtn = makeTapButton( '💡' );
 	const hazardBtn = makeTapButton( '⚠️' );
 	const highBeamBtn = makeTapButton( '🔆' );
-	const handbrakeBtn = makeTapButton( '✋' );
 
 	// Back to the main menu — added alongside the rest of this dock's
 	// buttons per feedback that WEB mode (both track and free-roam, since
@@ -2915,7 +2899,7 @@ function setupTouchUI( vehicleLights ) {
 	// "off" and immediately canceled whatever this button had just
 	// turned on. The frame loop now combines both sources before calling
 	// setHighBeam() once.
-	const touchState = { highBeamHeld: false, handbrakeHeld: false };
+	const touchState = { highBeamHeld: false };
 	highBeamBtn.addEventListener( 'pointerdown', ( e ) => {
 
 		e.stopPropagation();
@@ -2933,31 +2917,10 @@ function setupTouchUI( vehicleLights ) {
 
 	} );
 
-	// Handbrake — same hold pattern as high beam above (on keyboard it's
-	// KeyB, checked every frame while held; there was previously no touch
-	// equivalent at all, so a touch-only device simply couldn't handbrake).
-	handbrakeBtn.addEventListener( 'pointerdown', ( e ) => {
-
-		e.stopPropagation();
-		touchState.handbrakeHeld = true;
-
-	} );
-	[ 'pointerup', 'pointerleave', 'pointercancel' ].forEach( ( evt ) => {
-
-		handbrakeBtn.addEventListener( evt, ( e ) => {
-
-			e.stopPropagation();
-			touchState.handbrakeHeld = false;
-
-		} );
-
-	} );
-
 	wrap.appendChild( homeBtn );
 	wrap.appendChild( headlightBtn );
 	wrap.appendChild( hazardBtn );
 	wrap.appendChild( highBeamBtn );
-	wrap.appendChild( handbrakeBtn );
 	document.body.appendChild( wrap );
 
 	return touchState;
@@ -3736,10 +3699,6 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 			const racing = raceState.phase === 'racing';
 			const rawInput = controls.update();
-			// Touch handbrake button (see setupTouchUI) has no keyboard-side
-			// equivalent inside Controls.js itself — merged in here exactly
-			// like touchState.highBeamHeld is merged into setHighBeam() below.
-			rawInput.handbrake = rawInput.handbrake || touchState.handbrakeHeld;
 			const input = racing ? rawInput : { x: 0, z: 0, touchActive: false };
 
 			updateVehicleAndFx( dt, input, ctx );
