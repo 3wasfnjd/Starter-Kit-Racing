@@ -545,14 +545,14 @@ function createModeMenu( { arAvailable } ) {
 		menu.dir = 'rtl';
 
 		const VEHICLE_OPTIONS = [
-			{ key: 'vehicle-truck-black', label: 'أسود', thumb: 'images/menu/thumb-black.png' },
+			{ key: 'vehicle-camry', label: 'كامري', thumb: 'images/menu/thumb-camry.png' },
+			{ key: 'vehicle-camaro', label: 'كامارو', thumb: 'images/menu/thumb-camaro.png' },
+			{ key: 'vehicle-truck-black', label: 'اف جي', thumb: 'images/menu/thumb-black.png' },
 			{ key: 'vehicle-truck-red', label: 'أحمر', thumb: 'images/menu/thumb-red.png' },
 			{ key: 'vehicle-truck-yellow', label: 'أصفر', thumb: 'images/menu/thumb-yellow.png' },
 			{ key: 'vehicle-truck-green', label: 'أخضر', thumb: 'images/menu/thumb-green.png' },
-			{ key: 'vehicle-camry', label: 'كامري', thumb: 'images/menu/thumb-camry.png' },
-			{ key: 'vehicle-camaro', label: 'كامارو', thumb: 'images/menu/thumb-camaro.png' },
 		];
-		let selectedVehicleIndex = 0; // black is the default car
+		let selectedVehicleIndex = 2; // black is still the default car — reordered above (camry/camaro/black/...), so its index moved from 0 to 2
 		let customTextValue = '';
 		let flagImageDataUrl = null;
 
@@ -1904,23 +1904,19 @@ function createTextTexture( text ) {
 }
 
 // Adds the user's custom text on the windshield (facing forward) and the
-// tailgate (facing backward), as children of the model's "body" node so
-// they inherit its position/suspension-lean animation automatically.
-// Coordinates match the pickup body built for this project (see the body
-// mesh authored for vehicle-truck-yellow.glb) — purely cosmetic decals,
-// no change to Vehicle.js or the model's own geometry.
+// tailgate (facing backward), as children of the model's TOP-LEVEL group
+// (not the "body" mesh node itself — see the note on anchorNode in
+// addVehicleLights() just below for why) so they inherit its position/
+// suspension-lean animation automatically. Coordinates match the pickup
+// body built for this project (see the body mesh authored for
+// vehicle-truck-yellow.glb) — purely cosmetic decals, no change to
+// Vehicle.js or the model's own geometry.
 function addCustomTextDecals( vehicleGroup, text ) {
 
 	if ( ! text ) return;
 
 	const vehicleModel = vehicleGroup.children[ 0 ];
-	let bodyNode = null;
-	vehicleModel.traverse( ( child ) => {
-
-		if ( child.name.toLowerCase() === 'body' ) bodyNode = child;
-
-	} );
-	if ( ! bodyNode ) return;
+	const anchorNode = vehicleModel;
 
 	const texture = createTextTexture( text );
 	const material = new THREE.MeshBasicMaterial( {
@@ -1941,14 +1937,14 @@ function addCustomTextDecals( vehicleGroup, text ) {
 	const windshieldDecal = new THREE.Mesh( new THREE.PlaneGeometry( 0.62, 0.34 ), material );
 	windshieldDecal.position.set( 0, 0.66, 0.57 );
 	windshieldDecal.renderOrder = 10;
-	bodyNode.add( windshieldDecal );
+	anchorNode.add( windshieldDecal );
 
 	// Rear window/panel: x:[-0.67,0.67] y:[0.09,0.5] z:[-1.4,-1.27].
 	const tailgateDecal = new THREE.Mesh( new THREE.PlaneGeometry( 1.0, 0.5 ), material );
 	tailgateDecal.position.set( 0, 0.28, -1.43 );
 	tailgateDecal.rotation.y = Math.PI; // face backward
 	tailgateDecal.renderOrder = 10;
-	bodyNode.add( tailgateDecal );
+	anchorNode.add( tailgateDecal );
 
 }
 
@@ -1963,19 +1959,13 @@ function addCustomTextDecals( vehicleGroup, text ) {
 function addVehicleFlag( vehicleGroup, imageUrl ) {
 
 	const vehicleModel = vehicleGroup.children[ 0 ];
-	let bodyNode = null;
-	vehicleModel.traverse( ( child ) => {
-
-		if ( child.name.toLowerCase() === 'body' ) bodyNode = child;
-
-	} );
-	if ( ! bodyNode ) return null;
+	const anchorNode = vehicleModel;
 
 	const flag = createFlag( imageUrl );
 	// Pole planted right at the rear bumper — pulled left (clear of the
 	// bumper's width) and just past its depth, not floating away from it.
 	flag.group.position.set( -0.6, 0.14, -1.36 );
-	bodyNode.add( flag.group );
+	anchorNode.add( flag.group );
 
 	return flag;
 
@@ -2002,13 +1992,18 @@ function addVehicleFlag( vehicleGroup, imageUrl ) {
 function addVehicleLights( vehicleGroup, realHazards = false ) {
 
 	const vehicleModel = vehicleGroup.children[ 0 ];
-	let bodyNode = null;
-	vehicleModel.traverse( ( child ) => {
-
-		if ( child.name.toLowerCase() === 'body' ) bodyNode = child;
-
-	} );
-	if ( ! bodyNode ) return null;
+	// Anchor to the model's TOP-LEVEL group, not the "body" mesh node
+	// itself. For the original truck models the two are equivalent (body
+	// sits at the model's own origin with no extra transform), so this is
+	// a no-op change for them — but imported models like vehicle-camry.glb
+	// bake their own corrective rotation/scale directly onto the "body"
+	// node (see Vehicle.js's createPivot() for the full story), so a fixed
+	// local offset like (0.4, 0.3, 1.4) attached under THAT node landed
+	// nowhere near the real headlight/taillight bumps (off by roughly the
+	// node's own baked ~100× scale). vehicleModel's own frame doesn't have
+	// that per-node distortion, so the same hand-measured offsets below
+	// line up correctly on every vehicle.
+	const anchorNode = vehicleModel;
 
 	// Headlights: warm-white point lights, lighting up the real room
 	// ahead in AR. Off by default — toggled by the player.
@@ -2053,10 +2048,10 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 		const target = new THREE.Object3D();
 		const baseTargetPosition = new THREE.Vector3( side * 0.3, 0.1, 9 ); // far ahead, gentle downward slope
 		target.position.copy( baseTargetPosition );
-		bodyNode.add( target );
+		anchorNode.add( target );
 		light.target = target;
 
-		bodyNode.add( light );
+		anchorNode.add( light );
 		headlights.push( { light, target, basePosition, baseTargetPosition, baseDistance, baseIntensity } );
 
 	}
@@ -2094,7 +2089,7 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 		halo.position.z = -0.002; // just behind the core, avoids z-fighting
 		group.add( halo );
 
-		bodyNode.add( group );
+		anchorNode.add( group );
 		headlightLenses.push( group );
 
 	}
@@ -2111,7 +2106,7 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 		const light = new THREE.PointLight( 0xff3b30, baseIntensity, baseDistance, 2 );
 		const basePosition = new THREE.Vector3( side * 0.4, 0.43, -1.32 );
 		light.position.copy( basePosition );
-		bodyNode.add( light );
+		anchorNode.add( light );
 		taillights.push( { light, basePosition, baseDistance, baseIntensity } );
 
 	}
@@ -2141,7 +2136,7 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 		group.position.copy( basePosition );
 		group.rotation.y = Math.PI; // face backward, out through the taillight bump
 		group.visible = false;
-		bodyNode.add( group );
+		anchorNode.add( group );
 
 		const core = new THREE.Mesh(
 			new THREE.CircleGeometry( 0.035, 16 ),
@@ -2196,7 +2191,7 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 			const light = new THREE.PointLight( 0xff8c1a, baseIntensity, baseDistance, 2 );
 			light.position.copy( basePosition );
 			light.visible = false;
-			bodyNode.add( light );
+			anchorNode.add( light );
 			hazards.push( { light, basePosition, baseDistance, baseIntensity } );
 			continue;
 
@@ -2206,7 +2201,7 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 		group.position.copy( basePosition );
 		group.rotation.y = z > 0 ? 0 : Math.PI; // front bumps face forward, rear bumps face backward
 		group.visible = false;
-		bodyNode.add( group );
+		anchorNode.add( group );
 
 		const core = new THREE.Mesh(
 			new THREE.CircleGeometry( 0.05, 12 ),
