@@ -348,33 +348,48 @@ async function loadModels() {
 					const scale = VEHICLE_SCALE_OVERRIDES[ name ] !== undefined ? VEHICLE_SCALE_OVERRIDES[ name ] : 0.5;
 					const yaw = VEHICLE_YAW_OVERRIDES[ name ];
 
-					if ( yaw ) {
+					// Every vehicle gets wrapped in an outer Group that
+					// carries the whole-model scale (and, below, a
+					// ground-alignment lift) while staying at identity
+					// rotation itself. Any yaw correction lives on the
+					// INNER gltf.scene, never on this outer wrapper —
+					// addVehicleLights()/addVehicleFlag()/
+					// addCustomTextDecals() all parent their add-ons
+					// directly under the clone of models[name] (this
+					// wrapper), using canonical "+Z = front" coordinates;
+					// if the yaw lived on that same node, those
+					// coordinates would get carried along with it too.
+					// (Confirmed: that's exactly why, before this, the
+					// Camry's headlights ended up at the back and its
+					// flag at the front.)
+					const wrapper = new THREE.Group();
+					if ( yaw ) gltf.scene.rotation.y += yaw;
+					wrapper.add( gltf.scene );
+					wrapper.scale.setScalar( scale );
 
-						// Keep the yaw correction on an INNER wrapper around
-						// gltf.scene, not on the node that becomes
-						// models[name] itself. addVehicleLights()/
-						// addVehicleFlag()/addCustomTextDecals() all parent
-						// their add-ons directly under the clone of
-						// models[name], using canonical "+Z = front"
-						// coordinates — if the yaw lived on that same node,
-						// those coordinates would get carried along with it
-						// too. (Confirmed: that's exactly why, before this,
-						// the Camry's headlights ended up at the back and
-						// its flag at the front.) The outer wrapper stays at
-						// identity rotation and carries the whole-model
-						// scale, so add-ons scale correctly and "+Z = front"
-						// holds for every vehicle uniformly.
-						const wrapper = new THREE.Group();
-						gltf.scene.rotation.y += yaw;
-						wrapper.add( gltf.scene );
-						wrapper.scale.setScalar( scale );
-						root = wrapper;
+					// Ground alignment: vehicle-truck-*.glb (this
+					// project's own Godot pipeline) all model their
+					// wheel-bottom exactly at local y=0 — which is what
+					// Vehicle.js's physics placement assumes (it sets
+					// container.position.y straight from the physics
+					// sphere's ground-contact height, with no per-model
+					// offset). vehicle-camry.glb/vehicle-camaro.glb come
+					// from a different, non-Godot source and don't share
+					// that convention: measured, the Camry's own lowest
+					// point sits about 0.14 units below its local origin
+					// (pre-scale) — enough to visibly sink its wheels
+					// into the floor once placed, most noticeable in AR's
+					// track/arena mode viewed close-up. Lifting the
+					// wrapper by exactly enough to bring the model's own
+					// measured lowest point to y=0 fixes this in general,
+					// for any current or future vehicle model, instead of
+					// a per-model hand-tuned constant — a verified no-op
+					// for the truck models, which already measure at 0.
+					wrapper.updateMatrixWorld( true );
+					const groundBox = new THREE.Box3().setFromObject( gltf.scene );
+					wrapper.position.y = - groundBox.min.y;
 
-					} else {
-
-						gltf.scene.scale.setScalar( scale );
-
-					}
+					root = wrapper;
 
 				}
 
@@ -2027,33 +2042,44 @@ const TRUCK_LAYOUT = {
 	],
 };
 
+// headlightLens/taillight/hazards below were re-measured directly off
+// each model's own headlight/taillight graphics (sampling the Camry's
+// baked paint texture for its teal headlight-lens/red taillight-lens
+// pixels, and Camaro's dedicated "Lights"/"Red" materials — see
+// precise_calibrate_camry.html/precise_calibrate_camaro.html), after the
+// original fractions-borrowed-from-the-truck placement put them
+// noticeably low and too far inboard on both cars (most visible on the
+// Camry, reported as the headlights/taillights "not sitting right").
+// reverseLight keeps the same x/y/z ratio to taillight the truck's own
+// numbers already use (×0.628 / ×1 / ×1.0074) — there's no dedicated
+// reverse-light graphic on either model to sample directly.
 const CAMRY_LAYOUT = {
-	headlightLens: [ 0.5793, 0.223, 2.5774 ],
-	taillight: [ 0.5793, 0.3803, -2.5281 ],
-	reverseLight: [ 0.364, 0.3803, -2.5467 ],
+	headlightLens: [ 0.6535, 0.5198, 2.214 ],
+	taillight: [ 0.7639, 0.7748, -2.3324 ],
+	reverseLight: [ 0.4797, 0.7748, -2.3496 ],
 	flag: [ -0.8744, 0.0342, -2.5813 ],
 	windshieldDecal: [ 0, 0.6635, 1.0567 ],
 	tailgateDecal: [ 0, 0.2073, -2.6611 ],
 	headlightSpot: [ 0.8744, 2.4018, 3.6857 ],
 	headlightSpotTarget: [ 0.8744, 0.1034, 33.1454 ],
 	hazards: [
-		[ -0.5793, 0.223, 2.5774 ], [ 0.5793, 0.223, 2.5774 ],
-		[ -0.5793, 0.3803, -2.5281 ], [ 0.5793, 0.3803, -2.5281 ],
+		[ -0.6535, 0.5198, 2.214 ], [ 0.6535, 0.5198, 2.214 ],
+		[ -0.7639, 0.7748, -2.3324 ], [ 0.7639, 0.7748, -2.3324 ],
 	],
 };
 
 const CAMARO_LAYOUT = {
-	headlightLens: [ 0.305, 0.1808, 1.3878 ],
-	taillight: [ 0.305, 0.2595, -1.447 ],
-	reverseLight: [ 0.1916, 0.2595, -1.4576 ],
+	headlightLens: [ 0.3584, 0.336, 1.3312 ],
+	taillight: [ 0.3123, 0.3876, -1.5104 ],
+	reverseLight: [ 0.1961, 0.3876, -1.5215 ],
 	flag: [ -0.4603, 0.0862, -1.4774 ],
 	windshieldDecal: [ 0, 0.4013, 0.569 ],
 	tailgateDecal: [ 0, 0.1729, -1.5231 ],
 	headlightSpot: [ 0.4603, 1.2719, 1.9846 ],
 	headlightSpotTarget: [ 0.4603, 0.1209, 17.8476 ],
 	hazards: [
-		[ -0.305, 0.1808, 1.3878 ], [ 0.305, 0.1808, 1.3878 ],
-		[ -0.305, 0.2595, -1.447 ], [ 0.305, 0.2595, -1.447 ],
+		[ -0.3584, 0.336, 1.3312 ], [ 0.3584, 0.336, 1.3312 ],
+		[ -0.3123, 0.3876, -1.5104 ], [ 0.3123, 0.3876, -1.5104 ],
 	],
 };
 

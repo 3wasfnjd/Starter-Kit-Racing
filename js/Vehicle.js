@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { rigidBody } from 'crashcat';
 
 const _tmpVec = new THREE.Vector3();
+const _tmpScale = new THREE.Vector3();
+const _tmpScale2 = new THREE.Vector3();
 const _forward = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _zAxis = new THREE.Vector3();
@@ -145,6 +147,32 @@ export class Vehicle {
 
 			this.bodyNode = createPivot( bodyChild );
 			this._bodyRestY = this.bodyNode.position.y;
+
+			// BODY_SUSPENSION_SINK (see its comment above) was calibrated
+			// as a flat LOCAL-unit delta against the truck's own body
+			// frame — which includes vehicleModel's own normal 0.5
+			// scale, already "priced in" to that calibration (0.4 rest
+			// → 0.3 target is the real, verified truck behavior). What
+			// breaks on a different model isn't vehicleModel's own
+			// scale — it's any EXTRA, unexpected unit scale baked onto
+			// the body node's ancestors ABOVE vehicleModel's own scale.
+			// Confirmed on vehicle-camry.glb (a Sketchfab/FBX-sourced
+			// asset): a 100x centimeters-vs-meters artifact several
+			// levels up its own internal hierarchy, on top of the usual
+			// vehicleModel scale — which made a flat local-unit
+			// subtraction here only about 1/300th of the intended
+			// real-world sink (the Camry's body never visibly settled
+			// onto its suspension). Comparing the body pivot's own
+			// accumulated world scale against vehicleModel's — rather
+			// than against 1 — isolates just that extra factor (0.01
+			// for the Camry) and leaves vehicleModel's own expected
+			// scale untouched, so this is a verified no-op for the
+			// truck AND the Camaro, which have no such extra ancestor
+			// scale (both measure exactly 1 here).
+			this.bodyNode.getWorldScale( _tmpScale );
+			vehicleModel.getWorldScale( _tmpScale2 );
+			const extraLocalScale = _tmpScale.y / Math.max( _tmpScale2.y, 0.0001 );
+			this._bodySuspensionSinkLocal = BODY_SUSPENSION_SINK / Math.max( extraLocalScale, 0.0001 );
 
 		}
 
@@ -385,7 +413,7 @@ export class Vehicle {
 			dt * 5
 		);
 
-		this.bodyNode.position.y = THREE.MathUtils.lerp( this.bodyNode.position.y, this._bodyRestY - BODY_SUSPENSION_SINK, dt * 5 );
+		this.bodyNode.position.y = THREE.MathUtils.lerp( this.bodyNode.position.y, this._bodyRestY - this._bodySuspensionSinkLocal, dt * 5 );
 
 	}
 
