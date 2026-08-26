@@ -288,13 +288,40 @@ async function loadModels() {
 
 				} );
 
+				let root = gltf.scene;
+
 				if ( name.startsWith( 'vehicle-' ) ) {
 
 					const scale = VEHICLE_SCALE_OVERRIDES[ name ] !== undefined ? VEHICLE_SCALE_OVERRIDES[ name ] : 0.5;
-					gltf.scene.scale.setScalar( scale );
-
 					const yaw = VEHICLE_YAW_OVERRIDES[ name ];
-					if ( yaw ) gltf.scene.rotation.y += yaw;
+
+					if ( yaw ) {
+
+						// Keep the yaw correction on an INNER wrapper around
+						// gltf.scene, not on the node that becomes
+						// models[name] itself. addVehicleLights()/
+						// addVehicleFlag()/addCustomTextDecals() all parent
+						// their add-ons directly under the clone of
+						// models[name], using canonical "+Z = front"
+						// coordinates — if the yaw lived on that same node,
+						// those coordinates would get carried along with it
+						// too. (Confirmed: that's exactly why, before this,
+						// the Camry's headlights ended up at the back and
+						// its flag at the front.) The outer wrapper stays at
+						// identity rotation and carries the whole-model
+						// scale, so add-ons scale correctly and "+Z = front"
+						// holds for every vehicle uniformly.
+						const wrapper = new THREE.Group();
+						gltf.scene.rotation.y += yaw;
+						wrapper.add( gltf.scene );
+						wrapper.scale.setScalar( scale );
+						root = wrapper;
+
+					} else {
+
+						gltf.scene.scale.setScalar( scale );
+
+					}
 
 				}
 
@@ -306,7 +333,7 @@ async function loadModels() {
 
 				} else {
 
-					models[ name ] = gltf.scene;
+					models[ name ] = root;
 
 				}
 
@@ -545,14 +572,14 @@ function createModeMenu( { arAvailable } ) {
 		menu.dir = 'rtl';
 
 		const VEHICLE_OPTIONS = [
+			{ key: 'vehicle-truck-black', label: 'اف جي', thumb: 'images/menu/thumb-black.png' },
 			{ key: 'vehicle-camry', label: 'كامري', thumb: 'images/menu/thumb-camry.png' },
 			{ key: 'vehicle-camaro', label: 'كامارو', thumb: 'images/menu/thumb-camaro.png' },
-			{ key: 'vehicle-truck-black', label: 'اف جي', thumb: 'images/menu/thumb-black.png' },
 			{ key: 'vehicle-truck-red', label: 'أحمر', thumb: 'images/menu/thumb-red.png' },
 			{ key: 'vehicle-truck-yellow', label: 'أصفر', thumb: 'images/menu/thumb-yellow.png' },
 			{ key: 'vehicle-truck-green', label: 'أخضر', thumb: 'images/menu/thumb-green.png' },
 		];
-		let selectedVehicleIndex = 2; // black is still the default car — reordered above (camry/camaro/black/...), so its index moved from 0 to 2
+		let selectedVehicleIndex = 0; // black ("اف جي") is the default car — back at index 0 after the reorder
 		let customTextValue = '';
 		let flagImageDataUrl = null;
 
@@ -1903,20 +1930,58 @@ function createTextTexture( text ) {
 
 }
 
+// ─── Shape-aware add-on anchoring ───────────────────────────
+// Headlights/taillights/hazards/the rear flag/the name decals all used to
+// sit at ONE fixed set of hand-measured coordinates (e.g. "headlight at
+// x:0.4, y:0.3, z:1.4"). That was only ever correct for the truck body it
+// was measured against — confirmed in practice: the same numbers put the
+// camry's headlights nowhere near its actual lenses and floated the
+// camaro's taillights above its roofline, because a sedan and a muscle
+// car simply don't share the truck's length/width/height proportions.
+// Every position below is now derived as a FRACTION of that specific
+// model's own bounding box instead, with the fractions solved so they
+// reproduce the truck's original (already correct-looking) placement
+// exactly — a no-op for the truck — while scaling sensibly to any other
+// model's actual shape, current or future, with no per-model hand-tuning.
+function vehicleBounds( vehicleModel ) {
+
+	const box = new THREE.Box3().setFromObject( vehicleModel );
+	return {
+		halfWidth: ( box.max.x - box.min.x ) / 2,
+		bottom: box.min.y,
+		top: box.max.y,
+		front: box.max.z,
+		rear: box.min.z,
+	};
+
+}
+
+// xFrac: fraction of halfWidth, sign = left(-)/right(+). yFrac: fraction
+// of body height, measured up from the bottom. zFrac: fraction of the
+// front extent if positive, or of the rear extent if negative (e.g.
+// zFrac=-0.95 sits just inside the rear face).
+function addonPos( bounds, xFrac, yFrac, zFrac ) {
+
+	const z = zFrac >= 0 ? bounds.front * zFrac : bounds.rear * -zFrac;
+	return new THREE.Vector3( xFrac * bounds.halfWidth, bounds.bottom + yFrac * ( bounds.top - bounds.bottom ), z );
+
+}
+
 // Adds the user's custom text on the windshield (facing forward) and the
 // tailgate (facing backward), as children of the model's TOP-LEVEL group
 // (not the "body" mesh node itself — see the note on anchorNode in
 // addVehicleLights() just below for why) so they inherit its position/
-// suspension-lean animation automatically. Coordinates match the pickup
-// body built for this project (see the body mesh authored for
-// vehicle-truck-yellow.glb) — purely cosmetic decals, no change to
-// Vehicle.js or the model's own geometry.
+// suspension-lean animation automatically. Position fractions solved
+// against the pickup body built for this project (see vehicleBounds()/
+// addonPos() above) — purely cosmetic decals, no change to Vehicle.js or
+// the model's own geometry.
 function addCustomTextDecals( vehicleGroup, text ) {
 
 	if ( ! text ) return;
 
 	const vehicleModel = vehicleGroup.children[ 0 ];
 	const anchorNode = vehicleModel;
+	const b = vehicleBounds( vehicleModel );
 
 	const texture = createTextTexture( text );
 	const material = new THREE.MeshBasicMaterial( {
@@ -1928,20 +1993,17 @@ function addCustomTextDecals( vehicleGroup, text ) {
 		map: texture, transparent: true, depthWrite: false, side: THREE.FrontSide,
 	} );
 
-	// Coordinates measured directly from the actual shipped model's mesh
-	// (vehicle-truck-*.glb — same body geometry across all 4 colors).
-	// Windshield glass: center of mass (0, 0.42, 0.48), max z 0.548 —
-	// decal sized to sit inside the glass panel itself (not the whole
-	// frame) and offset just enough past the glass surface to avoid
-	// z-fighting, like a sticker applied to the glass.
+	// Windshield glass, sized to sit inside the glass panel itself (not
+	// the whole frame) and offset just enough past the glass surface to
+	// avoid z-fighting, like a sticker applied to the glass.
 	const windshieldDecal = new THREE.Mesh( new THREE.PlaneGeometry( 0.62, 0.34 ), material );
-	windshieldDecal.position.set( 0, 0.66, 0.57 );
+	windshieldDecal.position.copy( addonPos( b, 0, 0.51, 0.41 ) );
 	windshieldDecal.renderOrder = 10;
 	anchorNode.add( windshieldDecal );
 
-	// Rear window/panel: x:[-0.67,0.67] y:[0.09,0.5] z:[-1.4,-1.27].
+	// Rear window/panel.
 	const tailgateDecal = new THREE.Mesh( new THREE.PlaneGeometry( 1.0, 0.5 ), material );
-	tailgateDecal.position.set( 0, 0.28, -1.43 );
+	tailgateDecal.position.copy( addonPos( b, 0, 0.22, -1.0 ) );
 	tailgateDecal.rotation.y = Math.PI; // face backward
 	tailgateDecal.renderOrder = 10;
 	anchorNode.add( tailgateDecal );
@@ -1960,11 +2022,12 @@ function addVehicleFlag( vehicleGroup, imageUrl ) {
 
 	const vehicleModel = vehicleGroup.children[ 0 ];
 	const anchorNode = vehicleModel;
+	const b = vehicleBounds( vehicleModel );
 
 	const flag = createFlag( imageUrl );
 	// Pole planted right at the rear bumper — pulled left (clear of the
 	// bumper's width) and just past its depth, not floating away from it.
-	flag.group.position.set( -0.6, 0.14, -1.36 );
+	flag.group.position.copy( addonPos( b, -0.80, 0.11, -0.97 ) );
 	anchorNode.add( flag.group );
 
 	return flag;
@@ -1972,11 +2035,13 @@ function addVehicleFlag( vehicleGroup, imageUrl ) {
 }
 
 // ─── Real headlight / taillight lighting ───────────────────
-// Coordinates measured directly from the model's actual headlight/
-// taillight faces: left/right headlights at x:∓0.4, y:0.3, z:1.4;
-// left/right taillights at x:∓0.4, y:0.43, z:-1.3. Attached to the
-// same "body" node as the text decals, so they move and scale with
-// the car (including the live resize control) automatically.
+// Positions are fractions of each model's own bounding box (see
+// vehicleBounds()/addonPos() above) — solved against the truck's
+// original hand-measured headlight/taillight coordinates (roughly
+// x:∓0.4, y:0.3, z:1.4 for the headlights; x:∓0.4, y:0.43, z:-1.3 for the
+// taillights, back when those were fixed numbers), so it reproduces the
+// truck's look exactly while landing correctly on any other model's own
+// headlight/taillight bumps regardless of its proportions.
 // `realHazards`: true only for the PLAYER's own car (see the 4 call
 // sites that pass it) — gives that one car's hazard lights a real
 // THREE.PointLight per corner (same settings as the taillights just
@@ -1998,12 +2063,12 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 	// a no-op change for them — but imported models like vehicle-camry.glb
 	// bake their own corrective rotation/scale directly onto the "body"
 	// node (see Vehicle.js's createPivot() for the full story), so a fixed
-	// local offset like (0.4, 0.3, 1.4) attached under THAT node landed
-	// nowhere near the real headlight/taillight bumps (off by roughly the
-	// node's own baked ~100× scale). vehicleModel's own frame doesn't have
-	// that per-node distortion, so the same hand-measured offsets below
-	// line up correctly on every vehicle.
+	// local offset attached under THAT node didn't land anywhere near the
+	// real headlight/taillight bumps. vehicleModel's own frame doesn't
+	// have that per-node distortion, so the fractional offsets below line
+	// up correctly on every vehicle.
 	const anchorNode = vehicleModel;
+	const b = vehicleBounds( vehicleModel );
 
 	// Headlights: warm-white point lights, lighting up the real room
 	// ahead in AR. Off by default — toggled by the player.
@@ -2041,12 +2106,12 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 		const baseDistance = 14;
 		const baseIntensity = 500;
 		const light = new THREE.SpotLight( 0xfff2cc, baseIntensity, baseDistance, Math.PI / 8, 0.35, 2 );
-		const basePosition = new THREE.Vector3( side * 0.3, 1.05, 1.0 ); // clear above the roof, open air
+		const basePosition = addonPos( b, side * 0.8, 1.615, 1.43 ); // clear above the roof, open air
 		light.position.copy( basePosition );
 		light.visible = false;
 
 		const target = new THREE.Object3D();
-		const baseTargetPosition = new THREE.Vector3( side * 0.3, 0.1, 9 ); // far ahead, gentle downward slope
+		const baseTargetPosition = addonPos( b, side * 0.8, 0.154, 12.86 ); // far ahead, gentle downward slope
 		target.position.copy( baseTargetPosition );
 		anchorNode.add( target );
 		light.target = target;
@@ -2056,18 +2121,17 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 
 	}
 
-	// Glowing "lens" overlays at the actual headlight bumps on the body
-	// (measured earlier: x:∓0.4, y:~0.3, z:1.4) — separate from the
-	// actual illuminating light above, which is roof-mounted so its beam
-	// clears the car. This is purely visual: makes the headlight bump
-	// itself look lit (bright white with a soft glow) when toggled on,
-	// since the shared body material can't be selectively recolored
-	// without touching the model file.
+	// Glowing "lens" overlays at the actual headlight bumps on the body —
+	// separate from the actual illuminating light above, which is
+	// roof-mounted so its beam clears the car. This is purely visual:
+	// makes the headlight bump itself look lit (bright white with a soft
+	// glow) when toggled on, since the shared body material can't be
+	// selectively recolored without touching the model file.
 	const headlightLenses = [];
 	for ( const side of [ -1, 1 ] ) {
 
 		const group = new THREE.Group();
-		const basePosition = new THREE.Vector3( side * 0.4, 0.3, 1.41 );
+		const basePosition = addonPos( b, side * 0.53, 0.23, 1.0 );
 		group.position.copy( basePosition );
 		group.userData.basePosition = basePosition;
 		group.visible = false;
@@ -2104,7 +2168,7 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 		const baseDistance = 0.9;
 		const baseIntensity = 0.8;
 		const light = new THREE.PointLight( 0xff3b30, baseIntensity, baseDistance, 2 );
-		const basePosition = new THREE.Vector3( side * 0.4, 0.43, -1.32 );
+		const basePosition = addonPos( b, side * 0.53, 0.33, -0.95 );
 		light.position.copy( basePosition );
 		anchorNode.add( light );
 		taillights.push( { light, basePosition, baseDistance, baseIntensity } );
@@ -2131,7 +2195,7 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 	const reverseLights = [];
 	for ( const side of [ -1, 1 ] ) {
 
-		const basePosition = new THREE.Vector3( side * 0.25, 0.43, -1.34 );
+		const basePosition = addonPos( b, side * 0.333, 0.33, -0.957 );
 		const group = new THREE.Group();
 		group.position.copy( basePosition );
 		group.rotation.y = Math.PI; // face backward, out through the taillight bump
@@ -2176,13 +2240,14 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 	// above — just one car, so the earlier hang-risk reasoning doesn't
 	// apply, and a real light actually looks lit up at the bump.
 	const hazards = [];
-	const hazardPositions = [
-		[ -0.4, 0.3, 1.42 ], [ 0.4, 0.3, 1.42 ],
-		[ -0.4, 0.43, -1.32 ], [ 0.4, 0.43, -1.32 ],
+	const hazardFractions = [
+		[ -0.53, 0.23, 1.0 ], [ 0.53, 0.23, 1.0 ],
+		[ -0.53, 0.33, -0.95 ], [ 0.53, 0.33, -0.95 ],
 	];
-	for ( const [ x, y, z ] of hazardPositions ) {
+	for ( const [ xFrac, yFrac, zFrac ] of hazardFractions ) {
 
-		const basePosition = new THREE.Vector3( x, y, z );
+		const basePosition = addonPos( b, xFrac, yFrac, zFrac );
+		const z = basePosition.z;
 
 		if ( realHazards ) {
 
