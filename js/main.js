@@ -106,7 +106,8 @@ function ensureAREnvironment() {
 	// toward white under ACES tone mapping instead of looking richer.
 	// Dialed back to a fraction so surfaces still pick up real
 	// reflections/ambient tint without washing out saturation.
-	scene.environmentIntensity = 0.4;
+	// (0.4 → 0.22: cut again per follow-up feedback that it was still too bright.)
+	scene.environmentIntensity = 0.22;
 
 }
 
@@ -1345,11 +1346,15 @@ function buildGrandstandWall( scene, axis, length, fixedCoord, baseDistance, dir
 // the lamp mesh itself so it automatically inherits the lamp's own
 // position/tilt (rotation.x = -0.5) instead of needing that geometry
 // recomputed here. Warm creamy-yellow to match the real SpotLight color.
-function addFloodlightLensGlow( lamp ) {
+// coreColor/haloColor/haloRgb let a caller push the glow warmer than the
+// default cream-yellow (see buildFloodlightPoleVisual's AR-arena call,
+// which wants a more orange-leaning fixture) without touching the
+// real-scale web version below.
+function addFloodlightLensGlow( lamp, coreColor = 0xfff2cc, haloColor = 0xffdba0, haloRgb = '255, 219, 160' ) {
 
 	const core = new THREE.Mesh(
 		new THREE.CircleGeometry( 0.13, 16 ),
-		new THREE.MeshBasicMaterial( { color: 0xfff2cc, toneMapped: false } )
+		new THREE.MeshBasicMaterial( { color: coreColor, toneMapped: false } )
 	);
 	core.position.z = 0.076; // just proud of the lamp box's front face (half-depth 0.15/2)
 	lamp.add( core );
@@ -1357,7 +1362,7 @@ function addFloodlightLensGlow( lamp ) {
 	const halo = new THREE.Mesh(
 		new THREE.CircleGeometry( 0.32, 20 ),
 		new THREE.MeshBasicMaterial( {
-			map: createGlowTexture( '255, 219, 160' ), color: 0xffdba0,
+			map: createGlowTexture( haloRgb ), color: haloColor,
 			transparent: true, toneMapped: false, depthWrite: false,
 			blending: THREE.AdditiveBlending,
 		} )
@@ -1580,25 +1585,20 @@ function buildFloodlightPoleVisual( parent, x, z, aimTarget, poleHeight = 9, sca
 		lamp.position.set( i * 0.6, 0, 0.3 );
 		lamp.rotation.x = -0.5;
 		headGroup.add( lamp );
-		addFloodlightLensGlow( lamp );
+		// Pushed warmer/more orange than the real-scale web version
+		// (0xfff2cc/0xffdba0) per feedback — these fixtures are pure
+		// decoration in AR (see below), so the glow itself carries all
+		// of their "lit" read.
+		addFloodlightLensGlow( lamp, 0xffd9a3, 0xffb066, '255, 176, 102' );
 
 	}
 
-	// Real light, scaled down with `scale` — object scale on the parent
-	// group moves the light's position correctly but does NOT scale
-	// .distance/.intensity, so those are scaled here explicitly. No
-	// shadow (4+ shadow-casting spotlights on top of the arena's own
-	// directional light is exactly the double-shadow-pass cost that
-	// caused the AR reprojection judder fixed earlier this session).
-	// Warm creamy-yellow — same color as buildFloodlightPole's real
-	// SpotLight, just scaled down here like everything else in AR.
-	const s = Math.max( scale, 0.001 );
-	const light = new THREE.SpotLight( 0xffdba0, 45 * s, 70 * s, THREE.MathUtils.degToRad( 42 ), 0.4, 1.0 );
-	light.position.set( x, poleHeight - 0.1, z );
-	light.target.position.set( aimTarget.x, 0, aimTarget.z );
-	light.castShadow = false;
-	parent.add( light );
-	parent.add( light.target );
+	// No real SpotLight here (removed per feedback): on the AR tabletop
+	// these fixtures should read as decoration only, not actually light
+	// the scene — the lens glow above already sells "lit up" without a
+	// dynamic light source. `scale` is kept as a param for call-site
+	// compatibility even though it's now unused.
+	void scale;
 
 }
 
@@ -2203,9 +2203,11 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false, haz
 	// `hazardScale`, when the caller passes one, is the plain geometric
 	// FIXED_SCALE for that AR mode (no extra headlight-style damping on
 	// top, unlike `s`/`raceCtx.arScale`). Falls back to `s` itself when
-	// no hazardScale is given (every non-tabletop-AR call site — web mode
-	// and room-drive AR both pass their real scale as `scale` directly
-	// with nothing extra layered on).
+	// no hazardScale is given (web mode's call site — nothing extra
+	// layered on there). Room-drive AR passes its own boosted value
+	// (gameState.vehicleScale * 3.2, see its call site) — per feedback
+	// the base 0.9m/0.8-intensity hazard didn't read as a real light at
+	// the car's normal 1:1 room-drive size.
 	const hazS = Math.max( hazardScale !== null ? hazardScale : scale, 0.001 );
 
 	if ( vehicleLights.headlights ) {
@@ -4317,7 +4319,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	// of it reading pure black. The track/car placement is frozen once
 	// locked in (frameUpdate stops moving arRoot after that point), so a
 	// static position here is fine — nothing needs to track it per frame.
-	const fillLight = new THREE.DirectionalLight( 0xffffff, 0.4 );
+	const fillLight = new THREE.DirectionalLight( 0xffffff, 0.22 );
 	fillLight.position.set( -0.6, 0.5, -0.6 );
 	scene.add( fillLight );
 
@@ -4999,7 +5001,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	// startARFloatingTrack for why each one is here (no shadow on the
 	// fill light to avoid doubling shadow-map cost; static position since
 	// the arena is frozen in place once locked in).
-	const fillLight = new THREE.DirectionalLight( 0xffffff, 0.4 );
+	const fillLight = new THREE.DirectionalLight( 0xffffff, 0.22 );
 	fillLight.position.set( -0.6, 0.5, -0.6 );
 	scene.add( fillLight );
 	ensureAREnvironment();
@@ -5447,7 +5449,13 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 					};
 
 					updateVehicleAndFx( dt, input, { world, ...gameState } );
-					updateVehicleLights( gameState.vehicleLights, dt, gameState.vehicleScale, gameState.vehicle.linearSpeed < -0.01 );
+					// Hazards get their own boosted scale here (not just
+					// gameState.vehicleScale, which headlights/taillights use
+					// as-is) — per feedback the room-mode hazard PointLights
+					// were too faint to read as a real light source at the
+					// car's normal 1:1 size. Bumped, not just made visible.
+					const roomHazardScale = gameState.vehicleScale * 3.2;
+					updateVehicleLights( gameState.vehicleLights, dt, gameState.vehicleScale, gameState.vehicle.linearSpeed < -0.01, roomHazardScale );
 
 					const scaleInput = arManager.getScaleAdjustInput();
 					if ( scaleInput !== 0 ) {
