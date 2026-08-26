@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+// (RoomEnvironment import removed — replaced by buildARColorEnvironmentScene below.)
 import { LightProbeGrid } from 'three/addons/lighting/LightProbeGrid.js';
 import { LightProbeGridHelper } from 'three/addons/helpers/LightProbeGridHelper.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, cylinder, MotionType } from 'crashcat';
@@ -82,20 +82,65 @@ scene.add( hemiLight );
 // Every vehicle/track material is a real PBR MeshStandardMaterial, but
 // without scene.environment set there's nothing for a moderately smooth
 // surface to reflect — direct lights alone read as flat/dull no matter
-// how bright they are. RoomEnvironment is a small procedural "generic
-// room" scene built into three.js itself (no HDRI file to fetch/host),
-// pre-filtered once into a PMREM cubemap here and reused for the rest of
-// the session. AR-only, per feedback that the cars specifically look
-// washed-out up close on a tabletop — called from each of the 3 AR mode
-// start functions, never from NORMAL/web mode, so that look stays
-// exactly as it was.
+// how bright they are. Originally three.js's own built-in RoomEnvironment
+// (a small procedural room scene), which fixed the flatness but — per
+// feedback comparing against a reference game — still read noticeably
+// less "real" than a proper photographed HDRI. The single biggest
+// difference: RoomEnvironment's own walls/area-lights are all pure white
+// (`emissive: 0xffffff`, no tint at all — see its source), so its
+// reflections have directional variation but zero COLOR variation, which
+// is exactly what a real environment (sky vs sunset vs bounce light) has
+// plenty of. buildARColorEnvironmentScene() below is the same
+// technique/shape (a box room + emissive "window" panels, fed into
+// PMREMGenerator) but with warm/cool tinted lights instead of white ones,
+// so reflections pick up real directional color. No external HDRI file
+// to fetch/host — still pure code/geometry, same as before.
+function buildARColorEnvironmentScene() {
+
+	const envScene = new THREE.Scene();
+
+	const geometry = new THREE.BoxGeometry();
+	geometry.deleteAttribute( 'uv' );
+
+	// Dark neutral room shell — reflections should pick up the lights
+	// below, not a bright gray box.
+	const room = new THREE.Mesh( geometry, new THREE.MeshStandardMaterial( { side: THREE.BackSide, color: 0x121216 } ) );
+	room.scale.set( 32, 26, 26 );
+	envScene.add( room );
+
+	function panel( color, intensity, position, scale ) {
+
+		const mat = new THREE.MeshLambertMaterial( { color: 0x000000, emissive: color, emissiveIntensity: intensity } );
+		const mesh = new THREE.Mesh( geometry, mat );
+		mesh.position.set( ...position );
+		mesh.scale.set( ...scale );
+		envScene.add( mesh );
+
+	}
+
+	// Warm "sunset" panel, one side — orange.
+	panel( 0xffa550, 45, [ -15, 6, 0 ], [ 0.1, 7, 11 ] );
+	// Cool "sky" panel, overhead — pale blue.
+	panel( 0xbcd9ff, 55, [ 0, 18, 0 ], [ 15, 0.1, 15 ] );
+	// Soft neutral fill, opposite side, dimmer than the sunset panel so
+	// the warm/cool split actually reads instead of cancelling out.
+	panel( 0xffffff, 14, [ 15, 5, -6 ], [ 0.1, 8, 10 ] );
+
+	const sun = new THREE.PointLight( 0xfff2e0, 320, 26, 2 );
+	sun.position.set( -5, 13, 5 );
+	envScene.add( sun );
+
+	return envScene;
+
+}
+
 let arEnvironmentTexture = null;
 function ensureAREnvironment() {
 
 	if ( ! arEnvironmentTexture ) {
 
 		const pmremGenerator = new THREE.PMREMGenerator( renderer );
-		arEnvironmentTexture = pmremGenerator.fromScene( new RoomEnvironment(), 0.04 ).texture;
+		arEnvironmentTexture = pmremGenerator.fromScene( buildARColorEnvironmentScene(), 0.04 ).texture;
 		pmremGenerator.dispose();
 
 	}
@@ -108,6 +153,45 @@ function ensureAREnvironment() {
 	// reflections/ambient tint without washing out saturation.
 	// (0.4 → 0.22: cut again per follow-up feedback that it was still too bright.)
 	scene.environmentIntensity = 0.22;
+
+}
+
+// Soft dark circular decal just above the ground, parented under the
+// player's own car — reads as a grounded contact/AO shadow without being
+// a real light-blocking shadow. At AR's close-up tabletop viewing
+// distance a car with nothing under it reads as floating far more than
+// it does in NORMAL mode's much larger, farther-off view. Purely an
+// unlit radial-gradient texture, rotationally symmetric, so it doesn't
+// matter that it inherits whatever yaw its parent has. AR-only — never
+// called from NORMAL/web mode.
+let arContactShadowTexture = null;
+function addARContactShadow( parent, radius = 1.3 ) {
+
+	if ( ! arContactShadowTexture ) {
+
+		const canvas = document.createElement( 'canvas' );
+		canvas.width = 128; canvas.height = 128;
+		const ctx = canvas.getContext( '2d' );
+		const grad = ctx.createRadialGradient( 64, 64, 0, 64, 64, 64 );
+		grad.addColorStop( 0, 'rgba(0,0,0,0.55)' );
+		grad.addColorStop( 0.7, 'rgba(0,0,0,0.28)' );
+		grad.addColorStop( 1, 'rgba(0,0,0,0)' );
+		ctx.fillStyle = grad;
+		ctx.fillRect( 0, 0, 128, 128 );
+		arContactShadowTexture = new THREE.CanvasTexture( canvas );
+
+	}
+
+	const mesh = new THREE.Mesh(
+		new THREE.CircleGeometry( radius, 24 ),
+		new THREE.MeshBasicMaterial( {
+			map: arContactShadowTexture, transparent: true, depthWrite: false, toneMapped: false,
+		} )
+	);
+	mesh.rotation.x = - Math.PI / 2;
+	mesh.position.y = 0.02;
+	parent.add( mesh );
+	return mesh;
 
 }
 
@@ -3953,6 +4037,138 @@ function showExitConfirm( arManager, scene ) {
 
 }
 
+// Real in-scene 3D prompt for the AR floating-track race-finish screen —
+// same eye-level-follow + controller-raycast + trigger mechanic as
+// showExitConfirm above (its own closure state, so the two never fight
+// over each other's `_update` stash). Built specifically to replace the
+// previous "end the XR session, then show the game's normal 2D results
+// overlay via .finally()" approach, which was reported to crash with an
+// on-screen error — this frameUpdate kept calling renderer.render() the
+// same tick session.end() was triggered, while the session was still
+// mid-teardown. Staying fully in-scene sidesteps that: nothing about the
+// session changes until the player actually picks one of these two cards.
+function showAR3DRaceResults( arManager, scene, standings ) {
+
+	return new Promise( ( resolve ) => {
+
+		const group = new THREE.Group();
+		scene.add( group );
+
+		const _rrCamPos = new THREE.Vector3();
+		const _rrCamQuat = new THREE.Quaternion();
+		const _rrFwd = new THREE.Vector3();
+		function followEyeLevel() {
+
+			const cam = renderer.xr.getCamera();
+			cam.getWorldPosition( _rrCamPos );
+			cam.getWorldQuaternion( _rrCamQuat );
+			_rrFwd.set( 0, 0, -1 ).applyQuaternion( _rrCamQuat );
+			_rrFwd.y = 0;
+			if ( _rrFwd.lengthSq() < 1e-6 ) _rrFwd.set( 0, 0, -1 );
+			_rrFwd.normalize();
+
+			group.position.set( _rrCamPos.x + _rrFwd.x * 0.6, _rrCamPos.y, _rrCamPos.z + _rrFwd.z * 0.6 );
+			group.lookAt( _rrCamPos.x, _rrCamPos.y, _rrCamPos.z );
+
+		}
+
+		function makeCard( text, color, w, h, fontSize ) {
+
+			const canvas = document.createElement( 'canvas' );
+			canvas.width = 512; canvas.height = 200;
+			const ctx = canvas.getContext( '2d' );
+			ctx.fillStyle = color;
+			ctx.fillRect( 0, 0, 512, 200 );
+			ctx.fillStyle = '#fff';
+			ctx.font = `bold ${ fontSize }px "Segoe UI", Tahoma, Arial, sans-serif`;
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.direction = 'rtl';
+			ctx.fillText( text, 256, 100 );
+			const texture = new THREE.CanvasTexture( canvas );
+			texture.colorSpace = THREE.SRGBColorSpace;
+			return new THREE.Mesh(
+				new THREE.PlaneGeometry( w, h ),
+				new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide, transparent: true } )
+			);
+
+		}
+
+		const winnerLabel = standings && standings[ 0 ] ? standings[ 0 ].label : '';
+		const titleText = winnerLabel ? `🏁 الفائز: ${ winnerLabel }` : '🏁 انتهى السباق';
+		const title = makeCard( titleText, '#15131f', 0.46, 0.11, 32 );
+		title.position.set( 0, 0.13, 0 );
+		group.add( title );
+
+		const restartCard = makeCard( 'إعادة السباق', '#1F7A4C', 0.26, 0.1, 38 );
+		restartCard.position.set( - 0.15, 0, 0 );
+		restartCard.userData.action = 'restart';
+
+		const menuCard = makeCard( 'رجوع لأوضاع AR', '#3A3A40', 0.26, 0.1, 38 );
+		menuCard.position.set( 0.15, 0, 0 );
+		menuCard.userData.action = 'menu';
+
+		group.add( restartCard, menuCard );
+
+		const cards = [ restartCard, menuCard ];
+		const raycaster = new THREE.Raycaster();
+		const tmpDir = new THREE.Vector3();
+		const prevTrigger = { left: false, right: false };
+		let resolved = false;
+
+		function update( dt ) {
+
+			if ( resolved ) return;
+
+			followEyeLevel();
+
+			let hovered = null;
+
+			for ( const hand of [ 'left', 'right' ] ) {
+
+				const controller = arManager.controllers[ hand ];
+				const gp = arManager.gamepads[ hand ];
+				if ( ! controller || ! gp ) continue;
+
+				tmpDir.set( 0, 0, - 1 ).applyQuaternion( controller.quaternion );
+				raycaster.set( controller.position, tmpDir );
+				const hits = raycaster.intersectObjects( cards );
+
+				const trig = gp.buttons[ 0 ] ? gp.buttons[ 0 ].pressed : false;
+				const trigEdge = trig && ! prevTrigger[ hand ];
+				prevTrigger[ hand ] = trig;
+
+				if ( hits.length > 0 ) {
+
+					hovered = hits[ 0 ].object;
+					if ( trigEdge ) {
+
+						resolved = true;
+						scene.remove( group );
+						resolve( hovered.userData.action );
+						return;
+
+					}
+
+				}
+
+			}
+
+			cards.forEach( ( c ) => {
+
+				const target = ( c === hovered ) ? 1.15 : 1;
+				c.scale.setScalar( THREE.MathUtils.lerp( c.scale.x, target, Math.min( 1, dt * 10 ) ) );
+
+			} );
+
+		}
+
+		showAR3DRaceResults._update = update;
+
+	} );
+
+}
+
 // Small persistent floating icon, always available during any AR mode —
 // a genuine alternative to the physical Menu button, which turned out
 // unreachable via WebXR on the browsers tested (reserved by the system
@@ -4007,7 +4223,24 @@ async function startARWithFloatingMenu( { mapParam, customCells, customText, veh
 
 	const placeholderCamera = new THREE.PerspectiveCamera();
 	const menuCtx = {};
-	const choicePromise = showFloatingModeMenu.call( menuCtx, arManager, scene );
+
+	// "إعادة السباق" from the floating-track finish screen stashes this
+	// (see showAR3DRaceResults' resolution in startARFloatingTrack) so the
+	// AR mode picker below is skipped entirely on the post-reload re-entry
+	// — straight back into 'track' instead of making the player re-pick
+	// it. Any other entry path (menu button, exit-confirm, first-ever AR
+	// entry) leaves this unset and gets the normal picker.
+	let autoRestartId = null;
+	try {
+
+		autoRestartId = sessionStorage.getItem( 'hwArAutoRestart' );
+		if ( autoRestartId ) sessionStorage.removeItem( 'hwArAutoRestart' );
+
+	} catch ( e ) { autoRestartId = null; }
+
+	const choicePromise = autoRestartId
+		? Promise.resolve( autoRestartId )
+		: showFloatingModeMenu.call( menuCtx, arManager, scene );
 
 	let subMode = null; // set once the chosen mode's own async setup resolves
 	let switching = false;
@@ -4426,6 +4659,10 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			addCustomTextDecals( vehicleGroup, customText );
 			const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
 			const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+			// Real-world meters, same as vehicleLights' own position values
+			// above — arRoot's single shrink transform scales this down in
+			// sync with everything else, no extra scale math needed here.
+			addARContactShadow( vehicleGroup );
 
 			const audio = new GameAudio();
 			audio.init( renderer.xr.getCamera(), vehicleGroup );
@@ -4566,6 +4803,14 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 		frameUpdate( dt, timestamp, frame ) {
 
+			// The finish-screen 'restart'/'menu' choice has already kicked off
+			// arManager.session.end() — stop touching the renderer entirely
+			// from here on (this exact frameUpdate calling renderer.render()
+			// on the same tick session.end() fired was the previous
+			// crash-with-on-screen-error report; see showAR3DRaceResults'
+			// resolution below).
+			if ( raceCtx && raceCtx.leavingSession ) return;
+
 			try {
 
 				if ( ! confirmed ) {
@@ -4605,6 +4850,18 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 					}
 
 				} else if ( raceCtx ) {
+
+					// The finish-screen 3D prompt (showAR3DRaceResults) is up —
+					// freeze the race entirely and just drive/render that
+					// prompt until the player picks an action, same pattern
+					// startARWithFloatingMenu's own exitConfirmActive uses.
+					if ( raceCtx.resultsActive ) {
+
+						if ( showAR3DRaceResults._update ) showAR3DRaceResults._update( dt );
+						renderer.render( scene, placeholderCamera );
+						return;
+
+					}
 
 					// Advance the pre-race countdown on real `dt` (not
 					// simDt) — same reasoning as NORMAL mode's own
@@ -4713,31 +4970,39 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 					if ( raceCtx.isRace && raceCtx.raceState.phase === 'finished' && ! raceCtx.resultsShown ) {
 
 						raceCtx.resultsShown = true;
+						raceCtx.resultsActive = true;
 						const standings = computeStandings( raceCtx.aiDrivers, trackPath, raceCtx.raceState.totalTime );
 
-						// End the AR session BEFORE showing the results card —
-						// feedback confirmed the card (and its two buttons)
-						// never actually appeared in AR. Unlike the 3D
-						// countdown above (a real scene object, always
-						// rendered), this results screen is the game's normal
-						// 2D DOM overlay, which only draws on top of an
-						// immersive-ar view through the WebXR 'dom-overlay'
-						// feature — support for that varies by browser/
-						// headset, so it's not a dependable place to put
-						// anything with real clickable buttons. Ending the
-						// session first drops back to the plain 2D page,
-						// where this exact overlay already works everywhere,
-						// same as NORMAL/web mode.
-						arManager.session.end().finally( () => {
+						// Real in-AR 3D prompt (same raycaster+trigger mechanic
+						// as showExitConfirm) instead of ending the session and
+						// showing the game's normal 2D DOM overlay — that
+						// approach was reported to crash with an on-screen
+						// error, because this same frameUpdate kept calling
+						// renderer.render() on the tick session.end() fired,
+						// while the session was still mid-teardown. Nothing
+						// about the session changes now until the player
+						// actually picks one of the two cards below.
+						showAR3DRaceResults( arManager, scene, standings ).then( ( action ) => {
 
-							showRaceResultsOverlay( standings, {
-								// A fresh session needs a real user gesture to
-								// start again (WebXR requirement) — both
-								// buttons return to the main menu; the player
-								// taps VR again to re-enter.
-								onRestart: () => location.reload(),
-								onMenu: () => { location.href = location.pathname; },
-							} );
+							// Same sessionStorage handoff openExitConfirm's own
+							// "رجوع لأوضاع AR" button uses — no teardown path
+							// exists for this mode's physics world/vehicle/AI/
+							// audio, so a full reload is the only "start clean"
+							// option for EITHER choice here (see openExitConfirm's
+							// own comment on this). 'restart' additionally stashes
+							// hwArAutoRestart so init()/startARWithFloatingMenu
+							// skip the AR mode picker and jump straight back into
+							// the track instead of making the player re-pick it.
+							try {
+
+								sessionStorage.setItem( 'hwReturnToArMenu', JSON.stringify( { customText, vehicleKey, flagImage } ) );
+								if ( action === 'restart' ) sessionStorage.setItem( 'hwArAutoRestart', 'track' );
+
+							} catch ( e ) { /* ignore — falls back to the AR mode picker */ }
+
+							raceCtx.resultsActive = false;
+							raceCtx.leavingSession = true; // stop this frameUpdate from rendering again below
+							arManager.session.end().finally( () => window.location.reload() );
 
 						} );
 
@@ -5151,6 +5416,9 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		addCustomTextDecals( vehicleGroup, customText );
 		const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
 		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+		// Same reasoning as the floating track's identical call — real-world
+		// meters, arenaGroup's own shrink transform handles the rest.
+		addARContactShadow( vehicleGroup );
 
 		const audio = new GameAudio();
 		audio.init( renderer.xr.getCamera(), vehicleGroup );
@@ -5367,6 +5635,13 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 		addCustomTextDecals( vehicleGroup, customText );
 		const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
 		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+		// Parented under vehicleGroup (not vehicleModel) — vehicleGroup's own
+		// origin is always pinned at true ground level regardless of resize
+		// (see the comment below), so the shadow doesn't need the same
+		// min-Y correction the model itself does. Its scale is instead kept
+		// in sync with gameState.vehicleScale manually, next to where the
+		// model's own scale is set — see the thumbstick-resize handler below.
+		const contactShadow = addARContactShadow( vehicleGroup );
 
 		dirLight.target = vehicleGroup;
 
@@ -5422,7 +5697,7 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 		// No lapTimer — free-roam has no track/laps.
 		gameState = {
 			vehicle, vehicleGroup, vehicleModel, vehicleModelMinY, vehicleScale: 1,
-			particles, driftMarks, audio, radio, vehicleLights, vehicleFlag, contactListener
+			particles, driftMarks, audio, radio, vehicleLights, vehicleFlag, contactListener, contactShadow
 		};
 
 	};
@@ -5473,6 +5748,7 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 						// which caused it to sink into or float above the
 						// real floor as it resized.
 						gameState.vehicleModel.position.y = gameState.vehicleModelMinY * ( 1 - s );
+						if ( gameState.contactShadow ) gameState.contactShadow.scale.setScalar( s );
 
 					}
 
