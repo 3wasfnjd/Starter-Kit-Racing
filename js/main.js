@@ -337,6 +337,14 @@ async function loadModels() {
 
 				}
 
+				// Stash the model key so every .clone() of models[name] (every
+				// vehicle spawn site does exactly that) carries it forward —
+				// Object3D.clone() deep-copies userData. Lets addVehicleLights()/
+				// addVehicleFlag()/addCustomTextDecals() below pick the right
+				// static add-on layout (TRUCK_LAYOUT/CAMRY_LAYOUT/CAMARO_LAYOUT)
+				// for whichever vehicle it's actually decorating.
+				if ( name.startsWith( 'vehicle-' ) ) models[ name ].userData.vehicleKey = name;
+
 				resolve();
 
 			}, undefined, reject );
@@ -1930,68 +1938,89 @@ function createTextTexture( text ) {
 
 }
 
-// ─── Shape-aware add-on anchoring ───────────────────────────
-// Headlights/taillights/hazards/the rear flag/the name decals all used to
-// sit at ONE fixed set of hand-measured coordinates (e.g. "headlight at
-// x:0.4, y:0.3, z:1.4"). That was only ever correct for the truck body it
-// was measured against — confirmed in practice: the same numbers put the
-// camry's headlights nowhere near its actual lenses and floated the
-// camaro's taillights above its roofline, because a sedan and a muscle
-// car simply don't share the truck's length/width/height proportions.
-// Every position below is now derived as a FRACTION of that specific
-// model's own bounding box instead, with the fractions solved so they
-// reproduce the truck's original (already correct-looking) placement
-// exactly — a no-op for the truck — while scaling sensibly to any other
-// model's actual shape, current or future, with no per-model hand-tuning.
-function vehicleBounds( vehicleModel ) {
+// ─── Per-vehicle-shape add-on layout (static, hand-calibrated) ──
+// Headlights/taillights/hazards/the rear flag/the name decals each sit at
+// a fixed (x, y, z) local position, one full table per vehicle body shape
+// (all in "pre-scale" units — every add-on is parented as a child of
+// vehicleModel, so vehicleModel's own scale, e.g. 0.33 for the Camry,
+// already applies to these numbers once automatically at render time).
+// x is the RIGHT-side magnitude — the headlight/taillight/hazard/spotlight
+// pairs mirror it to ±x for the left/right side.
+//
+// This used to be computed at runtime from each model's own live bounding
+// box (vehicleBounds()/addonPos()), to generalize the truck's original
+// hand-measured numbers to the Camry/Camaro's very different proportions
+// without hand-tuning each one. That runtime system went through two
+// rounds of subtle bugs (world-space-contaminated bounds on rotated/
+// moving cars, then a double-scaling bug that put every add-on at half
+// its intended distance) before it was fully correct. Per feedback,
+// reverted to plain static numbers per vehicle shape: the truck table
+// below reproduces the truck's exact prior on-screen placement (frozen
+// from the now-verified runtime formula), and the Camry/Camaro tables are
+// separately calibrated against those models' own measured proportions.
+// Simpler, and nothing left to break at runtime.
+const TRUCK_LAYOUT = {
+	headlightLens: [ 0.3975, 0.299, 1.4 ],
+	taillight: [ 0.3975, 0.429, -1.33 ],
+	reverseLight: [ 0.24975, 0.429, -1.3398 ],
+	flag: [ -0.6, 0.143, -1.358 ],
+	windshieldDecal: [ 0, 0.663, 0.574 ],
+	tailgateDecal: [ 0, 0.286, -1.4 ],
+	headlightSpot: [ 0.6, 2.0995, 2.002 ],
+	headlightSpotTarget: [ 0.6, 0.2002, 18.004 ],
+	hazards: [
+		[ -0.3975, 0.299, 1.4 ], [ 0.3975, 0.299, 1.4 ],
+		[ -0.3975, 0.429, -1.33 ], [ 0.3975, 0.429, -1.33 ],
+	],
+};
 
-	// Box3().setFromObject() walks up through .parent to build
-	// matrixWorld — so if the vehicle has already been positioned/rotated
-	// in the world by the time this runs (its grid slot, an AI's current
-	// wander heading, etc.), the box comes back rotated/offset instead of
-	// reflecting the model's own local shape, and every add-on placed
-	// from it lands wrong (confirmed: that's what put the flag in the
-	// wrong place on every car, not just the new ones). Temporarily
-	// detach vehicleModel from its parent so the box reflects ONLY its
-	// own local geometry — the exact frame add-ons are parented into as
-	// its children — then reattach it with its own local transform
-	// completely untouched.
-	// Also measure at scale (1,1,1), not vehicleModel's own real scale
-	// (0.33/0.5/…). Every add-on below is attached AS A CHILD of
-	// vehicleModel, so vehicleModel's own scale already applies to it once
-	// automatically at render time; folding that same scale into the
-	// measured bounds too (i.e. measuring in already-shrunk units) would
-	// apply it a SECOND time, landing everything at roughly half its
-	// intended distance from the car. Measuring at scale 1 keeps this
-	// function's output in the same "pre-scale" units addonPos()'s
-	// fractions were solved against.
-	const parent = vehicleModel.parent;
-	const realScale = vehicleModel.scale.clone();
-	if ( parent ) parent.remove( vehicleModel );
-	vehicleModel.scale.set( 1, 1, 1 );
-	vehicleModel.updateMatrixWorld( true );
-	const box = new THREE.Box3().setFromObject( vehicleModel );
-	vehicleModel.scale.copy( realScale );
-	if ( parent ) parent.add( vehicleModel );
+const CAMRY_LAYOUT = {
+	headlightLens: [ 0.5793, 0.223, 2.5774 ],
+	taillight: [ 0.5793, 0.3803, -2.5281 ],
+	reverseLight: [ 0.364, 0.3803, -2.5467 ],
+	flag: [ -0.8744, 0.0342, -2.5813 ],
+	windshieldDecal: [ 0, 0.6635, 1.0567 ],
+	tailgateDecal: [ 0, 0.2073, -2.6611 ],
+	headlightSpot: [ 0.8744, 2.4018, 3.6857 ],
+	headlightSpotTarget: [ 0.8744, 0.1034, 33.1454 ],
+	hazards: [
+		[ -0.5793, 0.223, 2.5774 ], [ 0.5793, 0.223, 2.5774 ],
+		[ -0.5793, 0.3803, -2.5281 ], [ 0.5793, 0.3803, -2.5281 ],
+	],
+};
 
-	return {
-		halfWidth: ( box.max.x - box.min.x ) / 2,
-		bottom: box.min.y,
-		top: box.max.y,
-		front: box.max.z,
-		rear: box.min.z,
-	};
+const CAMARO_LAYOUT = {
+	headlightLens: [ 0.305, 0.1808, 1.3878 ],
+	taillight: [ 0.305, 0.2595, -1.447 ],
+	reverseLight: [ 0.1916, 0.2595, -1.4576 ],
+	flag: [ -0.4603, 0.0862, -1.4774 ],
+	windshieldDecal: [ 0, 0.4013, 0.569 ],
+	tailgateDecal: [ 0, 0.1729, -1.5231 ],
+	headlightSpot: [ 0.4603, 1.2719, 1.9846 ],
+	headlightSpotTarget: [ 0.4603, 0.1209, 17.8476 ],
+	hazards: [
+		[ -0.305, 0.1808, 1.3878 ], [ 0.305, 0.1808, 1.3878 ],
+		[ -0.305, 0.2595, -1.447 ], [ 0.305, 0.2595, -1.447 ],
+	],
+};
+
+const VEHICLE_ADDON_LAYOUTS = {
+	'vehicle-camry': CAMRY_LAYOUT,
+	'vehicle-camaro': CAMARO_LAYOUT,
+};
+
+// Falls back to the truck layout for every truck-based vehicle key (and
+// as a safe default for anything untagged).
+function layoutFor( vehicleModel ) {
+
+	const key = vehicleModel.userData && vehicleModel.userData.vehicleKey;
+	return VEHICLE_ADDON_LAYOUTS[ key ] || TRUCK_LAYOUT;
 
 }
 
-// xFrac: fraction of halfWidth, sign = left(-)/right(+). yFrac: fraction
-// of body height, measured up from the bottom. zFrac: fraction of the
-// front extent if positive, or of the rear extent if negative (e.g.
-// zFrac=-0.95 sits just inside the rear face).
-function addonPos( bounds, xFrac, yFrac, zFrac ) {
+function sidePos( xyz, side ) {
 
-	const z = zFrac >= 0 ? bounds.front * zFrac : bounds.rear * -zFrac;
-	return new THREE.Vector3( xFrac * bounds.halfWidth, bounds.bottom + yFrac * ( bounds.top - bounds.bottom ), z );
+	return new THREE.Vector3( xyz[ 0 ] * side, xyz[ 1 ], xyz[ 2 ] );
 
 }
 
@@ -1999,17 +2028,16 @@ function addonPos( bounds, xFrac, yFrac, zFrac ) {
 // tailgate (facing backward), as children of the model's TOP-LEVEL group
 // (not the "body" mesh node itself — see the note on anchorNode in
 // addVehicleLights() just below for why) so they inherit its position/
-// suspension-lean animation automatically. Position fractions solved
-// against the pickup body built for this project (see vehicleBounds()/
-// addonPos() above) — purely cosmetic decals, no change to Vehicle.js or
-// the model's own geometry.
+// suspension-lean animation automatically. Positions come from the static
+// per-vehicle-shape layout tables above — purely cosmetic decals, no
+// change to Vehicle.js or the model's own geometry.
 function addCustomTextDecals( vehicleGroup, text ) {
 
 	if ( ! text ) return;
 
 	const vehicleModel = vehicleGroup.children[ 0 ];
 	const anchorNode = vehicleModel;
-	const b = vehicleBounds( vehicleModel );
+	const layout = layoutFor( vehicleModel );
 
 	const texture = createTextTexture( text );
 	const material = new THREE.MeshBasicMaterial( {
@@ -2025,13 +2053,13 @@ function addCustomTextDecals( vehicleGroup, text ) {
 	// the whole frame) and offset just enough past the glass surface to
 	// avoid z-fighting, like a sticker applied to the glass.
 	const windshieldDecal = new THREE.Mesh( new THREE.PlaneGeometry( 0.62, 0.34 ), material );
-	windshieldDecal.position.copy( addonPos( b, 0, 0.51, 0.41 ) );
+	windshieldDecal.position.set( ...layout.windshieldDecal );
 	windshieldDecal.renderOrder = 10;
 	anchorNode.add( windshieldDecal );
 
 	// Rear window/panel.
 	const tailgateDecal = new THREE.Mesh( new THREE.PlaneGeometry( 1.0, 0.5 ), material );
-	tailgateDecal.position.copy( addonPos( b, 0, 0.22, -1.0 ) );
+	tailgateDecal.position.set( ...layout.tailgateDecal );
 	tailgateDecal.rotation.y = Math.PI; // face backward
 	tailgateDecal.renderOrder = 10;
 	anchorNode.add( tailgateDecal );
@@ -2050,12 +2078,12 @@ function addVehicleFlag( vehicleGroup, imageUrl ) {
 
 	const vehicleModel = vehicleGroup.children[ 0 ];
 	const anchorNode = vehicleModel;
-	const b = vehicleBounds( vehicleModel );
+	const layout = layoutFor( vehicleModel );
 
 	const flag = createFlag( imageUrl );
 	// Pole planted right at the rear bumper — pulled left (clear of the
 	// bumper's width) and just past its depth, not floating away from it.
-	flag.group.position.copy( addonPos( b, -0.80, 0.11, -0.97 ) );
+	flag.group.position.set( ...layout.flag );
 	anchorNode.add( flag.group );
 
 	return flag;
@@ -2063,13 +2091,8 @@ function addVehicleFlag( vehicleGroup, imageUrl ) {
 }
 
 // ─── Real headlight / taillight lighting ───────────────────
-// Positions are fractions of each model's own bounding box (see
-// vehicleBounds()/addonPos() above) — solved against the truck's
-// original hand-measured headlight/taillight coordinates (roughly
-// x:∓0.4, y:0.3, z:1.4 for the headlights; x:∓0.4, y:0.43, z:-1.3 for the
-// taillights, back when those were fixed numbers), so it reproduces the
-// truck's look exactly while landing correctly on any other model's own
-// headlight/taillight bumps regardless of its proportions.
+// Positions come from the static per-vehicle-shape layout tables above —
+// one calibrated set per vehicle body (truck / Camry / Camaro).
 // `realHazards`: true only for the PLAYER's own car (see the 4 call
 // sites that pass it) — gives that one car's hazard lights a real
 // THREE.PointLight per corner (same settings as the taillights just
@@ -2093,10 +2116,10 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 	// node (see Vehicle.js's createPivot() for the full story), so a fixed
 	// local offset attached under THAT node didn't land anywhere near the
 	// real headlight/taillight bumps. vehicleModel's own frame doesn't
-	// have that per-node distortion, so the fractional offsets below line
-	// up correctly on every vehicle.
+	// have that per-node distortion, so the static layout offsets below
+	// line up correctly on every vehicle.
 	const anchorNode = vehicleModel;
-	const b = vehicleBounds( vehicleModel );
+	const layout = layoutFor( vehicleModel );
 
 	// Headlights: warm-white point lights, lighting up the real room
 	// ahead in AR. Off by default — toggled by the player.
@@ -2134,12 +2157,12 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 		const baseDistance = 14;
 		const baseIntensity = 500;
 		const light = new THREE.SpotLight( 0xfff2cc, baseIntensity, baseDistance, Math.PI / 8, 0.35, 2 );
-		const basePosition = addonPos( b, side * 0.8, 1.615, 1.43 ); // clear above the roof, open air
+		const basePosition = sidePos( layout.headlightSpot, side ); // clear above the roof, open air
 		light.position.copy( basePosition );
 		light.visible = false;
 
 		const target = new THREE.Object3D();
-		const baseTargetPosition = addonPos( b, side * 0.8, 0.154, 12.86 ); // far ahead, gentle downward slope
+		const baseTargetPosition = sidePos( layout.headlightSpotTarget, side ); // far ahead, gentle downward slope
 		target.position.copy( baseTargetPosition );
 		anchorNode.add( target );
 		light.target = target;
@@ -2159,7 +2182,7 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 	for ( const side of [ -1, 1 ] ) {
 
 		const group = new THREE.Group();
-		const basePosition = addonPos( b, side * 0.53, 0.23, 1.0 );
+		const basePosition = sidePos( layout.headlightLens, side );
 		group.position.copy( basePosition );
 		group.userData.basePosition = basePosition;
 		group.visible = false;
@@ -2196,7 +2219,7 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 		const baseDistance = 0.9;
 		const baseIntensity = 0.8;
 		const light = new THREE.PointLight( 0xff3b30, baseIntensity, baseDistance, 2 );
-		const basePosition = addonPos( b, side * 0.53, 0.33, -0.95 );
+		const basePosition = sidePos( layout.taillight, side );
 		light.position.copy( basePosition );
 		anchorNode.add( light );
 		taillights.push( { light, basePosition, baseDistance, baseIntensity } );
@@ -2223,7 +2246,7 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 	const reverseLights = [];
 	for ( const side of [ -1, 1 ] ) {
 
-		const basePosition = addonPos( b, side * 0.333, 0.33, -0.957 );
+		const basePosition = sidePos( layout.reverseLight, side );
 		const group = new THREE.Group();
 		group.position.copy( basePosition );
 		group.rotation.y = Math.PI; // face backward, out through the taillight bump
@@ -2268,14 +2291,9 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 	// above — just one car, so the earlier hang-risk reasoning doesn't
 	// apply, and a real light actually looks lit up at the bump.
 	const hazards = [];
-	const hazardFractions = [
-		[ -0.53, 0.23, 1.0 ], [ 0.53, 0.23, 1.0 ],
-		[ -0.53, 0.33, -0.95 ], [ 0.53, 0.33, -0.95 ],
-	];
-	for ( const [ xFrac, yFrac, zFrac ] of hazardFractions ) {
+	for ( const [ x, y, z ] of layout.hazards ) {
 
-		const basePosition = addonPos( b, xFrac, yFrac, zFrac );
-		const z = basePosition.z;
+		const basePosition = new THREE.Vector3( x, y, z );
 
 		if ( realHazards ) {
 
