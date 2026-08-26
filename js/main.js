@@ -224,6 +224,18 @@ const VEHICLE_SCALE_OVERRIDES = {
 	'vehicle-camaro': 0.5,
 };
 
+// vehicle-camry.glb was authored front-to-back reversed relative to the
+// game's forward convention (Vehicle.js drives/steers around local +Z as
+// "forward") — its hood/grille face -Z, so without this it visually drove
+// backwards-first (confirmed in-game, and matching the fact that framing
+// its true front for the menu thumbnail needed the camera flipped 180°
+// from the angle every other car uses). A flat yaw spin on load fixes it
+// for driving, steering, AI, and the thumbnail/showcase camera all at
+// once. Any vehicle-* name not listed here gets no correction.
+const VEHICLE_YAW_OVERRIDES = {
+	'vehicle-camry': Math.PI,
+};
+
 // vehicle-camry.glb's node names ship abbreviated (wheel_F_R, its child
 // meshes wheel_F_R_tire_0/wheel_F_R_wheel_0, etc.) — Vehicle.js's init()
 // matches nodes by substring ('front'/'back'/'left'/'right'/'wheel'), so
@@ -280,6 +292,9 @@ async function loadModels() {
 
 					const scale = VEHICLE_SCALE_OVERRIDES[ name ] !== undefined ? VEHICLE_SCALE_OVERRIDES[ name ] : 0.5;
 					gltf.scene.scale.setScalar( scale );
+
+					const yaw = VEHICLE_YAW_OVERRIDES[ name ];
+					if ( yaw ) gltf.scene.rotation.y += yaw;
 
 				}
 
@@ -533,7 +548,6 @@ function createModeMenu( { arAvailable } ) {
 			{ key: 'vehicle-truck-black', label: 'أسود', thumb: 'images/menu/thumb-black.png' },
 			{ key: 'vehicle-truck-red', label: 'أحمر', thumb: 'images/menu/thumb-red.png' },
 			{ key: 'vehicle-truck-yellow', label: 'أصفر', thumb: 'images/menu/thumb-yellow.png' },
-			{ key: 'vehicle-truck-purple', label: 'بنفسجي', thumb: 'images/menu/thumb-purple.png' },
 			{ key: 'vehicle-truck-green', label: 'أخضر', thumb: 'images/menu/thumb-green.png' },
 			{ key: 'vehicle-camry', label: 'كامري', thumb: 'images/menu/thumb-camry.png' },
 			{ key: 'vehicle-camaro', label: 'كامارو', thumb: 'images/menu/thumb-camaro.png' },
@@ -632,7 +646,7 @@ function createModeMenu( { arAvailable } ) {
 
 			const dot = document.createElement( 'span' );
 			dot.className = `hw-car-dot c-${ i }`;
-			dot.style.background = { 'vehicle-truck-black': '#171717', 'vehicle-truck-red': '#e03b3b', 'vehicle-truck-yellow': '#e8c23b', 'vehicle-truck-purple': '#8b5fe0', 'vehicle-truck-green': '#3ba85c', 'vehicle-camry': '#2b3a55', 'vehicle-camaro': '#141414' }[ opt.key ] || '#666';
+			dot.style.background = { 'vehicle-truck-black': '#171717', 'vehicle-truck-red': '#e03b3b', 'vehicle-truck-yellow': '#e8c23b', 'vehicle-truck-green': '#3ba85c', 'vehicle-camry': '#2b3a55', 'vehicle-camaro': '#141414' }[ opt.key ] || '#666';
 			dot.addEventListener( 'click', () => {
 
 				selectedVehicleIndex = i;
