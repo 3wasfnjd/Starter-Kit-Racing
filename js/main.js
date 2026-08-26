@@ -206,9 +206,52 @@ const loader = new ColorMapGLTFLoader();
 
 const modelNames = [
 	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-black', 'vehicle-truck-red', 'vehicle-truck-purple',
+	'vehicle-camry', 'vehicle-camaro',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
 ];
+
+// Godot imports vehicle models at root_scale=0.5 — true for every
+// vehicle-truck-* model (all sourced from the same Godot pipeline), but
+// vehicle-camry/vehicle-camaro are real-world-scale sedans/muscle cars
+// from a different source, not Godot, so that flat 0.5 doesn't apply to
+// them. Calibrated by eye instead, targeting roughly the same in-game
+// footprint as the existing truck (real length ≈ 1.4m post-scale) — a
+// touch longer, since a sedan/muscle car reasonably is one. Any
+// vehicle-* name not listed here still falls back to the 0.5 default.
+const VEHICLE_SCALE_OVERRIDES = {
+	'vehicle-camry': 0.33,
+	'vehicle-camaro': 0.5,
+};
+
+// vehicle-camry.glb's node names ship abbreviated (wheel_F_R, its child
+// meshes wheel_F_R_tire_0/wheel_F_R_wheel_0, etc.) — Vehicle.js's init()
+// matches nodes by substring ('front'/'back'/'left'/'right'/'wheel'), so
+// as shipped: the abbreviated F/B never matches front/back (no visual
+// front-wheel turn on steering), and the parent group PLUS both child
+// meshes all separately contain "wheel", so all three land in the
+// wheels[] spin array at once — the parent's own spin then compounds
+// with each child's, spinning ~3× too fast. Renamed here at load time
+// (never touches the source .glb): the parent group gets a name
+// Vehicle.js actually matches, spelled out and unambiguous; the two
+// child meshes are renamed to drop "wheel" entirely so they're excluded
+// from wheels[] — they still move/spin correctly since their parent
+// group does, just aren't independently double-counted.
+function fixCamryVehicleNaming( scene ) {
+
+	scene.traverse( ( child ) => {
+
+		const n = child.name;
+		if ( n === 'wheel_F_L' ) child.name = 'wheel-front-left';
+		else if ( n === 'wheel_F_R' ) child.name = 'wheel-front-right';
+		else if ( n === 'wheel_B_L' ) child.name = 'wheel-back-left';
+		else if ( n === 'wheel_B_R' ) child.name = 'wheel-back-right';
+		else if ( n.endsWith( '_tire_0' ) ) child.name = 'camry-tire-part';
+		else if ( n.endsWith( '_wheel_0' ) ) child.name = 'camry-rim-part';
+
+	} );
+
+}
 
 const models = {};
 
@@ -218,6 +261,8 @@ async function loadModels() {
 		new Promise( ( resolve, reject ) => {
 
 			loader.load( `models/${ name }.glb`, ( gltf ) => {
+
+				if ( name === 'vehicle-camry' ) fixCamryVehicleNaming( gltf.scene );
 
 				const meshes = [];
 				gltf.scene.traverse( ( child ) => {
@@ -231,10 +276,10 @@ async function loadModels() {
 
 				} );
 
-				// Godot imports vehicle models at root_scale=0.5
 				if ( name.startsWith( 'vehicle-' ) ) {
 
-					gltf.scene.scale.setScalar( 0.5 );
+					const scale = VEHICLE_SCALE_OVERRIDES[ name ] !== undefined ? VEHICLE_SCALE_OVERRIDES[ name ] : 0.5;
+					gltf.scene.scale.setScalar( scale );
 
 				}
 
@@ -490,6 +535,8 @@ function createModeMenu( { arAvailable } ) {
 			{ key: 'vehicle-truck-yellow', label: 'أصفر', thumb: 'images/menu/thumb-yellow.png' },
 			{ key: 'vehicle-truck-purple', label: 'بنفسجي', thumb: 'images/menu/thumb-purple.png' },
 			{ key: 'vehicle-truck-green', label: 'أخضر', thumb: 'images/menu/thumb-green.png' },
+			{ key: 'vehicle-camry', label: 'كامري', thumb: 'images/menu/thumb-camry.png' },
+			{ key: 'vehicle-camaro', label: 'كامارو', thumb: 'images/menu/thumb-camaro.png' },
 		];
 		let selectedVehicleIndex = 0; // black is the default car
 		let customTextValue = '';
@@ -585,7 +632,7 @@ function createModeMenu( { arAvailable } ) {
 
 			const dot = document.createElement( 'span' );
 			dot.className = `hw-car-dot c-${ i }`;
-			dot.style.background = { 'vehicle-truck-black': '#171717', 'vehicle-truck-red': '#e03b3b', 'vehicle-truck-yellow': '#e8c23b', 'vehicle-truck-purple': '#8b5fe0', 'vehicle-truck-green': '#3ba85c' }[ opt.key ] || '#666';
+			dot.style.background = { 'vehicle-truck-black': '#171717', 'vehicle-truck-red': '#e03b3b', 'vehicle-truck-yellow': '#e8c23b', 'vehicle-truck-purple': '#8b5fe0', 'vehicle-truck-green': '#3ba85c', 'vehicle-camry': '#2b3a55', 'vehicle-camaro': '#141414' }[ opt.key ] || '#666';
 			dot.addEventListener( 'click', () => {
 
 				selectedVehicleIndex = i;
