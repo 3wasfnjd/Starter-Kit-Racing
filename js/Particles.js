@@ -7,6 +7,14 @@ const BASE_SIZE = 1;
 const MAX_LIFE = 2.5;
 const INV_MAX_LIFE = 1 / MAX_LIFE;
 
+// Global emission-rate cut, applied on top of each mode's own
+// emitMultiplier (which only shifts modes RELATIVE to each other — e.g.
+// AI vs player, AR vs NORMAL). Per feedback that smoke was too heavy
+// everywhere, this scales the spawn COUNT down uniformly across every
+// mode (NORMAL, AR floating track, AR arena) without touching puff
+// size/opacity/lifetime or any mode's existing ratio to the others.
+const GLOBAL_EMIT_SCALE = 0.5;
+
 const _blPos = new THREE.Vector3();
 const _brPos = new THREE.Vector3();
 const _containerWorldPos = new THREE.Vector3();
@@ -129,8 +137,8 @@ export class SmokeTrails {
 			const bl = vehicle.wheelBL ? vehicle.wheelBL.getWorldPosition( _blPos ) : null;
 			const br = vehicle.wheelBR ? vehicle.wheelBR.getWorldPosition( _brPos ) : null;
 
-			// up to 8/frame per wheel at max heat, before emitMultiplier
-			const perEmit = Math.max( 1, Math.round( ( PARTICLES_PER_EMIT + Math.round( heat * 5 ) ) * this.emitMultiplier ) );
+			// up to 8/frame per wheel at max heat, before emitMultiplier/GLOBAL_EMIT_SCALE
+			const perEmit = Math.max( 1, Math.round( ( PARTICLES_PER_EMIT + Math.round( heat * 5 ) ) * this.emitMultiplier * GLOBAL_EMIT_SCALE ) );
 
 			for ( let i = 0; i < perEmit; i ++ ) {
 

@@ -18,7 +18,6 @@ import { LapTimer } from './LapTimer.js';
 import { ColorMapGLTFLoader } from './Loader.js';
 import { ARManager } from './ARManager.js';
 import { PlaceableObject } from './PlaceableObject.js';
-import { Radio } from './Radio.js';
 
 
 const renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true, outputBufferType: THREE.HalfFloatType } );
@@ -42,25 +41,16 @@ document.body.appendChild( renderer.domElement );
 const scene = new THREE.Scene();
 scene.background = new THREE.Color( 0xadb2ba );
 
-// Background menu/ambient music — plays quietly from the moment the
-// person picks a mode, until they turn on the in-car radio themselves
-// (at which point it stops for good, handing off to the radio). No
-// dedicated ambient track exists to draw from, so this reuses one of
-// the existing radio tracks at low volume rather than nothing at all.
-const bgMusic = new Audio( 'audio/radio/radio-1.mp3' );
+// Background music — the game's only music now (the in-car radio/station
+// switcher was removed). Plays quietly on a loop from the moment the
+// person picks a mode, for the whole session, in every mode (NORMAL, AR
+// track, AR arena).
+const bgMusic = new Audio( 'audio/music.mp3' );
 bgMusic.loop = true;
-bgMusic.volume = 0.25;
-let bgMusicStopped = false;
+bgMusic.volume = 0.35;
 function startBgMusic() {
 
-	if ( bgMusicStopped ) return;
 	bgMusic.play().catch( ( e ) => console.warn( '[main] background music autoplay blocked:', e ) );
-
-}
-function stopBgMusic() {
-
-	bgMusicStopped = true;
-	bgMusic.pause();
 
 }
 scene.fog = new THREE.Fog( 0xadb2ba, 30, 55 );
@@ -662,7 +652,7 @@ function createModeMenu( { arAvailable } ) {
 		menu.innerHTML = `
 			<div class="hw-wrap">
 				<div class="hw-brand"><img src="images/menu/logo.png" alt="Aboden Games" /></div>
-				<div class="hw-title-name">هجولة عتابة</div>
+				<div class="hw-title-name">هجولة</div>
 
 				<div class="hw-icon-panel">
 					<div class="hw-icon-slot">
@@ -1022,7 +1012,7 @@ function showFeaturesModal() {
 		{ icon: '🚙', label: 'تخصيص السيارة', desc: 'لون، نص، علم' },
 		{ icon: '💡', label: 'إضاءة كاملة', desc: 'أمامية، خلفية، طوارئ' },
 		{ icon: '🔊', label: 'صوت واقعي', desc: 'محرك، بوق، ارتطام' },
-		{ icon: '📻', label: 'راديو', desc: '3 مقاطع صوتية' },
+		{ icon: '🎵', label: 'موسيقى خلفية', desc: 'تشتغل طول اللعب' },
 		{ icon: '🛠️', label: 'محرر مضامير', desc: 'صمم مضمارك، ويب و AR' },
 		{ icon: '📱', label: 'كل الأجهزة', desc: 'كيبورد، لمس، يد Quest' },
 	];
@@ -1032,10 +1022,11 @@ function showFeaturesModal() {
 	overlay.dir = 'rtl';
 	overlay.innerHTML = `
 		<div class="hwf-card">
-			<div class="hwf-title">هجولة عتابة</div>
+			<div class="hwf-title">هجولة</div>
 			<div class="hwf-sub">مميزات اللعبة</div>
 			<div class="hwf-about">
 				طوّر هذه اللعبة <b>ABODEN GAMES</b> بمساعدة <b>Claude</b> من Anthropic.
+				<br/>تيك توك: <b>@3wasf.njd</b> — جميع الحقوق محفوظة.
 				<br/>المشروع الأصلي: <b>Kenney</b> (تصميم) · <b>mrdoob</b> (Three.js) · <b>crashcat</b> (فيزياء).
 			</div>
 			${ FEATURES.map( ( f ) => `
@@ -1119,14 +1110,11 @@ function showControlsModal() {
 				[ 'L', 'أضواء أمامية' ],
 				[ 'H', 'طوارئ' ],
 				[ 'N (مسّك)', 'إضاءة عالية' ],
-				[ 'R', 'الأغنية التالية' ],
-				[ 'T', 'تشغيل/إيقاف الراديو' ],
 			]
 		},
 		{
 			icon: '👆', title: 'اللمس (جوال)', rows: [
 				[ 'سحب', 'قيادة' ],
-				[ '⏭ ⏯', 'الراديو' ],
 				[ '💡 ⚠️', 'أضواء / طوارئ' ],
 				[ '🔆 (مسّك)', 'إضاءة عالية' ],
 				[ '⛶', 'ملء الشاشة' ],
@@ -1144,7 +1132,6 @@ function showControlsModal() {
 				[ 'زناد يمين', 'دفع' ],
 				[ 'زناد يسار', 'فرملة/رجوع' ],
 				[ 'عصا يسار', 'تكبير/تصغير السيارة' ],
-				[ 'X / Y يسار', 'الراديو (تالي/تشغيل)' ],
 				[ 'ضغط عصا يمين', 'أضواء أمامية' ],
 				[ 'A يمين', 'طوارئ' ],
 				[ 'B يمين (مسّك)', 'إضاءة عالية' ],
@@ -2766,7 +2753,7 @@ function create3DRaceCountdown( parent, localPosition, scale = 6 ) {
 // on-screen button so fullscreen can be (re)requested or exited at any
 // point during play, not just once at the very start. Top-left corner:
 // top-right is the lap timer's own corner (LapTimer.js), bottom-left is
-// the radio dock below.
+// the touch controls dock below.
 function setupFullscreenToggle() {
 
 	// Same feature test as requestFullscreenSafe() — skip creating the
@@ -2809,7 +2796,7 @@ function setupFullscreenToggle() {
 
 	}
 
-	// pointerdown (not click), same as the radio dock's own buttons: lower
+	// pointerdown (not click), same as the touch dock's own buttons: lower
 	// latency, and stopPropagation keeps the tap from also registering as
 	// a steering-zone touch (Controls.js's steer-zone covers the whole
 	// screen underneath this button).
@@ -2828,11 +2815,11 @@ function setupFullscreenToggle() {
 
 }
 
-// ─── Touch radio controls (phones/tablets — no keyboard, no VR hands) ──
+// ─── Touch controls dock (phones/tablets — no keyboard, no VR hands) ──
 // Controls.js already covers a full-screen invisible steering zone for
 // touch, so these buttons need a higher z-index to receive taps first.
 
-function setupRadioTouchUI( radio, vehicleLights ) {
+function setupTouchUI( vehicleLights ) {
 
 	if ( ! ( 'ontouchstart' in window ) ) return { highBeamHeld: false };
 
@@ -2872,8 +2859,6 @@ function setupRadioTouchUI( radio, vehicleLights ) {
 	}
 
 	const homeBtn = makeTapButton( '🏠' );
-	const nextBtn = makeTapButton( '⏭' );
-	const toggleBtn = makeTapButton( '⏯' );
 	const headlightBtn = makeTapButton( '💡' );
 	const hazardBtn = makeTapButton( '⚠️' );
 	const highBeamBtn = makeTapButton( '🔆' );
@@ -2894,20 +2879,6 @@ function setupRadioTouchUI( radio, vehicleLights ) {
 	// pointerdown (not click) for lower latency and to match the steering
 	// zone's own event type; stopPropagation so the tap doesn't also get
 	// picked up as a steering-zone touch.
-	nextBtn.addEventListener( 'pointerdown', ( e ) => {
-
-		e.stopPropagation();
-		stopBgMusic();
-		radio.next();
-
-	} );
-	toggleBtn.addEventListener( 'pointerdown', ( e ) => {
-
-		e.stopPropagation();
-		stopBgMusic();
-		radio.togglePlayPause();
-
-	} );
 	headlightBtn.addEventListener( 'pointerdown', ( e ) => {
 
 		e.stopPropagation();
@@ -2947,8 +2918,6 @@ function setupRadioTouchUI( radio, vehicleLights ) {
 	} );
 
 	wrap.appendChild( homeBtn );
-	wrap.appendChild( nextBtn );
-	wrap.appendChild( toggleBtn );
 	wrap.appendChild( headlightBtn );
 	wrap.appendChild( hazardBtn );
 	wrap.appendChild( highBeamBtn );
@@ -3651,8 +3620,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const audio = new GameAudio();
 	audio.init( cam.camera, vehicleGroup );
 
-	const radio = new Radio( audio.listener, vehicleGroup );
-	const touchState = setupRadioTouchUI( radio, vehicleLights );
+	const touchState = setupTouchUI( vehicleLights );
 	setupFullscreenToggle();
 
 	const _forward = new THREE.Vector3();
@@ -3675,10 +3643,10 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	const ctx = { world, vehicle, particles, driftMarks, audio, lapTimer, contactListener, vehicleFlag };
 
-	// Radio controls for NORMAL mode (no VR controllers here, so keyboard
-	// instead): R = next track, T = play/pause. L = headlights, H =
-	// hazards. Edge-detected so holding a key doesn't rapid-fire.
-	let prevKeys = { r: false, t: false, l: false, h: false };
+	// Light controls for NORMAL mode (no VR controllers here, so keyboard
+	// instead): L = headlights, H = hazards. Edge-detected so holding a
+	// key doesn't rapid-fire.
+	let prevKeys = { l: false, h: false };
 
 	// Race start countdown — only for an actual track with a finish line
 	// (not free-roam). Controls stay locked until it reaches zero.
@@ -3798,18 +3766,14 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 			}
 
-			const rKey = !! controls.keys[ 'KeyR' ];
-			const tKey = !! controls.keys[ 'KeyT' ];
 			const lKey = !! controls.keys[ 'KeyL' ];
 			const hKey = !! controls.keys[ 'KeyH' ];
 			const nKey = !! controls.keys[ 'KeyN' ];
-			if ( rKey && ! prevKeys.r ) { stopBgMusic(); radio.next(); }
-			if ( tKey && ! prevKeys.t ) { stopBgMusic(); radio.togglePlayPause(); }
 			if ( lKey && ! prevKeys.l ) toggleHeadlights( vehicleLights );
 			if ( hKey && ! prevKeys.h ) toggleHazards( vehicleLights );
 			setHighBeam( vehicleLights, nKey || touchState.highBeamHeld );
 			audio.setHorn( !! controls.keys[ 'Space' ] );
-			prevKeys = { r: rKey, t: tKey, l: lKey, h: hKey };
+			prevKeys = { l: lKey, h: hKey };
 
 			dirLight.position.set(
 				vehicle.spherePos.x + 11.4,
@@ -4659,7 +4623,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	// STAGE 1 (placement) + STAGE 2 (rebuild): place + lock the track,
 	// then spawn a full-featured real-physics car on it — same feature
 	// set as room-drive AR mode (lights, flag, text, smoke, drift marks,
-	// audio, radio, horn), just at the track's fixed AR scale instead of
+	// audio, horn), just at the track's fixed AR scale instead of
 	// a user-resizable one.
 	// Hit-test IS used (see the placing phase in frameUpdate below, via
 	// arManager.updateExternalPlacement()) — just not ARManager's own
@@ -4917,7 +4881,6 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			const audio = new GameAudio();
 			audio.init( renderer.xr.getCamera(), vehicleGroup );
 			audio.forceUnlock();
-			const radio = new Radio( audio.listener, vehicleGroup );
 
 			// Smoke IS scaled for AR (going back to the game's plain default
 			// caused the reported freeze/hang before the track even fully
@@ -5028,7 +4991,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			if ( isRace ) lapTimer.onFinish = () => { raceState.phase = 'finished'; };
 
 			raceCtx = {
-				world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, aiParticles,
+				world, vehicle, vehicleGroup, vehicleLights, audio, ctx, aiDrivers, aiExtras, aiParticles,
 				arScale: FIXED_SCALE * AR_LIGHT_DAMPING,
 				lapTimer, isRace, raceState, countdown3D, resultsShown: false,
 			};
@@ -5183,10 +5146,6 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 					if ( arManager.getHazardToggle() ) toggleHazards( raceCtx.vehicleLights );
 					setHighBeam( raceCtx.vehicleLights, arManager.getHighBeamHold(), raceCtx.arScale );
 					raceCtx.audio.setHorn( arManager.getHornHold() );
-
-					const radioBtn = arManager.getRadioButtons();
-					if ( radioBtn.next ) { stopBgMusic(); raceCtx.radio.next(); }
-					if ( radioBtn.toggle ) { stopBgMusic(); raceCtx.radio.togglePlayPause(); }
 
 					// AI opponents: same real pure-pursuit driving as
 					// NORMAL mode's own race AI, plus the same lights/
@@ -5673,7 +5632,6 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		const audio = new GameAudio();
 		audio.init( renderer.xr.getCamera(), vehicleGroup );
 		audio.forceUnlock();
-		const radio = new Radio( audio.listener, vehicleGroup );
 
 		// Smoke IS scaled for AR — see the identical note in
 		// startARFloatingTrack (defaulting to scale=1 caused the reported
@@ -5730,7 +5688,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 		} );
 
-		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, radio, ctx, aiDrivers, aiExtras, aiParticles, arScale: FIXED_SCALE * AR_LIGHT_DAMPING };
+		raceCtx = { world, vehicle, vehicleGroup, vehicleLights, audio, ctx, aiDrivers, aiExtras, aiParticles, arScale: FIXED_SCALE * AR_LIGHT_DAMPING };
 		phase = 'racing';
 
 		} catch ( e ) {
@@ -5810,10 +5768,6 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 					if ( arManager.getHazardToggle() ) toggleHazards( raceCtx.vehicleLights );
 					setHighBeam( raceCtx.vehicleLights, arManager.getHighBeamHold(), raceCtx.arScale );
 					raceCtx.audio.setHorn( arManager.getHornHold() );
-
-					const radioBtn = arManager.getRadioButtons();
-					if ( radioBtn.next ) { stopBgMusic(); raceCtx.radio.next(); }
-					if ( radioBtn.toggle ) { stopBgMusic(); raceCtx.radio.togglePlayPause(); }
 
 					// AI opponents: same wandering/drifting free-roam AI as
 					// NORMAL mode, plus the same lights/flag/smoke/drift-
@@ -5925,8 +5879,6 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 		// session), so it's safe to unlock immediately here instead.
 		audio.forceUnlock();
 
-		const radio = new Radio( audio.listener, vehicleGroup );
-
 		const _forward = new THREE.Vector3();
 
 		const contactListener = {
@@ -5947,7 +5899,7 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 		// No lapTimer — free-roam has no track/laps.
 		gameState = {
 			vehicle, vehicleGroup, vehicleModel, vehicleModelMinY, vehicleScale: 1,
-			particles, driftMarks, audio, radio, vehicleLights, vehicleFlag, contactListener, contactShadow
+			particles, driftMarks, audio, vehicleLights, vehicleFlag, contactListener, contactShadow
 		};
 
 	};
@@ -6001,10 +5953,6 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 						if ( gameState.contactShadow ) gameState.contactShadow.scale.setScalar( s );
 
 					}
-
-					const radioBtn = arManager.getRadioButtons();
-					if ( radioBtn.next ) { stopBgMusic(); gameState.radio.next(); }
-					if ( radioBtn.toggle ) { stopBgMusic(); gameState.radio.togglePlayPause(); }
 
 					if ( arManager.getHeadlightToggle() ) toggleHeadlights( gameState.vehicleLights );
 					if ( arManager.getHazardToggle() ) toggleHazards( gameState.vehicleLights );

@@ -1,0 +1,208 @@
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<style>
+body { margin:0; background:#0b0b12; display:flex; justify-content:center; padding:20px; }
+#hajwalah-menu { position:relative; width:380px; }
+
+			#hajwalah-menu * { box-sizing: border-box; }
+			#hajwalah-menu {
+				position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+				background:
+					linear-gradient(to bottom, rgba(6,4,14,0.55) 0%, rgba(6,4,14,0.1) 18%, rgba(6,4,14,0.0) 32%, rgba(6,4,14,0.08) 55%, rgba(6,4,14,0.8) 72%, rgba(4,3,10,0.97) 100%),
+					url('images/menu/menu-bg.jpg') center/cover no-repeat, #0a0a12;
+				font-family: 'Segoe UI', Tahoma, Arial, sans-serif; padding: 22px 16px; overflow-y: auto;
+			}
+			#hajwalah-menu .hw-wrap {
+				display: flex; flex-direction: column; align-items: center;
+				width: 100%; max-width: 400px; min-height: min(760px, 94vh);
+			}
+			#hajwalah-menu .hw-brand { text-align: center; }
+			#hajwalah-menu .hw-brand img {
+				width: 68px; height: 68px; border-radius: 16px; object-fit: cover;
+				box-shadow: 0 0 20px rgba(139,95,191,0.55);
+			}
+			#hajwalah-menu .hw-title-name {
+				text-align: center; margin-top: 8px; font-size: 24px; font-weight: 800; color: #fff; letter-spacing: 0.5px;
+				text-shadow: 0 0 18px rgba(120,180,255,0.55), 0 2px 6px rgba(0,0,0,0.6);
+			}
+			#hajwalah-menu .hw-icon-panel {
+				margin: 14px auto 0; width: 100%; display: flex; gap: 2px;
+				border-radius: 20px; overflow: hidden;
+				background: rgba(14,11,24,0.6); border: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(6px);
+			}
+			#hajwalah-menu .hw-icon-slot { position: relative; flex: 1; }
+			#hajwalah-menu .hw-icon-slot .hw-mode-card {
+				width: 100%; height: 117px; padding: 0;
+				display: flex; align-items: center; justify-content: center;
+			}
+			#hajwalah-menu .hw-icon-slot .hw-mode-card img { margin-bottom: 0; }
+			#hajwalah-menu .hw-flag-clear-badge {
+				position: absolute; top: -6px; left: -6px; width: 18px; height: 18px; border-radius: 50%;
+				background: #ff5a5a; color: #fff; font-size: 12px; line-height: 17px; text-align: center;
+				border: 1px solid rgba(255,255,255,0.5); padding: 0; cursor: pointer; display: block;
+			}
+			#hajwalah-menu .hw-flag-clear-badge.hidden { display: none; }
+			#hajwalah-menu .hw-name-badge {
+				position: absolute; top: -4px; left: -4px; width: 12px; height: 12px; border-radius: 50%;
+				background: #5B8CFF; border: 1px solid rgba(255,255,255,0.6); display: none; pointer-events: none;
+			}
+			#hajwalah-menu .hw-name-badge.shown { display: block; }
+			#hajwalah-menu .hw-bottom-panel {
+				margin-top: auto; width: 100%; border-radius: 20px; overflow: hidden;
+				background: rgba(14,11,24,0.6); border: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(6px);
+			}
+			#hajwalah-menu .hw-step.hidden { display: none; }
+			#hajwalah-menu .hw-car-showcase {
+				padding: 10px 10px 8px;
+				background: radial-gradient(circle at 50% 25%, rgba(80,60,140,0.3), rgba(10,8,20,0.1) 75%);
+				position: relative;
+			}
+			#hajwalah-menu .hw-car-stage { position: relative; height: 92px; display: flex; align-items: center; justify-content: center; }
+			#hajwalah-menu .hw-car-stage .hw-glow {
+				position: absolute; width: 110px; height: 26px; bottom: 4px; left: 50%; transform: translateX(-50%);
+				background: radial-gradient(ellipse at center, rgba(180,140,255,0.42), transparent 70%); filter: blur(2px);
+			}
+			#hajwalah-menu .hw-car-stage img {
+				position: relative; width: 112px; height: 112px; object-fit: contain;
+				filter: drop-shadow(0 8px 10px rgba(0,0,0,0.5));
+			}
+			#hajwalah-menu .hw-car-nav {
+				position: absolute; top: 50%; transform: translateY(-50%);
+				width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.1);
+				color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px;
+				border: 1px solid rgba(255,255,255,0.18); cursor: pointer; user-select: none;
+			}
+			#hajwalah-menu .hw-car-nav.prev { right: 4px; }
+			#hajwalah-menu .hw-car-nav.next { left: 4px; }
+			#hajwalah-menu .hw-car-name { text-align: center; color: #fff; font-size: 13.5px; font-weight: 700; margin-top: 2px; }
+			#hajwalah-menu .hw-car-dots { display: flex; justify-content: center; gap: 7px; margin-top: 6px; padding-bottom: 2px; }
+			#hajwalah-menu .hw-car-dots span {
+				width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.25);
+				cursor: pointer; display: block;
+			}
+			#hajwalah-menu .hw-car-dots span.active { border-color: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.55); }
+			#hajwalah-menu .hw-modes { display: flex; gap: 2px; border-top: 1px solid rgba(255,255,255,0.1); }
+			#hajwalah-menu .hw-mode-card {
+				flex: 1; position: relative; padding: 16px 8px 14px; text-align: center; cursor: pointer;
+				overflow: hidden; border: none; color: #fff;
+				background: linear-gradient(160deg, rgba(30,20,55,0.35), rgba(10,8,20,0.42));
+				box-shadow: 0 0 0 1px rgba(255,255,255,0.14) inset;
+			}
+			#hajwalah-menu .hw-mode-card.web { box-shadow: 0 0 0 1px rgba(79,216,232,0.25) inset; }
+			#hajwalah-menu .hw-mode-card.vr { box-shadow: 0 0 0 1px rgba(180,95,232,0.3) inset; }
+			#hajwalah-menu .hw-mode-card:disabled { opacity: 0.45; cursor: not-allowed; }
+			#hajwalah-menu .hw-mode-card img {
+				width: 48px; height: 48px; object-fit: contain; margin-bottom: 6px;
+				filter: drop-shadow(0 0 1px rgba(255,255,255,0.6)) drop-shadow(0 0 4px rgba(140,180,255,0.5));
+			}
+			#hajwalah-menu .hw-mode-card svg { width: 48px; height: 48px; margin-bottom: 6px; }
+			#hajwalah-menu .hw-m-label { font-size: 14px; font-weight: 800; }
+			#hajwalah-menu .hw-m-sub { font-size: 9.5px; color: #b7bfe0; margin-top: 2px; }
+			#hajwalah-menu .hw-back-link {
+				display: block; text-align: center; padding: 9px 0 3px; color: #a79fc4; font-size: 12px; cursor: pointer;
+			}
+			#hajwalah-menu .hw-footer-text {
+				text-align: center; margin-top: 14px; padding: 4px 0 2px; color: #e8e4f2; font-size: 12px;
+				text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+			}
+			#hajwalah-menu .hw-footer-text a { color: #e8e4f2; text-decoration: none; }
+			#hajwalah-menu .hw-footer-text a:hover { text-decoration: underline; }
+			#hajwalah-menu .hw-footer-text span { margin: 0 6px; color: rgba(255,255,255,0.4); }
+
+			#hw-name-popup-overlay {
+				position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center;
+				background: rgba(5,5,10,0.75); font-family: 'Segoe UI', Tahoma, Arial, sans-serif; padding: 24px 16px;
+			}
+			#hw-name-popup-overlay .hwn-card {
+				max-width: 320px; width: 100%;
+				background: radial-gradient(circle at 50% 0%, #201436 0%, #0d0d16 70%);
+				border: 1px solid rgba(139,95,191,0.4); border-radius: 18px; padding: 22px 20px;
+			}
+			#hw-name-popup-overlay .hwn-label { color: #b9b3cc; font-size: 12.5px; text-align: center; margin-bottom: 10px; }
+			#hw-name-popup-overlay input[type=text] {
+				width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12);
+				background: rgba(255,255,255,0.06); color: #fff; font-size: 15px; text-align: center; outline: none; margin-bottom: 14px;
+			}
+			#hw-name-popup-overlay .hwn-save {
+				display: block; width: 100%; padding: 12px; border: none; border-radius: 999px;
+				background: linear-gradient(90deg, #8B5FBF, #5B8CFF); color: #fff; font-size: 14.5px; font-weight: 700; cursor: pointer;
+			}
+		
+</style></head><body>
+<div id="hajwalah-menu">
+			<div class="hw-wrap">
+				<div class="hw-brand"><img src="images/menu/logo.png" alt="Aboden Games" /></div>
+				<div class="hw-title-name">هجولة</div>
+
+				<div class="hw-icon-panel">
+					<div class="hw-icon-slot">
+						<button type="button" class="hw-mode-card hw-flag-icon-btn" title="صورة العلم الخلفي">
+							<img src="images/menu/icon-flag.png" alt="العلم" />
+						</button>
+						<button type="button" class="hw-flag-clear-badge hidden" title="إزالة الصورة">×</button>
+					</div>
+					<div class="hw-icon-slot">
+						<button type="button" class="hw-mode-card hw-name-icon-btn" title="نص مخصص">
+							<img src="images/menu/icon-name.png" alt="الاسم" />
+						</button>
+						<span class="hw-name-badge"></span>
+					</div>
+				</div>
+				<input type="file" accept="image/*" class="hw-flag-input" hidden />
+
+				<div class="hw-bottom-panel">
+					<div class="hw-step hw-step-top">
+						<div class="hw-car-showcase">
+							<div class="hw-car-nav prev">‹</div>
+							<div class="hw-car-nav next">›</div>
+							<div class="hw-car-stage">
+								<div class="hw-glow"></div>
+								<img class="hw-car-img" src="" alt="" />
+							</div>
+							<div class="hw-car-name"></div>
+							<div class="hw-car-dots"></div>
+						</div>
+						<div class="hw-modes">
+							<button class="hw-mode-card vr hw-ar-entry-btn" >
+								<img src="images/menu/icon-vr.png" alt="VR" />
+								<div class="hw-m-label">VR</div>
+								<div class="hw-m-sub">Meta Quest 3</div>
+							</button>
+							<button class="hw-mode-card web hw-web-btn">
+								<img src="images/menu/icon-web.png" alt="WEB" />
+								<div class="hw-m-label">WEB</div>
+								<div class="hw-m-sub">لمس أو كيبورد</div>
+							</button>
+						</div>
+					</div>
+
+					<div class="hw-step hw-step-web hidden">
+						<div class="hw-modes">
+							<button class="hw-mode-card web hw-web-track-btn">
+								<svg viewBox="0 0 24 24" fill="none" stroke="#5B8CFF" stroke-width="1.6">
+									<circle cx="12" cy="12" r="9"/>
+									<circle cx="12" cy="12" r="2.4" fill="#5B8CFF" stroke="none"/>
+									<path d="M12 5v4.6M6.2 15.5l3.6-2.2M17.8 15.5l-3.6-2.2"/>
+								</svg>
+								<div class="hw-m-label">المضمار</div>
+								<div class="hw-m-sub">سباق كلاسيكي</div>
+							</button>
+							<button class="hw-mode-card hw-web-free-btn">
+								<svg viewBox="0 0 24 24" fill="none" stroke="#cfc9e0" stroke-width="1.6">
+									<path d="M4 20V9l8-5 8 5v11" /><path d="M9 20v-6h6v6" />
+								</svg>
+								<div class="hw-m-label">الوضع الحر</div>
+								<div class="hw-m-sub">تحكم حر بدون مضمار</div>
+							</button>
+						</div>
+						<a href="#" class="hw-back-link hw-back-link-web">‹ رجوع</a>
+					</div>
+				</div>
+
+				<div class="hw-footer-text">
+					<a href="#" class="hw-features-link">نبذة عن اللعبة</a>
+					<span>—</span>
+					<a href="#" class="hw-controls-link">التحكم</a>
+				</div>
+			</div>
+		</div>
+</body></html>
