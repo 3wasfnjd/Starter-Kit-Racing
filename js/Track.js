@@ -109,15 +109,20 @@ const DECO_CELLS = [
 	[  2,  4, 'decoration-forest', 0 ],
 ];
 
+// NPC_TRUCKS is the single source for both the decorative parked cars
+// scattered around the main track AND the AI opponent roster used when a
+// race actually starts (see buildTrack()'s npcConfigs below, and
+// main.js's createAIDrivers()/createFreeRoamAI() etc.) — only the `key`
+// (which vehicle model) matters for the AI roster; position/rotation are
+// just where that model sits parked as decoration. Per request: green and
+// yellow swapped out for camry/camaro so the AI roster includes them and
+// drops those two colors; positions/rotations kept as-is (untouched, so
+// the parked decoration spots don't move).
 export const NPC_TRUCKS = [
-	[ 'vehicle-truck-green',  -3.51, -0.01,  12.70,  98.0 ],
+	[ 'vehicle-camry',       -3.51, -0.01,  12.70,  98.0 ],
 	[ 'vehicle-truck-purple', -23.78, -0.14, -13.56,   0.0 ],
 	[ 'vehicle-truck-red',    -1.36, -0.15, -23.80, 155.9 ],
-	// Added per request — parked in the same open grass verge as the
-	// other three (a `decoration-empty` cell just west of the upper-left
-	// straight, grid ~(-3,1)), not verified against an actual render
-	// since this environment can't preview the scene visually.
-	[ 'vehicle-truck-yellow', -18.73, -0.05,  11.24,  90.0 ],
+	[ 'vehicle-camaro',      -18.73, -0.05,  11.24,  90.0 ],
 ];
 
 export function buildTrack( scene, models, customCells, { compactDeco = false, skipDeco = false } = {} ) {
