@@ -14,6 +14,44 @@ const SPEED_SCALE = 12.5;
 const LINEAR_DAMP = 0.1;
 export const MAX_SPEED = 1.5;
 
+// How far the body sinks below its OWN modeled rest height for the
+// suspension-settle effect. Derived from the original truck body (modeled
+// at y=0.4, previously hard-snapped to an absolute y=0.3 — i.e. a 0.1
+// sink). Applying it as a relative offset from each model's own rest
+// height, instead of that flat absolute value, keeps the truck's look
+// identical while giving any other model (different proportions) a small
+// sensible settle instead of being yanked to an unrelated absolute height.
+const BODY_SUSPENSION_SINK = 0.1;
+
+// Re-parents `node` under a freshly created pivot Group with an identity
+// rotation, inserted at node's original position (so nothing visually
+// moves). Imported models — especially ones not from this project's own
+// Godot pipeline — often bake an arbitrary corrective rotation directly
+// onto the "body"/"wheel" node itself (axis-convention fixes, mirrored
+// geometry for the right-side wheels, etc). Animating that node's
+// rotation/position DIRECTLY, as this class used to do, overwrites that
+// baked correction and produces exactly the kind of "flipped upright"
+// body or "spinning on the wrong axis" wheel seen on non-Godot models.
+// The pivot's axes always match the model's overall (correctly
+// Y-up-oriented) frame, so animating the PIVOT instead works regardless
+// of whatever the artist baked onto the node itself — and is a no-op for
+// models where the node had no baked rotation to begin with (the
+// original truck models), since the pivot starts at identity and simply
+// carries the untouched node along with it.
+function createPivot( node ) {
+
+	const parent = node.parent;
+	const pivot = new THREE.Group();
+	pivot.name = node.name + '-pivot';
+	pivot.rotation.order = 'YXZ';
+	pivot.position.copy( node.position );
+	parent.add( pivot );
+	pivot.add( node );
+	node.position.set( 0, 0, 0 );
+	return pivot;
+
+}
+
 // Reverse tops out at this fraction of MAX_SPEED — real cars reverse
 // slower than they drive forward, but not as crawlingly slow as before
 // (was effectively ~0.33). Raise toward 1.0 for a stronger reverse,
@@ -73,25 +111,22 @@ export class Vehicle {
 
 		this.container.add( vehicleModel );
 
-		// Find body and wheel nodes
+		// Pass 1: find body/wheel nodes by name. Read-only — do NOT
+		// mutate the hierarchy while traverse() is still walking it.
+		let bodyChild = null;
+		const wheelChildren = [];
+
 		vehicleModel.traverse( ( child ) => {
 
 			const name = child.name.toLowerCase();
 
 			if ( name === 'body' ) {
 
-				child.rotation.order = 'YXZ';
-				this.bodyNode = child;
+				bodyChild = child;
 
 			} else if ( name.includes( 'wheel' ) ) {
 
-				child.rotation.order = 'YXZ';
-				this.wheels.push( child );
-
-				if ( name.includes( 'front' ) && name.includes( 'left' ) ) this.wheelFL = child;
-				if ( name.includes( 'front' ) && name.includes( 'right' ) ) this.wheelFR = child;
-				if ( name.includes( 'back' ) && name.includes( 'left' ) ) this.wheelBL = child;
-				if ( name.includes( 'back' ) && name.includes( 'right' ) ) this.wheelBR = child;
+				wheelChildren.push( child );
 
 			}
 
@@ -101,6 +136,28 @@ export class Vehicle {
 				child.receiveShadow = true;
 
 			}
+
+		} );
+
+		// Pass 2: wrap each found node in its own clean pivot (see
+		// createPivot() above) and animate the pivot from here on.
+		if ( bodyChild ) {
+
+			this.bodyNode = createPivot( bodyChild );
+			this._bodyRestY = this.bodyNode.position.y;
+
+		}
+
+		wheelChildren.forEach( ( child ) => {
+
+			const name = child.name.toLowerCase();
+			const pivot = createPivot( child );
+			this.wheels.push( pivot );
+
+			if ( name.includes( 'front' ) && name.includes( 'left' ) ) this.wheelFL = pivot;
+			if ( name.includes( 'front' ) && name.includes( 'right' ) ) this.wheelFR = pivot;
+			if ( name.includes( 'back' ) && name.includes( 'left' ) ) this.wheelBL = pivot;
+			if ( name.includes( 'back' ) && name.includes( 'right' ) ) this.wheelBR = pivot;
 
 		} );
 
@@ -328,7 +385,7 @@ export class Vehicle {
 			dt * 5
 		);
 
-		this.bodyNode.position.y = THREE.MathUtils.lerp( this.bodyNode.position.y, 0.3, dt * 5 );
+		this.bodyNode.position.y = THREE.MathUtils.lerp( this.bodyNode.position.y, this._bodyRestY - BODY_SUSPENSION_SINK, dt * 5 );
 
 	}
 
