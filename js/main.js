@@ -265,6 +265,38 @@ function fixCamryVehicleNaming( scene ) {
 
 }
 
+// Requested Camry paint color: "سماوي" (sky blue) / Deep Sky Blue.
+const CAMRY_BODY_COLOR = 0x00bfff;
+
+// vehicle-camry.glb's paint comes from the shared colormap.png atlas (see
+// Loader.js's ColorMapGLTFLoader, used for every vehicle/track model) — the
+// body mesh's UVs just sample one flat-color swatch from that shared
+// atlas (a dark navy, as shipped), not a real painted texture with panel
+// highlights/AO baked in. Multiplying that swatch by a tint color
+// (material.color with the map still applied) only ever darkens/muddies
+// it, since the swatch itself is already dark — confirmed by a rendered
+// comparison. Dropping the map entirely and using a flat material.color
+// instead reproduces the requested color exactly. Safe to do: the body
+// mesh has its own material instance (not shared with the wheel/tire
+// materials, or with any other vehicle's materials), so this has zero
+// effect on anything else, including the shared colormap.png texture
+// object itself (only this material's own .map reference is cleared).
+function applyCamryBodyColor( scene, hexColor ) {
+
+	scene.traverse( ( child ) => {
+
+		if ( child.isMesh && child.material && child.material.name === 'body' ) {
+
+			child.material.map = null;
+			child.material.color.setHex( hexColor );
+			child.material.needsUpdate = true;
+
+		}
+
+	} );
+
+}
+
 const models = {};
 
 async function loadModels() {
@@ -274,7 +306,12 @@ async function loadModels() {
 
 			loader.load( `models/${ name }.glb`, ( gltf ) => {
 
-				if ( name === 'vehicle-camry' ) fixCamryVehicleNaming( gltf.scene );
+				if ( name === 'vehicle-camry' ) {
+
+					fixCamryVehicleNaming( gltf.scene );
+					applyCamryBodyColor( gltf.scene, CAMRY_BODY_COLOR );
+
+				}
 
 				const meshes = [];
 				gltf.scene.traverse( ( child ) => {
