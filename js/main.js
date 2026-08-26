@@ -1945,7 +1945,23 @@ function createTextTexture( text ) {
 // model's actual shape, current or future, with no per-model hand-tuning.
 function vehicleBounds( vehicleModel ) {
 
+	// Box3().setFromObject() walks up through .parent to build
+	// matrixWorld — so if the vehicle has already been positioned/rotated
+	// in the world by the time this runs (its grid slot, an AI's current
+	// wander heading, etc.), the box comes back rotated/offset instead of
+	// reflecting the model's own local shape, and every add-on placed
+	// from it lands wrong (confirmed: that's what put the flag in the
+	// wrong place on every car, not just the new ones). Temporarily
+	// detach vehicleModel from its parent so the box reflects ONLY its
+	// own local geometry — the exact frame add-ons are parented into as
+	// its children — then reattach it with its own local transform
+	// completely untouched.
+	const parent = vehicleModel.parent;
+	if ( parent ) parent.remove( vehicleModel );
+	vehicleModel.updateMatrixWorld( true );
 	const box = new THREE.Box3().setFromObject( vehicleModel );
+	if ( parent ) parent.add( vehicleModel );
+
 	return {
 		halfWidth: ( box.max.x - box.min.x ) / 2,
 		bottom: box.min.y,
@@ -3404,11 +3420,15 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		buildWarningSign( scene, -4.5, roadHalf - 1, Math.PI );
 		buildWarningSign( scene, 4.5, roadHalf - 1, Math.PI );
 
-		// All 4 vehicle models wander/drift here — unlike the race grid
-		// (which reserves yellow for the player by default and uses the
-		// other 3 for AI), free-roam has no such reservation.
+		// The AI roster (NPC_TRUCKS — camry, purple, red, camaro per the
+		// current request) wanders/drifts here, same as everywhere else AI
+		// cars spawn. Used to also hardcode an extra yellow entry on top of
+		// NPC_TRUCKS ("free-roam has no [player-color] reservation"), but
+		// that fought the "exclude yellow" request by re-adding it just for
+		// this mode — dropped, so free-roam's AI roster matches every other
+		// mode's exactly.
 		aiDrivers = createFreeRoamAI(
-			[ { key: 'vehicle-truck-yellow' }, ...NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ) ],
+			NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
 			models, scene, world, roadHalf
 		);
 		freeRoamHalf = roadHalf;
