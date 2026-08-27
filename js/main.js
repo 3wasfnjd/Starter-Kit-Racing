@@ -5918,21 +5918,33 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 	const climbRayCollector = createClosestCastRayCollector();
 	const climbRaySettings = createDefaultCastRaySettings();
 
-	// One-time capture of every detected surface, done from the first
-	// frameUpdate after placement (not from onPlaced itself, which only
-	// gets {position, angle} — not the WebXR `frame` this needs). Builds
-	// the real colliders climb physics rides on below, AND draws a
-	// magenta wireframe over each one so the scan can be visually
-	// confirmed working.
-	let meshInfoCaptured = false;
+	// Re-scanned periodically (not just once right after placement) —
+	// reported after the first real test: near the placement spot the
+	// floor sometimes had no working collider at all (the car fell
+	// through, then respawned somewhere the scan DID cover). Meta's room
+	// mesh-detection keeps refining/expanding coverage over time and can
+	// have gaps right where the headset was pointed at placement time, so
+	// a single capture can permanently miss surfaces a few seconds of
+	// scanning would have caught. Re-scanning periodically instead picks
+	// those up as they appear, without ever rebuilding a collider twice
+	// (deduped by a rounded position+label key — good enough since a real
+	// surface's reported position is stable frame to frame, only
+	// resolution/bounds refine).
+	const CLIMB_RESCAN_INTERVAL = 1.5; // seconds
+	let climbRescanTimer = CLIMB_RESCAN_INTERVAL; // scan on the very first frame after placement
+	const climbSeenSurfaceKeys = new Set();
 
-	function initClimbSurfaces( frame ) {
+	function rescanClimbSurfaces( frame ) {
 
 		const infos = arManager.getAllDetectedMeshesInfo( frame, renderer.xr.getReferenceSpace() );
-		console.log( `[climb] ${ infos.length } detected surface(s):`, infos.map( ( i ) => i.label ) );
 
-		const debugGroup = new THREE.Group();
+		let added = 0;
 		for ( const info of infos ) {
+
+			const key = `${ info.label }:${ info.position.x.toFixed( 2 ) }:${ info.position.y.toFixed( 2 ) }:${ info.position.z.toFixed( 2 ) }`;
+			if ( climbSeenSurfaceKeys.has( key ) ) continue;
+			climbSeenSurfaceKeys.add( key );
+			added ++;
 
 			rigidBody.create( world, {
 				shape: box.create( { halfExtents: info.halfExtents } ),
@@ -5944,6 +5956,9 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 				restitution: 0.2,
 			} );
 
+			// Magenta wireframe so the scan's coverage can be visually
+			// confirmed working, including surfaces picked up on a later
+			// rescan rather than the first one.
 			const geo = new THREE.BoxGeometry(
 				info.halfExtents[ 0 ] * 2, info.halfExtents[ 1 ] * 2, info.halfExtents[ 2 ] * 2
 			);
@@ -5953,12 +5968,16 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 			);
 			wire.position.copy( info.position );
 			wire.quaternion.copy( info.quaternion );
-			debugGroup.add( wire );
+			scene.add( wire );
 
 		}
-		scene.add( debugGroup );
 
-		climbSurfaceCount = infos.length;
+		if ( added > 0 ) {
+
+			console.log( `[climb] +${ added } new surface(s) (${ climbSeenSurfaceKeys.size } total):`, infos.map( ( i ) => i.label ) );
+			climbSurfaceCount = climbSeenSurfaceKeys.size;
+
+		}
 
 	}
 
@@ -6034,16 +6053,29 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 			);
 
 			_climbForwardDir.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+			const forwardRayLength = vehicle.sphereRadius * 5;
 			const forwardDist = castClimbRay(
 				originArr, [ _climbForwardDir.x, _climbForwardDir.y, _climbForwardDir.z ],
-				vehicle.sphereRadius * 5, _climbNormalFwd
+				forwardRayLength, _climbNormalFwd
 			);
 
-			// Whichever surface is actually closer wins — right after a
-			// transition the "old" surface (now behind/below) would
-			// otherwise keep re-winning just because it's still the
-			// down-ray's target.
-			if ( downDist !== null && ( forwardDist === null || downDist <= forwardDist ) ) {
+			// NOT "whichever is closer" — while resting on a surface the
+			// down-ray's hit distance is always near zero, so it would
+			// always "win" against the forward-ray right up until the car
+			// is already touching the next surface (reported: needed an
+			// actual jump to ever start climbing a wall, and let go of a
+			// wall instead of sticking to it while driving down toward the
+			// floor). Instead, an approaching surface within this
+			// (deliberately generous) fraction of the forward-ray's own
+			// length takes priority outright, so the car starts turning
+			// onto it with real lead time; only when nothing is imminent
+			// ahead does the down-ray (stay on the current surface) win.
+			const TRANSITION_FRACTION = 0.6;
+			if ( forwardDist !== null && forwardDist < forwardRayLength * TRANSITION_FRACTION ) {
+
+				targetUp = _climbNormalFwd;
+
+			} else if ( downDist !== null ) {
 
 				targetUp = _climbNormalDown;
 
@@ -6055,14 +6087,21 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 
 		}
 
+		// ×1.5 to match createSphereBody's own gravityFactor (Physics.js) —
+		// the strength this car falls at everywhere else in the game.
+		// climbSurfaceCount stays 0 until the first rescan finds anything
+		// (see rescanClimbSurfaces), so this fallback is also what the car
+		// falls under for that first instant right after placement.
+		const GRAVITY_STRENGTH = 9.81 * 1.5;
+
 		if ( targetUp ) {
 
-			_climbForce.copy( targetUp ).multiplyScalar( - mass * 9.81 );
+			_climbForce.copy( targetUp ).multiplyScalar( - mass * GRAVITY_STRENGTH );
 
 		} else {
 
 			targetUp = _climbUp; // fallback: plain world gravity, straight down
-			_climbForce.set( 0, - mass * 9.81, 0 );
+			_climbForce.set( 0, - mass * GRAVITY_STRENGTH, 0 );
 
 		}
 
@@ -6159,10 +6198,11 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 
 				if ( gameState ) {
 
-					if ( ! meshInfoCaptured ) {
+					climbRescanTimer += dt;
+					if ( climbRescanTimer >= CLIMB_RESCAN_INTERVAL ) {
 
-						meshInfoCaptured = true;
-						initClimbSurfaces( frame );
+						climbRescanTimer = 0;
+						rescanClimbSurfaces( frame );
 
 					}
 
