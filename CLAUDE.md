@@ -20,11 +20,11 @@ An Arabic-localized drift/racing game, originally ported from Kenney's "Starter 
   - `Particles.js` — Smoke trail effects
   - `Flag.js` — Animated cloth rear-corner flag
   - `Loader.js` — Shared GLTF/colormap texture loading
-  - `Audio.js` — Sound: positional sources on the vehicle, distance lowpass, outdoor reverb; engine and impacts are synthesized, skid/horn/reverse/launch are samples. Also loads a crowd-cheer sample (`audio/crowd.mp3`) and background music (`audio/music.mp3`) — see note below.
+  - `Audio.js` — Sound: positional sources on the vehicle, distance lowpass, outdoor reverb; engine and impacts are synthesized, skid/horn/reverse/launch are samples. Also loads background music (`audio/music.mp3`).
   - `EngineWorklet.js` — Procedural engine synth (AudioWorklet)
   - `ImpactSound.js` — Procedural collision one-shots (rendered into AudioBuffers at init)
 - `models/` — GLB models and shared textures
-- `audio/` — Sample assets (skid, horn, reverse, launch, background music; engine and impacts are synthesized instead — see `EngineWorklet.js`/`ImpactSound.js`). **Note:** `Audio.js` also tries to load `audio/crowd.mp3` for a hard-drift crowd cheer, but that file doesn't exist in the repo — the feature fails to load silently (no crash; `crowdSound.buffer` just stays unset) until the asset is added.
+- `audio/` — Sample assets (skid, horn, reverse, launch, background music; engine and impacts are synthesized instead — see `EngineWorklet.js`/`ImpactSound.js`)
 - `images/` — Menu UI art (icons, thumbnails, background)
 - `sprites/` — Sprite assets (smoke particle texture)
 
