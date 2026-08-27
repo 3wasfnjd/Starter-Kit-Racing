@@ -4240,6 +4240,18 @@ async function startARWithFloatingMenu( { mapParam, customCells, customText, veh
 	function openExitConfirm() {
 
 		exitConfirmActive = true;
+
+		// While this confirm menu is up, frameUpdate below skips
+		// subMode.frameUpdate() entirely (see the `if ( exitConfirmActive )`
+		// early-return further down) — so nothing ever calls audio.update()
+		// to ramp the engine/skid/etc. loops down, and they're left playing
+		// at whatever volume/pitch they last had, seemingly stuck, until
+		// the menu closes. Suspending the AudioContext itself (the same
+		// mechanism Audio.js already uses to pause on tab-hide) silences
+		// everything immediately without touching any per-mode state.
+		const exitAudioCtx = subMode && subMode.audio && subMode.audio.listener.context;
+		if ( exitAudioCtx && exitAudioCtx.state === 'running' ) exitAudioCtx.suspend();
+
 		showExitConfirm( arManager, scene ).then( ( action ) => {
 
 			exitConfirmActive = false;
@@ -4269,6 +4281,11 @@ async function startARWithFloatingMenu( { mapParam, customCells, customText, veh
 				} catch ( e ) { /* ignore */ }
 
 				arManager.session.end().finally( () => window.location.reload() );
+
+			} else if ( exitAudioCtx && exitAudioCtx.state === 'suspended' ) {
+
+				// 'cancel' — driving resumes, so sound should too.
+				exitAudioCtx.resume();
 
 			}
 
@@ -4754,6 +4771,12 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	const controls = new Controls();
 
 	return {
+
+		// undefined until raceCtx is populated (placement locked in) — the
+		// outer exit-confirm flow (startARWithFloatingMenu) uses this to
+		// suspend/resume the AudioContext while its menu is open, same
+		// approach Audio.js already uses for tab-visibility pausing.
+		get audio() { return raceCtx && raceCtx.audio; },
 
 		frameUpdate( dt, timestamp, frame ) {
 
@@ -5450,6 +5473,9 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 	return {
 
+		// See the identical getter in startARFloatingTrack for why.
+		get audio() { return raceCtx && raceCtx.audio; },
+
 		frameUpdate( dt, timestamp, frame ) {
 
 			try {
@@ -5646,6 +5672,9 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 	};
 
 	return {
+
+		// See the identical getter in startARFloatingTrack for why.
+		get audio() { return gameState && gameState.audio; },
 
 		frameUpdate( dt, timestamp, frame ) {
 
