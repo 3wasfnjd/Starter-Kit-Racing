@@ -1920,7 +1920,10 @@ const TRUCK_LAYOUT = {
 	reverseLight: [ 0.24975, 0.429, -1.3398 ],
 	flag: [ -0.6, 0.143, -1.358 ],
 	windshieldDecal: [ 0, 0.663, 0.574 ],
-	tailgateDecal: [ 0, 0.286, -1.4 ],
+	// Nudged up (+0.05, ≈10% of the decal's own 0.5-unit height — same
+	// nudge applied to all 3 vehicles below) per feedback that the custom
+	// name text was sitting slightly below the bumper instead of on it.
+	tailgateDecal: [ 0, 0.336, -1.4 ],
 	// headlightSpot's z (how far past headlightLens the actual light
 	// SOURCE floats, in open air above the roof — see addVehicleLights())
 	// pulled in per feedback that the lighting read as sitting too far
@@ -1953,7 +1956,8 @@ const CAMRY_LAYOUT = {
 	reverseLight: [ 0.4797, 0.7748, -2.3496 ],
 	flag: [ -0.8744, 0.0342, -2.5813 ],
 	windshieldDecal: [ 0, 0.6635, 1.0567 ],
-	tailgateDecal: [ 0, 0.2073, -2.6611 ],
+	// Nudged up — see the identical nudge in TRUCK_LAYOUT above for why.
+	tailgateDecal: [ 0, 0.2573, -2.6611 ],
 	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
 	// The Camry's old z carried a disproportionately large forward offset
 	// (≈66% of its own lens-z, vs ≈43-49% for the truck/Camaro) — a relic
@@ -1975,7 +1979,8 @@ const CAMARO_LAYOUT = {
 	reverseLight: [ 0.1961, 0.3876, -1.5215 ],
 	flag: [ -0.4603, 0.0862, -1.4774 ],
 	windshieldDecal: [ 0, 0.4013, 0.569 ],
-	tailgateDecal: [ 0, 0.1729, -1.5231 ],
+	// Nudged up — see the identical nudge in TRUCK_LAYOUT above for why.
+	tailgateDecal: [ 0, 0.2229, -1.5231 ],
 	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
 	headlightSpot: [ 0.4603, 1.2719, 1.7232 ],
 	headlightSpotTarget: [ 0.4603, 0.1209, 17.8476 ],

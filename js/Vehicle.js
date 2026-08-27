@@ -171,7 +171,48 @@ export class Vehicle {
 			this.bodyNode.getWorldScale( _tmpScale );
 			vehicleModel.getWorldScale( _tmpScale2 );
 			const extraLocalScale = _tmpScale.y / Math.max( _tmpScale2.y, 0.0001 );
-			this._bodySuspensionSinkLocal = BODY_SUSPENSION_SINK / Math.max( extraLocalScale, 0.0001 );
+
+			// A flat BODY_SUSPENSION_SINK (reported: the Camry and Camaro
+			// visibly sink into the ground the instant they spawn, unlike
+			// the truck) turned out to still be wrong even with the
+			// extraLocalScale fix above: that fix makes the sink land at
+			// the SAME flat 0.1 units in every model's vehicleModel-frame
+			// regardless of hidden nested scale, but 0.1 was calibrated
+			// specifically against the truck's own generous body-to-wheel
+			// clearance (0.4 units) — a low sports car's clearance is far
+			// smaller (measured directly off the .glb geometry: ≈0.15 for
+			// the Camry, ≈0.10 for the Camaro), so that same flat 0.1
+			// consumes nearly ALL of it, dropping the underbody almost to
+			// the wheels' own contact point. Scaling the sink to the same
+			// fraction of EACH model's own measured clearance that 0.1
+			// already is of the truck's (0.1 / 0.4 = 25%) reproduces the
+			// truck's exact prior behavior (a verified no-op: its own
+			// measured clearance is that same 0.4) while giving the
+			// Camry/Camaro a proportionally identical, much smaller settle
+			// instead of one that eats their whole suspension travel.
+			let clearance = null;
+			if ( wheelChildren.length > 0 ) {
+
+				vehicleModel.updateMatrixWorld( true );
+				const bodyBox = new THREE.Box3().setFromObject( this.bodyNode );
+				let lowestWheelY = Infinity;
+				const wheelBox = new THREE.Box3();
+				for ( const wheelChild of wheelChildren ) {
+
+					wheelBox.setFromObject( wheelChild );
+					lowestWheelY = Math.min( lowestWheelY, wheelBox.min.y );
+
+				}
+
+				clearance = bodyBox.min.y - lowestWheelY;
+
+			}
+
+			const SINK_TO_CLEARANCE_RATIO = 0.25; // = BODY_SUSPENSION_SINK / the truck's own 0.4 clearance
+			const targetSink = ( clearance !== null && clearance > 0 )
+				? SINK_TO_CLEARANCE_RATIO * clearance
+				: BODY_SUSPENSION_SINK; // no wheels found to measure against — fall back to the flat original
+			this._bodySuspensionSinkLocal = targetSink / Math.max( extraLocalScale, 0.0001 );
 
 		}
 
