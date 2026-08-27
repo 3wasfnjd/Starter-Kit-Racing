@@ -6149,6 +6149,7 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 	const _climbForce = new THREE.Vector3();
 	const _climbOrigin = new THREE.Vector3();
 	const _climbForwardDir = new THREE.Vector3();
+	const _climbRayDirVec = new THREE.Vector3();
 
 	// Casts one ray from `origin` (plain [x,y,z]) along `dir` (plain
 	// [x,y,z], unit length) up to `length`, filtered to climb surfaces
@@ -6175,6 +6176,21 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 		const n = rigidBody.getSurfaceNormal( [ 0, 0, 0 ], hitBody, hitPoint, hit.subShapeId );
 		outNormal.set( n[ 0 ], n[ 1 ], n[ 2 ] );
 		if ( outNormal.lengthSq() < 0.0001 ) return null;
+
+		// Reported: the car flipped over and got stuck sunk into the
+		// floor instead of resting on it. Root cause: a real-world scanned
+		// mesh's triangle winding isn't guaranteed to match whatever
+		// convention crashcat's triangleMesh shape treats as "outward" —
+		// unlike a hand-authored box collider (always correct by
+		// construction), getSurfaceNormal() here can come back facing
+		// INTO the floor instead of up out of it. Using that inverted
+		// normal as targetUp pulls custom gravity (and the car's own "up")
+		// downward through the surface instead of resting on top of it.
+		// A normal is only physically meaningful relative to which side
+		// the ray approached from — flip it to always face back toward
+		// the ray origin (opposing the ray direction) rather than trusting
+		// the mesh's winding.
+		if ( outNormal.dot( _climbRayDirVec.set( dir[ 0 ], dir[ 1 ], dir[ 2 ] ) ) > 0 ) outNormal.negate();
 
 		return hitDistance;
 
