@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 // (RoomEnvironment import removed — replaced by buildARColorEnvironmentScene below.)
 import { LightProbeGrid } from 'three/addons/lighting/LightProbeGrid.js';
-import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, triangleMesh, cylinder, MotionType, filter, castRay, createClosestCastRayCollector, createDefaultCastRaySettings, CastRayStatus } from 'crashcat';
+import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, cylinder, MotionType, filter, castRay, createClosestCastRayCollector, createDefaultCastRaySettings, CastRayStatus } from 'crashcat';
 import { Vehicle, MAX_SPEED } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
@@ -16,6 +16,7 @@ import { createFlag, createSaudiFlagDataUrl } from './Flag.js';
 import { LapTimer } from './LapTimer.js';
 import { ColorMapGLTFLoader } from './Loader.js';
 import { ARManager } from './ARManager.js';
+import { VRManager } from './VRManager.js';
 
 
 const renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true, outputBufferType: THREE.HalfFloatType } );
@@ -476,18 +477,18 @@ function exitFullscreenSafe() {
 // security rule — every site is bound by it, not something specific to
 // this game); the first genuine gesture is the earliest legal moment.
 // Runs once, then removes itself — except it deliberately skips a tap on
-// the AR entry button, since requestSession() there needs that exact
-// click's own transient user-activation (see the comment on
-// arEntryBtn's own listener below) and requesting fullscreen first would
-// consume it and silently break entering AR. Fullscreen is moot for AR
-// anyway — the XR session already takes over the whole display. If the
-// very first tap happens to land on that button, this just waits for the
-// next one instead of firing.
+// the AR entry button (or the VR test-room entry button — same reasoning),
+// since requestSession() there needs that exact click's own transient
+// user-activation (see the comment on arEntryBtn's own listener below) and
+// requesting fullscreen first would consume it and silently break entering
+// AR/VR. Fullscreen is moot for either anyway — the XR session already
+// takes over the whole display. If the very first tap happens to land on
+// one of those buttons, this just waits for the next one instead of firing.
 function armAutoFullscreen() {
 
 	function trigger( e ) {
 
-		if ( e.target.closest && e.target.closest( '.hw-ar-entry-btn' ) ) return;
+		if ( e.target.closest && ( e.target.closest( '.hw-ar-entry-btn' ) || e.target.closest( '.hw-vrtest-entry-btn' ) ) ) return;
 
 		document.removeEventListener( 'pointerdown', trigger );
 		requestFullscreenSafe();
@@ -500,7 +501,7 @@ function armAutoFullscreen() {
 
 armAutoFullscreen();
 
-function createModeMenu( { arAvailable } ) {
+function createModeMenu( { arAvailable, vrAvailable } ) {
 
 	return new Promise( ( resolve ) => {
 
@@ -592,6 +593,7 @@ function createModeMenu( { arAvailable } ) {
 			}
 			#hajwalah-menu .hw-mode-card.web { box-shadow: 0 0 0 1px rgba(79,216,232,0.25) inset; }
 			#hajwalah-menu .hw-mode-card.vr { box-shadow: 0 0 0 1px rgba(180,95,232,0.3) inset; }
+			#hajwalah-menu .hw-mode-card.vrtest { box-shadow: 0 0 0 1px rgba(90,220,140,0.3) inset; }
 			#hajwalah-menu .hw-mode-card:disabled { opacity: 0.45; cursor: not-allowed; }
 			#hajwalah-menu .hw-mode-card img {
 				width: 48px; height: 48px; object-fit: contain; margin-bottom: 6px;
@@ -690,6 +692,13 @@ function createModeMenu( { arAvailable } ) {
 								<img src="images/menu/icon-web.png" alt="WEB" />
 								<div class="hw-m-label">WEB</div>
 								<div class="hw-m-sub">لمس أو كيبورد</div>
+							</button>
+							<button class="hw-mode-card vrtest hw-vrtest-entry-btn" ${ vrAvailable ? '' : 'disabled' }>
+								<svg viewBox="0 0 24 24" fill="none" stroke="#5ADC8C" stroke-width="1.6">
+									<path d="M4 20V9l8-5 8 5v11" /><path d="M4 20h16" /><path d="M9 20v-7h6v7" />
+								</svg>
+								<div class="hw-m-label">غرفة اختبار</div>
+								<div class="hw-m-sub">${ vrAvailable ? 'VR' : 'غير متاح على هذا الجهاز' }</div>
 							</button>
 						</div>
 					</div>
@@ -925,6 +934,30 @@ function createModeMenu( { arAvailable } ) {
 			menu.remove();
 			resolve( {
 				choice: 'ar', customText: customTextValue.trim(),
+				vehicleKey: VEHICLE_OPTIONS[ selectedVehicleIndex ].key, flagImage: flagImageDataUrl, sessionPromise,
+			} );
+
+		} );
+
+		// VR test room: a real immersive-vr session in a self-built room
+		// (see startVRTestRoom) — no hit-test/mesh-detection/plane-detection
+		// needed, the room's layout is fixed and known upfront.
+		const vrtestEntryBtn = menu.querySelector( '.hw-vrtest-entry-btn' );
+		vrtestEntryBtn.addEventListener( 'click', () => {
+
+			if ( vrtestEntryBtn.disabled ) return;
+
+			// Same reasoning as arEntryBtn's own listener above: started
+			// synchronously here, directly in the event handler, so the
+			// click's transient user-activation is still available to it.
+			const sessionPromise = navigator.xr.requestSession( 'immersive-vr', {
+				requiredFeatures: [ 'local-floor' ],
+			} );
+			startBgMusic();
+
+			menu.remove();
+			resolve( {
+				choice: 'vrtest', customText: customTextValue.trim(),
 				vehicleKey: VEHICLE_OPTIONS[ selectedVehicleIndex ].key, flagImage: flagImageDataUrl, sessionPromise,
 			} );
 
@@ -3801,9 +3834,7 @@ for ( const key of [ 'room', 'track', 'arena' ] ) {
 // mode-*.jpeg) yet — drawn as a plain text card instead (same technique
 // showExitConfirm's makeCard() uses), same portrait footprint as the
 // photo cards so it doesn't look out of place in the same row.
-const MODE_CARD_TEXT_LABELS = {
-	climb: 'تسلّق حر',
-};
+const MODE_CARD_TEXT_LABELS = {};
 
 function createModeCard( textureKey ) {
 
@@ -3845,12 +3876,12 @@ function createModeCard( textureKey ) {
 
 }
 
-// Returns a Promise resolving to 'room' | 'track' | 'arena' | 'climb'.
+// Returns a Promise resolving to 'room' | 'track' | 'arena'.
 function showFloatingModeMenu( arManager, scene ) {
 
 	return new Promise( ( resolve ) => {
 
-		const options = [ 'room', 'track', 'arena', 'climb' ];
+		const options = [ 'room', 'track', 'arena' ];
 
 		const menuGroup = new THREE.Group();
 		scene.add( menuGroup );
@@ -4328,10 +4359,6 @@ async function startARWithFloatingMenu( { mapParam, customCells, customText, veh
 			} else if ( chosenId === 'arena' ) {
 
 				subMode = await startARFloatingArena( { arManager, vehicleKey, customText, flagImage } );
-
-			} else if ( chosenId === 'climb' ) {
-
-				subMode = await startARClimbMode( { arManager, mapParam, customText, vehicleKey, flagImage } );
 
 			} else {
 
@@ -5873,297 +5900,146 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 
 }
 
-// ─── AR climb mode (drive on any detected real-world surface) ──
-// Same hit-test room-drive placement and full player car (lights, flag,
-// decals, smoke, drift marks, audio) as startARMode above, plus:
-// processClimbMeshes() tracks every WebXR-detected surface live (added/
-// updated/removed per frame, following the official immersive-web
-// mesh-detection sample's pattern) and builds a real triangle-mesh
-// physics collider from each one's actual geometry, drawn as a teal
-// wireframe so the scan can be visually confirmed working; and
-// updateClimbGravity() pulls the car toward and drives it on whichever
-// of those surfaces it's currently nearest — see that function's own
-// comment for the two-raycast design.
-// ✏️ EASY RETUNING KNOB — full driving speed felt too fast for this mode
-// (surfaces transition smoothly but not instantly, and a wall coming up
-// fast leaves the forward-probe/reorientation less room to react) —
-// scales down just the forward/reverse input before it reaches Vehicle.js,
-// same as scaling MAX_SPEED for this mode alone would, but without
-// touching the shared constant every other mode also uses. Steering is
-// untouched. 1 = full speed (room-drive AR's own feel), lower = slower.
-const CLIMB_SPEED_SCALE = 0.5;
+// ─── VR test room (self-built synthetic room to test "climb any ──
+// ─── surface" physics) ──────────────────────────────────────────
+// A REAL immersive-vr session (not AR/passthrough) inside a room WE
+// build — fixed-size floor + 4 walls + ceiling, known upfront — instead
+// of the previous approach (now removed) which scanned the real world
+// live via WebXR mesh-detection and drove on whatever geometry came
+// back. That approach kept failing on real hardware (wall collision
+// instead of climbing, needing a jump to start, falling off mid-climb,
+// and — worst — the car flipping/sinking into the floor because a
+// real-world-scanned mesh's triangle winding isn't guaranteed to match
+// crashcat's own "outward normal" convention). A hand-authored Box
+// collider's outward normal is correct by construction, so building the
+// room ourselves out of boxes eliminates that whole bug class outright.
+// The "drive on any surface" physics itself (castRoomRay/
+// updateRoomGravity below) is carried over unchanged from the deleted
+// startARClimbMode's castClimbRay/updateClimbGravity — only what it
+// raycasts against changed.
+// ✏️ EASY RETUNING KNOBS
+const VR_ROOM_HALF_SIZE = 3; // meters — half width/depth, so a 6x6m floor
+const VR_ROOM_HEIGHT = 3; // meters
+const VR_ROOM_WALL_THICKNESS = 0.1; // meters (half-thickness doubled below)
 
-async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, flagImage } ) {
+async function startVRTestRoom( { vrManager, vehicleKey, customText, flagImage } ) {
 
-	// See ensureAREnvironment()'s own comment (top of file) — same as
-	// startARMode/the floating track/arena.
+	// Same IBL reflections boost AR uses — plain code/geometry, nothing
+	// passthrough-specific about it, so it reads fine in this fully
+	// virtual room too.
 	ensureAREnvironment();
 
+	// Bloom is authored for a single flat camera and doesn't handle
+	// WebXR's per-eye stereo rendering correctly — same fix every other
+	// XR mode applies.
+	renderer.setEffects( [] );
+	vrManager.session.addEventListener( 'end', () => {
+
+		renderer.setEffects( [ bloomPass ] );
+		window.location.reload(); // clean return to the main menu, same as every AR exit path
+
+	} );
+
 	const world = createPhysicsWorld();
-	arManager.setWorld( world );
 
 	const placeholderCamera = new THREE.PerspectiveCamera(); // pose is overridden by WebXR while presenting
+	const controls = new Controls(); // keyboard/gamepad still work too (e.g. testing on desktop)
 
-	let gameState = null; // populated once the user confirms spawn placement
-	const controls = new Controls();
+	// ─── The room: floor + 4 walls + ceiling, each both a visible mesh ──
+	// ─── (lit by the scene's existing dirLight/hemiLight) and a real ──
+	// ─── static box collider on world._OL_STATIC — same collider ──
+	// ─── pattern as ARManager's own _buildFreeRoamFloor. ──
+	const roomGroup = new THREE.Group();
+	scene.add( roomGroup );
 
-	// ─── Climb surfaces: real static colliders built directly from ──
-	// ─── WebXR mesh-detection's own triangle data (floor + walls,  ──
-	// ─── unlike ARManager's furniture-only                         ──
-	// ─── _buildRoomFurnitureColliders) — reworked to follow the     ──
-	// ─── official immersive-web mesh-detection sample after the     ──
-	// ─── bounding-box version's real-device issues, see below.      ──
-	// Restricted to world._OL_STATIC so the raycast below only ever hits
-	// these, never the car's own moving sphere.
-	const climbQueryFilter = filter.create( world.settings.layers );
-	filter.disableAllLayers( climbQueryFilter, world.settings.layers );
-	filter.enableObjectLayer( climbQueryFilter, world.settings.layers, world._OL_STATIC );
-	const climbRayCollector = createClosestCastRayCollector();
-	const climbRaySettings = createDefaultCastRaySettings();
+	const floorMaterial = new THREE.MeshStandardMaterial( { color: 0x4a4a58, roughness: 0.85 } );
+	const wallMaterial = new THREE.MeshStandardMaterial( { color: 0x5c5c70, roughness: 0.85, side: THREE.DoubleSide } );
+	const ceilingMaterial = new THREE.MeshStandardMaterial( { color: 0x353542, roughness: 0.85, side: THREE.DoubleSide } );
 
-	// mesh-detection is only ever requested as an optionalFeature (every
-	// AR entry point does this, not just climb mode's — the session is
-	// requested once from the main menu, before the person has picked a
-	// sub-mode from the in-XR floating menu, so there's no way to make it
-	// required for climb specifically without ending and re-requesting
-	// the session, which needs a user gesture WebXR generally won't
-	// accept from inside an already-active session). So: confirm whether
-	// it actually got granted for THIS session and say so clearly instead
-	// of silently degrading — the previous version's silent fallback (car
-	// just used plain gravity with no explanation) was reported as
-	// confusing "why isn't this working at all".
-	let meshDetectionWarned = false;
+	function addRoomSurface( mesh, halfExtents, position ) {
 
-	function checkMeshDetectionSupport() {
+		mesh.position.set( position[ 0 ], position[ 1 ], position[ 2 ] );
+		mesh.receiveShadow = true;
+		roomGroup.add( mesh );
 
-		const enabled = arManager.session && arManager.session.enabledFeatures;
-		if ( enabled && enabled.includes( 'mesh-detection' ) ) return true;
-
-		if ( ! meshDetectionWarned ) {
-
-			meshDetectionWarned = true;
-			console.warn( '[climb] mesh-detection was not enabled for this AR session — falling back to plain downward gravity. On the headset, make sure a room scan (Space Setup) has been done.' );
-			showClimbNotice( 'وضع "تسلّق حر" يحتاج مسح الغرفة (Space Setup) على الهيدسِت — القيادة الآن بجاذبية عادية.' );
-
-		}
-		return false;
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			friction: 0.8,
+			restitution: 0.1,
+		} );
 
 	}
 
-	// Short-lived floating notice, facing wherever the camera was looking
-	// when triggered (not a persistent HUD element — this fires once).
-	function showClimbNotice( text ) {
+	const floorHalfThickness = 0.05;
+	addRoomSurface(
+		new THREE.Mesh( new THREE.BoxGeometry( VR_ROOM_HALF_SIZE * 2, floorHalfThickness * 2, VR_ROOM_HALF_SIZE * 2 ), floorMaterial ),
+		[ VR_ROOM_HALF_SIZE, floorHalfThickness, VR_ROOM_HALF_SIZE ],
+		[ 0, - floorHalfThickness, 0 ]
+	);
 
-		const canvas = document.createElement( 'canvas' );
-		canvas.width = 512; canvas.height = 220;
-		const ctx = canvas.getContext( '2d' );
-		ctx.fillStyle = '#C0392B';
-		ctx.fillRect( 0, 0, canvas.width, canvas.height );
-		ctx.fillStyle = '#fff';
-		ctx.font = 'bold 26px "Segoe UI", Tahoma, Arial, sans-serif';
-		ctx.textAlign = 'center';
-		ctx.textBaseline = 'middle';
-		ctx.direction = 'rtl';
+	addRoomSurface(
+		new THREE.Mesh( new THREE.BoxGeometry( VR_ROOM_HALF_SIZE * 2, floorHalfThickness * 2, VR_ROOM_HALF_SIZE * 2 ), ceilingMaterial ),
+		[ VR_ROOM_HALF_SIZE, floorHalfThickness, VR_ROOM_HALF_SIZE ],
+		[ 0, VR_ROOM_HEIGHT + floorHalfThickness, 0 ]
+	);
 
-		const words = text.split( ' ' );
-		const lines = [];
-		let line = '';
-		for ( const w of words ) {
+	// North / South walls (along X, thin in Z)
+	for ( const sign of [ 1, -1 ] ) {
 
-			const test = line ? `${ line } ${ w }` : w;
-			if ( line && ctx.measureText( test ).width > canvas.width - 60 ) { lines.push( line ); line = w; }
-			else line = test;
-
-		}
-		if ( line ) lines.push( line );
-		lines.forEach( ( l, i ) => ctx.fillText( l, canvas.width / 2, canvas.height / 2 + ( i - ( lines.length - 1 ) / 2 ) * 34 ) );
-
-		const texture = new THREE.CanvasTexture( canvas );
-		texture.colorSpace = THREE.SRGBColorSpace;
-		const card = new THREE.Mesh(
-			new THREE.PlaneGeometry( 0.44, 0.19 ),
-			new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide, transparent: true } )
+		addRoomSurface(
+			new THREE.Mesh( new THREE.BoxGeometry( VR_ROOM_HALF_SIZE * 2, VR_ROOM_HEIGHT, VR_ROOM_WALL_THICKNESS * 2 ), wallMaterial ),
+			[ VR_ROOM_HALF_SIZE, VR_ROOM_HEIGHT / 2, VR_ROOM_WALL_THICKNESS ],
+			[ 0, VR_ROOM_HEIGHT / 2, sign * VR_ROOM_HALF_SIZE ]
 		);
 
-		const cam = renderer.xr.getCamera();
-		const camPos = new THREE.Vector3();
-		const camQuat = new THREE.Quaternion();
-		cam.getWorldPosition( camPos );
-		cam.getWorldQuaternion( camQuat );
-		const fwd = new THREE.Vector3( 0, 0, -1 ).applyQuaternion( camQuat );
-		card.position.copy( camPos ).addScaledVector( fwd, 0.8 );
-		card.quaternion.copy( camQuat );
-		scene.add( card );
+	}
 
-		setTimeout( () => { scene.remove( card ); texture.dispose(); }, 6000 );
+	// East / West walls (along Z, thin in X)
+	for ( const sign of [ 1, -1 ] ) {
+
+		addRoomSurface(
+			new THREE.Mesh( new THREE.BoxGeometry( VR_ROOM_WALL_THICKNESS * 2, VR_ROOM_HEIGHT, VR_ROOM_HALF_SIZE * 2 ), wallMaterial ),
+			[ VR_ROOM_WALL_THICKNESS, VR_ROOM_HEIGHT / 2, VR_ROOM_HALF_SIZE ],
+			[ sign * VR_ROOM_HALF_SIZE, VR_ROOM_HEIGHT / 2, 0 ]
+		);
 
 	}
 
-	// XRMesh -> { wireframe, colliderBody, lastChangedTime }. Keyed by the
-	// mesh object itself — stable across frames for the same real
-	// surface, per the WebXR mesh-detection spec (and the official
-	// sample's own pattern).
-	const climbMeshMap = new Map();
-	const _climbMatrix = new THREE.Matrix4();
-	const _climbMeshPos = new THREE.Vector3();
-	const _climbMeshQuat = new THREE.Quaternion();
-	const _climbMeshScale = new THREE.Vector3();
+	// ─── Room-surface raycasting — ported unchanged (including the ──
+	// ─── dual-ray transition-priority fix and the normal-flip safety ──
+	// ─── check) from the deleted startARClimbMode's castClimbRay/ ──
+	// ─── updateClimbGravity. Restricted to world._OL_STATIC so it only ──
+	// ─── ever hits the room, never the car's own moving sphere. ──
+	const roomQueryFilter = filter.create( world.settings.layers );
+	filter.disableAllLayers( roomQueryFilter, world.settings.layers );
+	filter.enableObjectLayer( roomQueryFilter, world.settings.layers, world._OL_STATIC );
+	const roomRayCollector = createClosestCastRayCollector();
+	const roomRaySettings = createDefaultCastRaySettings();
 
-	function buildClimbGeometry( mesh ) {
-
-		const vertices = mesh.vertices;
-		const indices = mesh.indices;
-		if ( ! vertices || ! indices || vertices.length < 9 || indices.length < 3 ) {
-
-			console.warn( '[climb] detected mesh has no usable vertices/indices, skipped:', mesh.semanticLabel || '(no label)' );
-			return null;
-
-		}
-
-		const geometry = new THREE.BufferGeometry();
-		geometry.setIndex( new THREE.BufferAttribute( indices, 1 ) );
-		geometry.setAttribute( 'position', new THREE.BufferAttribute( vertices, 3 ) );
-		return geometry;
-
-	}
-
-	function removeClimbEntry( entry ) {
-
-		scene.remove( entry.wireframe );
-		entry.wireframe.geometry.dispose();
-		entry.wireframe.material.dispose();
-		rigidBody.remove( world, entry.colliderBody );
-
-	}
-
-	// Called every frame (not once, not on a timer) — matches the
-	// official sample: cheap when nothing changed (existing entries just
-	// get a pose refresh), and picks up newly-scanned or refined surfaces
-	// as soon as they appear instead of only at one fixed capture point.
-	function processClimbMeshes( frame, referenceSpace ) {
-
-		const meshes = frame.detectedMeshes;
-		if ( ! meshes ) return;
-
-		for ( const mesh of meshes ) {
-
-			const pose = frame.getPose( mesh.meshSpace, referenceSpace );
-			if ( ! pose ) continue;
-
-			const existing = climbMeshMap.get( mesh );
-
-			if ( existing && existing.lastChangedTime === mesh.lastChangedTime ) {
-
-				// Geometry unchanged — just refresh pose (cheap: no
-				// geometry/collider rebuild), in case tracking refined the
-				// surface's position without re-triangulating it.
-				_climbMatrix.fromArray( pose.transform.matrix );
-				_climbMatrix.decompose( _climbMeshPos, _climbMeshQuat, _climbMeshScale );
-				existing.wireframe.matrix.copy( _climbMatrix );
-				rigidBody.setTransform(
-					world, existing.colliderBody,
-					[ _climbMeshPos.x, _climbMeshPos.y, _climbMeshPos.z ],
-					[ _climbMeshQuat.x, _climbMeshQuat.y, _climbMeshQuat.z, _climbMeshQuat.w ],
-					false
-				);
-				continue;
-
-			}
-
-			// New mesh, or its geometry changed (mesh-detection re-scanned
-			// it) — (re)build both the debug wireframe and the real
-			// triangle-mesh physics collider from the same vertices/
-			// indices, so the car's climb raycast gets an exact normal
-			// instead of a bounding-box approximation's coarse one.
-			if ( existing ) removeClimbEntry( existing );
-
-			const geometry = buildClimbGeometry( mesh );
-			if ( ! geometry ) continue;
-
-			_climbMatrix.fromArray( pose.transform.matrix );
-			_climbMatrix.decompose( _climbMeshPos, _climbMeshQuat, _climbMeshScale );
-
-			const wireframe = new THREE.LineSegments(
-				new THREE.EdgesGeometry( geometry ),
-				new THREE.LineBasicMaterial( { color: 0x00ffcc } )
-			);
-			wireframe.matrixAutoUpdate = false;
-			wireframe.matrix.copy( _climbMatrix );
-			scene.add( wireframe );
-
-			const colliderBody = rigidBody.create( world, {
-				shape: triangleMesh.create( {
-					positions: Array.from( mesh.vertices ),
-					indices: Array.from( mesh.indices ),
-				} ),
-				motionType: MotionType.STATIC,
-				objectLayer: world._OL_STATIC,
-				position: [ _climbMeshPos.x, _climbMeshPos.y, _climbMeshPos.z ],
-				quaternion: [ _climbMeshQuat.x, _climbMeshQuat.y, _climbMeshQuat.z, _climbMeshQuat.w ],
-				friction: 0.8,
-				restitution: 0.2,
-			} );
-
-			climbMeshMap.set( mesh, { wireframe, colliderBody, lastChangedTime: mesh.lastChangedTime } );
-			console.log( `[climb] +surface (${ climbMeshMap.size } total):`, mesh.semanticLabel || '(no label)' );
-
-		}
-
-		// Drop entries for meshes no longer reported (merged into a
-		// bigger one, or the room was re-scanned differently).
-		for ( const [ mesh, entry ] of climbMeshMap ) {
-
-			if ( ! meshes.has( mesh ) ) {
-
-				removeClimbEntry( entry );
-				climbMeshMap.delete( mesh );
-
-			}
-
-		}
-
-	}
-
-	// Per-frame climb physics: raycast from the sphere to find the
-	// nearest climb surface, pull toward it (custom gravity, since
-	// sphereBody.motionProperties.gravityFactor is 0 for this mode — see
-	// onPlaced below) instead of always straight down, and slowly
-	// reorient the car to match. No hit (both rays missed, or no
-	// surfaces were ever detected) falls back to a plain downward
-	// force — the exact same push world gravity would apply — so the
-	// car never just floats.
-	//
-	// TWO rays, not one: a single ray straight down (−upVector) can only
-	// ever find the surface directly under the car — reported after the
-	// first real test: driving toward a wall, the car just bumped into
-	// it like a normal obstacle instead of climbing it. A real room has
-	// no gap between floor and wall, so the down-ray keeps reporting the
-	// floor right up until the car is already inside the wall's
-	// collider — it never gets a chance to see the wall coming. The
-	// second ray, cast forward along the car's current facing, catches
-	// an approaching surface early enough to start turning onto it
-	// before contact.
-	const _climbUp = new THREE.Vector3( 0, 1, 0 );
-	const _climbNormalDown = new THREE.Vector3();
-	const _climbNormalFwd = new THREE.Vector3();
-	const _climbForce = new THREE.Vector3();
-	const _climbOrigin = new THREE.Vector3();
-	const _climbForwardDir = new THREE.Vector3();
-	const _climbRayDirVec = new THREE.Vector3();
+	const _roomUp = new THREE.Vector3( 0, 1, 0 );
+	const _roomNormalDown = new THREE.Vector3();
+	const _roomNormalFwd = new THREE.Vector3();
+	const _roomForce = new THREE.Vector3();
+	const _roomOrigin = new THREE.Vector3();
+	const _roomForwardDir = new THREE.Vector3();
+	const _roomRayDirVec = new THREE.Vector3();
 
 	// Casts one ray from `origin` (plain [x,y,z]) along `dir` (plain
-	// [x,y,z], unit length) up to `length`, filtered to climb surfaces
+	// [x,y,z], unit length) up to `length`, filtered to room surfaces
 	// only. On a hit, fills `outNormal` with the surface normal there and
 	// returns the hit distance; returns null on a miss (or a body lookup/
 	// degenerate-normal failure, treated the same as a miss).
-	function castClimbRay( origin, dir, length, outNormal ) {
+	function castRoomRay( origin, dir, length, outNormal ) {
 
-		climbRayCollector.reset();
-		castRay( world, climbRayCollector, climbRaySettings, origin, dir, length, climbQueryFilter );
+		roomRayCollector.reset();
+		castRay( world, roomRayCollector, roomRaySettings, origin, dir, length, roomQueryFilter );
 
-		if ( climbRayCollector.hit.status !== CastRayStatus.COLLIDING ) return null;
+		if ( roomRayCollector.hit.status !== CastRayStatus.COLLIDING ) return null;
 
-		const hit = climbRayCollector.hit;
+		const hit = roomRayCollector.hit;
 		const hitDistance = hit.fraction * length;
 		const hitPoint = [
 			origin[ 0 ] + dir[ 0 ] * hitDistance,
@@ -6177,251 +6053,234 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 		outNormal.set( n[ 0 ], n[ 1 ], n[ 2 ] );
 		if ( outNormal.lengthSq() < 0.0001 ) return null;
 
-		// Reported: the car flipped over and got stuck sunk into the
-		// floor instead of resting on it. Root cause: a real-world scanned
-		// mesh's triangle winding isn't guaranteed to match whatever
-		// convention crashcat's triangleMesh shape treats as "outward" —
-		// unlike a hand-authored box collider (always correct by
-		// construction), getSurfaceNormal() here can come back facing
-		// INTO the floor instead of up out of it. Using that inverted
-		// normal as targetUp pulls custom gravity (and the car's own "up")
-		// downward through the surface instead of resting on top of it.
-		// A normal is only physically meaningful relative to which side
-		// the ray approached from — flip it to always face back toward
-		// the ray origin (opposing the ray direction) rather than trusting
-		// the mesh's winding.
-		if ( outNormal.dot( _climbRayDirVec.set( dir[ 0 ], dir[ 1 ], dir[ 2 ] ) ) > 0 ) outNormal.negate();
+		// Kept defensive even though every room collider here is a
+		// hand-authored Box (correct outward-normal by construction,
+		// unlike the real-world scanned triangle mesh this logic was
+		// originally written against) — cheap, and guards against ever
+		// using a normal facing the wrong way.
+		if ( outNormal.dot( _roomRayDirVec.set( dir[ 0 ], dir[ 1 ], dir[ 2 ] ) ) > 0 ) outNormal.negate();
 
 		return hitDistance;
 
 	}
 
-	function updateClimbGravity( dt, vehicle, sphereBody ) {
+	// Per-frame room physics: raycast from the sphere to find the
+	// nearest room surface, pull toward it (custom gravity, since
+	// sphereBody.motionProperties.gravityFactor is 0 for this mode — see
+	// below) instead of always straight down, and slowly reorient the
+	// car to match.
+	//
+	// TWO rays, not one — a single ray straight down can only ever find
+	// the surface directly under the car: driving toward a wall, the car
+	// would just bump into it like a normal obstacle instead of climbing
+	// it, since there's no gap between floor and wall for a down-only ray
+	// to notice the wall coming. The second ray, cast forward along the
+	// car's current facing, catches an approaching surface early enough
+	// to start turning onto it before contact.
+	function updateRoomGravity( dt, vehicle, sphereBody ) {
 
 		const mass = 1 / Math.max( sphereBody.motionProperties.invMass, 1e-6 );
+
+		_roomOrigin.copy( vehicle.spherePos );
+		const originArr = [ _roomOrigin.x, _roomOrigin.y, _roomOrigin.z ];
+
+		const downDist = castRoomRay(
+			originArr, [ -_roomUp.x, -_roomUp.y, -_roomUp.z ],
+			vehicle.sphereRadius * 4, _roomNormalDown
+		);
+
+		_roomForwardDir.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+		const forwardRayLength = vehicle.sphereRadius * 5;
+		const forwardDist = castRoomRay(
+			originArr, [ _roomForwardDir.x, _roomForwardDir.y, _roomForwardDir.z ],
+			forwardRayLength, _roomNormalFwd
+		);
+
+		// NOT "whichever is closer" — while resting on a surface the
+		// down-ray's hit distance is always near zero, so it would always
+		// "win" against the forward-ray right up until the car is already
+		// touching the next surface (needs an actual bump to ever start
+		// climbing a wall). Instead, an approaching surface within this
+		// (deliberately generous) fraction of the forward-ray's own
+		// length takes priority outright, so the car starts turning onto
+		// it with real lead time; only when nothing is imminent ahead
+		// does the down-ray (stay on the current surface) win.
+		const TRANSITION_FRACTION = 0.6;
 		let targetUp = null;
+		if ( forwardDist !== null && forwardDist < forwardRayLength * TRANSITION_FRACTION ) {
 
-		if ( climbMeshMap.size > 0 ) {
+			targetUp = _roomNormalFwd;
 
-			_climbOrigin.copy( vehicle.spherePos );
-			const originArr = [ _climbOrigin.x, _climbOrigin.y, _climbOrigin.z ];
+		} else if ( downDist !== null ) {
 
-			const downDist = castClimbRay(
-				originArr, [ -_climbUp.x, -_climbUp.y, -_climbUp.z ],
-				vehicle.sphereRadius * 4, _climbNormalDown
-			);
+			targetUp = _roomNormalDown;
 
-			_climbForwardDir.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
-			const forwardRayLength = vehicle.sphereRadius * 5;
-			const forwardDist = castClimbRay(
-				originArr, [ _climbForwardDir.x, _climbForwardDir.y, _climbForwardDir.z ],
-				forwardRayLength, _climbNormalFwd
-			);
+		} else if ( forwardDist !== null ) {
 
-			// NOT "whichever is closer" — while resting on a surface the
-			// down-ray's hit distance is always near zero, so it would
-			// always "win" against the forward-ray right up until the car
-			// is already touching the next surface (reported: needed an
-			// actual jump to ever start climbing a wall, and let go of a
-			// wall instead of sticking to it while driving down toward the
-			// floor). Instead, an approaching surface within this
-			// (deliberately generous) fraction of the forward-ray's own
-			// length takes priority outright, so the car starts turning
-			// onto it with real lead time; only when nothing is imminent
-			// ahead does the down-ray (stay on the current surface) win.
-			const TRANSITION_FRACTION = 0.6;
-			if ( forwardDist !== null && forwardDist < forwardRayLength * TRANSITION_FRACTION ) {
-
-				targetUp = _climbNormalFwd;
-
-			} else if ( downDist !== null ) {
-
-				targetUp = _climbNormalDown;
-
-			} else if ( forwardDist !== null ) {
-
-				targetUp = _climbNormalFwd;
-
-			}
+			targetUp = _roomNormalFwd;
 
 		}
 
 		// ×1.5 to match createSphereBody's own gravityFactor (Physics.js) —
 		// the strength this car falls at everywhere else in the game.
-		// climbMeshMap stays empty until processClimbMeshes finds
-		// something, so this fallback is also what the car falls under for
-		// that first instant right after placement (and permanently, if
-		// mesh-detection never finds anything usable — see
-		// checkMeshDetectionSupport()).
 		const GRAVITY_STRENGTH = 9.81 * 1.5;
 
 		if ( targetUp ) {
 
-			_climbForce.copy( targetUp ).multiplyScalar( - mass * GRAVITY_STRENGTH );
+			_roomForce.copy( targetUp ).multiplyScalar( - mass * GRAVITY_STRENGTH );
 
 		} else {
 
-			targetUp = _climbUp; // fallback: plain world gravity, straight down
-			_climbForce.set( 0, - mass * GRAVITY_STRENGTH, 0 );
+			targetUp = _roomUp; // fallback: plain world gravity, straight down (shouldn't happen — the room always fully encloses the car)
+			_roomForce.set( 0, - mass * GRAVITY_STRENGTH, 0 );
 
 		}
 
-		rigidBody.addForce( world, sphereBody, [ _climbForce.x, _climbForce.y, _climbForce.z ], true );
+		rigidBody.addForce( world, sphereBody, [ _roomForce.x, _roomForce.y, _roomForce.z ], true );
 
-		// Gradual, not a snap — same slerp-speed convention already used
+		// Gradual, not a snap — same slerp-speed convention used
 		// elsewhere in this file (e.g. showFloatingModeMenu's card follow).
 		const t = 1 - Math.exp( -3 * dt );
-		_climbUp.lerp( targetUp, t ).normalize();
-		vehicle.upVector = _climbUp;
+		_roomUp.lerp( targetUp, t ).normalize();
+		vehicle.upVector = _roomUp;
 		vehicle.container.quaternion.slerp(
-			vehicle.alignWithY( vehicle.container.quaternion, _climbUp ), t
+			vehicle.alignWithY( vehicle.container.quaternion, _roomUp ), t
 		);
 
 	}
 
-	arManager.onPlaced = ( spawn ) => {
+	// ─── Vehicle: spawns immediately at room center — no placement ──
+	// ─── phase like AR's hit-test flow, since the room's layout is ──
+	// ─── fixed and known upfront (there's no real world to scan or ──
+	// ─── wait on confirmation for). ──
+	const sphereBody = createSphereBody( world, [ 0, 0.5, 0 ] );
+	// updateRoomGravity() applies its own force every frame in place of
+	// world gravity (straight down, or toward whatever surface the
+	// raycast finds) — zeroing this here stops the world's own
+	// straight-down gravity from adding on top of that.
+	sphereBody.motionProperties.gravityFactor = 0;
 
-		const sphereBody = createSphereBody( world, [ spawn.position.x, spawn.position.y, spawn.position.z ] );
-		// updateClimbGravity() applies its own force every frame in place
-		// of world gravity (straight down, or toward whatever surface the
-		// raycast finds) — zeroing this here stops the world's own
-		// straight-down gravity from adding on top of that.
-		sphereBody.motionProperties.gravityFactor = 0;
+	const vehicle = new Vehicle();
+	vehicle.rigidBody = sphereBody;
+	vehicle.physicsWorld = world;
+	vehicle.spherePos.set( 0, 0.5, 0 );
+	vehicle.prevModelPos.set( 0, 0, 0 );
+	// Vehicle.js's own auto-level snaps the car back toward world +Y
+	// whenever it's already mostly upright — exactly what would fight
+	// updateRoomGravity()'s own reorientation toward a wall. This mode
+	// owns 100% of the car's orientation itself instead (see
+	// updateRoomGravity()'s alignWithY() call above).
+	vehicle.autoLevelToUp = false;
 
-		const vehicle = new Vehicle();
-		vehicle.rigidBody = sphereBody;
-		vehicle.physicsWorld = world;
-		vehicle.spherePos.copy( spawn.position );
-		vehicle.prevModelPos.set( spawn.position.x, 0, spawn.position.z );
-		vehicle.container.rotation.y = spawn.angle;
-		// Vehicle.js's own auto-level snaps the car back toward world +Y
-		// whenever it's already mostly upright — exactly what would fight
-		// updateClimbGravity()'s own reorientation toward a wall. This
-		// mode owns 100% of the car's orientation itself instead (see
-		// updateClimbGravity()'s alignWithY() call below).
-		vehicle.autoLevelToUp = false;
+	// A direct child of `scene` (true WebXR world space), same as every
+	// other XR mode.
+	const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
+	scene.add( vehicleGroup );
+	addCustomTextDecals( vehicleGroup, customText );
+	const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
+	const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+	const contactShadow = addARContactShadow( vehicleGroup );
 
-		// Same as room-drive AR mode: a direct child of `scene` (true
-		// WebXR world space).
-		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
-		scene.add( vehicleGroup );
-		addCustomTextDecals( vehicleGroup, customText );
-		const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
-		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
-		const contactShadow = addARContactShadow( vehicleGroup );
+	dirLight.target = vehicleGroup;
 
-		dirLight.target = vehicleGroup;
+	const vehicleModel = vehicleGroup.children[ 0 ];
+	const vehicleModelMinY = new THREE.Box3().setFromObject( vehicleModel ).min.y;
 
-		const vehicleModel = vehicleGroup.children[ 0 ];
-		const vehicleModelMinY = new THREE.Box3().setFromObject( vehicleModel ).min.y;
+	const particles = new SmokeTrails( scene, 0.12 );
+	const driftMarks = new DriftMarks( scene, 'vr-testroom', 1, 9 );
 
-		const particles = new SmokeTrails( scene, 0.12 );
-		const driftMarks = new DriftMarks( scene, mapParam || 'ar-climb', 1, 9 );
+	const audio = new GameAudio();
+	audio.init( renderer.xr.getCamera(), vehicleGroup ); // XR camera rig instead of the NORMAL-mode chase Camera
+	// No DOM click/touchstart/keydown once inside the XR session (input
+	// is controller triggers only), so Audio.js's normal gesture-based
+	// unlock() would never fire. We already know a real user gesture
+	// happened (the button press that got us into this session), so it's
+	// safe to unlock immediately here instead.
+	audio.forceUnlock();
 
-		const audio = new GameAudio();
-		audio.init( renderer.xr.getCamera(), vehicleGroup );
-		audio.forceUnlock();
+	const _forward = new THREE.Vector3();
 
-		const _forward = new THREE.Vector3();
+	const contactListener = {
+		onContactAdded( bodyA, bodyB ) {
 
-		const contactListener = {
-			onContactAdded( bodyA, bodyB ) {
+			if ( bodyA !== sphereBody && bodyB !== sphereBody ) return;
 
-				if ( bodyA !== sphereBody && bodyB !== sphereBody ) return;
+			_forward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+			_forward.y = 0;
+			_forward.normalize();
 
-				_forward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
-				_forward.y = 0;
-				_forward.normalize();
+			const impactVelocity = Math.abs( vehicle.modelVelocity.dot( _forward ) );
+			audio.playImpact( impactVelocity );
 
-				const impactVelocity = Math.abs( vehicle.modelVelocity.dot( _forward ) );
-				audio.playImpact( impactVelocity );
+		}
+	};
 
-			}
-		};
-
-		gameState = {
-			vehicle, vehicleGroup, vehicleModel, vehicleModelMinY, vehicleScale: 1,
-			particles, driftMarks, audio, vehicleLights, vehicleFlag, contactListener, contactShadow
-		};
-
+	const gameState = {
+		vehicle, vehicleGroup, vehicleModel, vehicleModelMinY, vehicleScale: 1,
+		particles, driftMarks, audio, vehicleLights, vehicleFlag, contactListener, contactShadow
 	};
 
 	return {
 
-		// See the identical getter in startARFloatingTrack for why.
-		get audio() { return gameState && gameState.audio; },
+		get audio() { return gameState.audio; },
 
-		frameUpdate( dt, timestamp, frame ) {
+		frameUpdate( dt ) {
 
 			try {
 
-				arManager.update( frame, dt );
+				const kbInput = controls.update();
+				const vrInput = vrManager.getDriveInput();
+				const input = {
+					x: Math.abs( vrInput.x ) > Math.abs( kbInput.x ) ? vrInput.x : kbInput.x,
+					z: Math.abs( vrInput.z ) > Math.abs( kbInput.z ) ? vrInput.z : kbInput.z,
+					touchActive: kbInput.touchActive,
+					handbrake: kbInput.handbrake || vrManager.getHandbrakeHold(),
+				};
 
-				if ( gameState ) {
+				// Queues this frame's custom gravity force + reorients
+				// toward the current room surface — must run before
+				// updateVehicleAndFx() below, since that's what steps
+				// physics (crashcat clears queued forces after each step).
+				updateRoomGravity( dt, gameState.vehicle, gameState.vehicle.rigidBody );
 
-					checkMeshDetectionSupport(); // warns once, cheap to re-check
-					processClimbMeshes( frame, renderer.xr.getReferenceSpace() );
+				updateVehicleAndFx( dt, input, { world, ...gameState } );
+				const roomHazardScale = gameState.vehicleScale * 3.2;
+				updateVehicleLights( gameState.vehicleLights, dt, gameState.vehicleScale, gameState.vehicle.linearSpeed < -0.01, roomHazardScale );
 
-					const kbInput = controls.update();
-					const arInput = arManager.getDriveInput();
-					const input = {
-						x: Math.abs( arInput.x ) > Math.abs( kbInput.x ) ? arInput.x : kbInput.x,
-						z: ( Math.abs( arInput.z ) > Math.abs( kbInput.z ) ? arInput.z : kbInput.z ) * CLIMB_SPEED_SCALE,
-						touchActive: kbInput.touchActive,
-						handbrake: kbInput.handbrake || arManager.getHandbrakeHold(),
-					};
+				const scaleInput = vrManager.getScaleAdjustInput();
+				if ( scaleInput !== 0 ) {
 
-					// Queues this frame's custom gravity force + reorients
-					// toward the current climb surface — must run before
-					// updateVehicleAndFx() below, since that's what steps
-					// physics (crashcat clears queued forces after each step).
-					updateClimbGravity( dt, gameState.vehicle, gameState.vehicle.rigidBody );
-
-					updateVehicleAndFx( dt, input, { world, ...gameState } );
-					const roomHazardScale = gameState.vehicleScale * 3.2;
-					updateVehicleLights( gameState.vehicleLights, dt, gameState.vehicleScale, gameState.vehicle.linearSpeed < -0.01, roomHazardScale );
-
-					const scaleInput = arManager.getScaleAdjustInput();
-					if ( scaleInput !== 0 ) {
-
-						gameState.vehicleScale = THREE.MathUtils.clamp(
-							gameState.vehicleScale * ( 1 - scaleInput * 0.8 * dt ),
-							0.03, 3.0
-						);
-
-						const s = gameState.vehicleScale;
-						gameState.vehicleModel.scale.setScalar( s );
-						gameState.vehicleModel.position.y = gameState.vehicleModelMinY * ( 1 - s );
-						if ( gameState.contactShadow ) gameState.contactShadow.scale.setScalar( s );
-
-					}
-
-					if ( arManager.getHeadlightToggle() ) toggleHeadlights( gameState.vehicleLights );
-					if ( arManager.getHazardToggle() ) toggleHazards( gameState.vehicleLights );
-					setHighBeam( gameState.vehicleLights, arManager.getHighBeamHold(), gameState.vehicleScale );
-					gameState.audio.setHorn( arManager.getHornHold() );
-
-					if ( gameState.vehicleLights ) {
-
-						arManager.setFloorGridVisible( gameState.vehicleLights.headlights[ 0 ].light.visible );
-
-					}
-
-					dirLight.position.set(
-						gameState.vehicle.spherePos.x + 11.4,
-						15,
-						gameState.vehicle.spherePos.z - 5.3
+					gameState.vehicleScale = THREE.MathUtils.clamp(
+						gameState.vehicleScale * ( 1 - scaleInput * 0.8 * dt ),
+						0.03, 3.0
 					);
 
-				} else {
-
-					updateWorld( world, null, dt );
+					const s = gameState.vehicleScale;
+					gameState.vehicleModel.scale.setScalar( s );
+					gameState.vehicleModel.position.y = gameState.vehicleModelMinY * ( 1 - s );
+					if ( gameState.contactShadow ) gameState.contactShadow.scale.setScalar( s );
 
 				}
 
+				if ( vrManager.getHeadlightToggle() ) toggleHeadlights( gameState.vehicleLights );
+				if ( vrManager.getHazardToggle() ) toggleHazards( gameState.vehicleLights );
+				setHighBeam( gameState.vehicleLights, vrManager.getHighBeamHold(), gameState.vehicleScale );
+				gameState.audio.setHorn( vrManager.getHornHold() );
+
+				// Left-hand menu button: no confirm dialog in this first
+				// test-room pass, just end the session straight away (the
+				// 'end' listener above handles the reload back to the menu).
+				if ( vrManager.getMenuButtonPress() ) vrManager.session.end();
+
+				dirLight.position.set(
+					gameState.vehicle.spherePos.x + 11.4,
+					15,
+					gameState.vehicle.spherePos.z - 5.3
+				);
+
 			} catch ( e ) {
 
-				console.error( '[main] AR climb frameUpdate() error:', e );
+				console.error( '[main] VR test room frameUpdate() error:', e );
 
 			}
 
@@ -6700,6 +6559,7 @@ async function init() {
 	} catch ( e ) { /* ignore */ }
 
 	const arAvailable = await ARManager.isSupported();
+	const vrAvailable = await VRManager.isSupported();
 
 	if ( returnToArMenu && arAvailable ) {
 
@@ -6727,13 +6587,39 @@ async function init() {
 	// eslint-disable-next-line no-constant-condition
 	while ( true ) {
 
-		const { choice, customText, freeRoam, vehicleKey, flagImage, sessionPromise } = await createModeMenu( { arAvailable } );
+		const { choice, customText, freeRoam, vehicleKey, flagImage, sessionPromise } = await createModeMenu( { arAvailable, vrAvailable } );
 
 		if ( choice === 'ar' ) {
 
 			try {
 
 				activeMode = await startARWithFloatingMenu( { mapParam, customCells, customText, vehicleKey, flagImage, sessionPromise } );
+				break;
+
+			} catch ( e ) {
+
+				activeMode = null;
+
+				await new Promise( ( resolve ) => {
+
+					showErrorOverlay(
+						( e && e.message ) ? e.message : String( e ),
+						e && e.stack ? e.stack : '',
+						resolve
+					);
+
+				} );
+				continue; // back to the mode menu instead of a silent black screen
+
+			}
+
+		} else if ( choice === 'vrtest' ) {
+
+			try {
+
+				const vrManager = new VRManager( { renderer, scene } );
+				await vrManager.requestSession( sessionPromise );
+				activeMode = await startVRTestRoom( { vrManager, vehicleKey, customText, flagImage } );
 				break;
 
 			} catch ( e ) {
