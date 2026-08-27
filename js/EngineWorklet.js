@@ -150,7 +150,6 @@ export class EngineCore {
 		// not just get quieter.
 		const idleFuel = 0.02 + 0.23 * Math.min( 1, Math.max( 0, ( 0.3 - rpm01 ) / 0.3 ) );
 		const combustion = Math.max( load, idleFuel );
-		const combGain = Math.pow( combustion, 0.7 );
 		const fuelCut = load < 0.05 && rpm01 > 0.18;
 
 		// Lift-off detection: residual fuel pops cluster right after the cut

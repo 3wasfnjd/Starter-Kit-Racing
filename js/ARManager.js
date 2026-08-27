@@ -43,7 +43,6 @@ export class ARManager {
 		this.gamepads = { left: null, right: null };
 		this.controllers = { left: null, right: null };
 		this._prevTrigger = { left: false, right: false };
-		this._prevRadioButtons = { x: false, y: false };
 		this._prevHeadlightButton = false;
 		this._prevHazardButton = false;
 
@@ -652,26 +651,6 @@ export class ARManager {
 		const v = Math.abs( a3 ) > Math.abs( a1 ) ? a3 : a1;
 
 		return Math.abs( v ) > 0.25 ? v : 0; // slightly larger deadzone than steering
-
-	}
-
-	// Left X/Y buttons (xr-standard indices 4/5) are completely unused
-	// during driving — repurposed here for radio control. Returns
-	// rising-edge booleans (true only on the frame the button was first
-	// pressed), so main.js can react once per press rather than every frame.
-	getRadioButtons() {
-
-		const left = this.gamepads.left;
-		const xBtn = left && left.buttons[ 4 ] ? left.buttons[ 4 ].pressed : false;
-		const yBtn = left && left.buttons[ 5 ] ? left.buttons[ 5 ].pressed : false;
-
-		const xEdge = xBtn && ! this._prevRadioButtons.x;
-		const yEdge = yBtn && ! this._prevRadioButtons.y;
-
-		this._prevRadioButtons.x = xBtn;
-		this._prevRadioButtons.y = yBtn;
-
-		return { next: xEdge, toggle: yEdge };
 
 	}
 

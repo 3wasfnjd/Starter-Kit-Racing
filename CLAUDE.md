@@ -1,23 +1,32 @@
-# Starter Kit Racing
+# هجولة (Hajwala)
 
-Port of the Kenney "Starter Kit Racing" Godot 4.6 project to plain JavaScript and three.js with crashcat physics.
+An Arabic-localized drift/racing game, originally ported from Kenney's "Starter Kit Racing" Godot 4.6 project to plain JavaScript and three.js with crashcat physics, since substantially expanded (AR mode, AI opponents, lap timer, track editor).
 
 ## Structure
 
-- `js/` — JavaScript port
-  - `main.js` — Entry point, scene setup, game loop
+- `index.html` — Game entry point (menu, mode selection, boot-error overlay)
+- `editor.html` — Standalone track editor (build/share custom track layouts via `?map=` URL param)
+- `js/` — JavaScript source
+  - `main.js` — Scene setup, menus, mode flows (NORMAL web + AR room/track/arena), game loop
   - `Physics.js` — crashcat wall colliders and sphere body (ported from Godot collision shapes)
   - `Track.js` — GridMap track layout and piece placement
   - `Vehicle.js` — Vehicle physics and controls
   - `Camera.js` — Camera system
-  - `Controls.js` — Input handling
+  - `Controls.js` — Keyboard/touch input handling
+  - `AIController.js` — Race and free-roam AI driver logic (path-following/lookahead steering)
+  - `ARManager.js` — AR session/controller management for Meta Quest passthrough mode
+  - `LapTimer.js` — Lap counting, timing, best-lap persistence (localStorage)
+  - `DriftMarks.js` — Persistent tire skid-mark trail geometry (serializable)
   - `Particles.js` — Smoke trail effects
-  - `Audio.js` — Sound: positional sources on the vehicle, distance lowpass, outdoor reverb; engine and impacts are synthesized, skid is a sample with tone/pitch variation
+  - `Flag.js` — Animated cloth rear-corner flag
+  - `Loader.js` — Shared GLTF/colormap texture loading
+  - `Audio.js` — Sound: positional sources on the vehicle, distance lowpass, outdoor reverb; engine and impacts are synthesized, skid/horn/reverse/launch are samples. Also loads a crowd-cheer sample (`audio/crowd.mp3`) and background music (`audio/music.mp3`) — see note below.
   - `EngineWorklet.js` — Procedural engine synth (AudioWorklet)
   - `ImpactSound.js` — Procedural collision one-shots (rendered into AudioBuffers at init)
-- `models/` — GLB models shared between both versions
-- `audio/` — Sample assets (skid.ogg; engine and impacts are synthesized). The synth DSP cores are plain classes importable from Node for offline rendering/analysis.
-- `sprites/` — Sprite assets
+- `models/` — GLB models and shared textures
+- `audio/` — Sample assets (skid, horn, reverse, launch, background music; engine and impacts are synthesized instead — see `EngineWorklet.js`/`ImpactSound.js`). **Note:** `Audio.js` also tries to load `audio/crowd.mp3` for a hard-drift crowd cheer, but that file doesn't exist in the repo — the feature fails to load silently (no crash; `crowdSound.buffer` just stays unset) until the asset is added.
+- `images/` — Menu UI art (icons, thumbnails, background)
+- `sprites/` — Sprite assets (smoke particle texture)
 
 ## Key conventions
 

@@ -219,7 +219,6 @@ class DriftTrail {
 
 		const start = ( segCount < MAX_SEGMENTS ) ? 0 : this.segmentIndex;
 		const p = this.positions;
-		const c = this.colors;
 		const strokes = [];
 		let stroke = null;
 		let lastX = 0, lastY = 0, lastZ = 0;

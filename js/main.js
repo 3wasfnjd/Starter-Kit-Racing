@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 // (RoomEnvironment import removed — replaced by buildARColorEnvironmentScene below.)
 import { LightProbeGrid } from 'three/addons/lighting/LightProbeGrid.js';
-import { LightProbeGridHelper } from 'three/addons/helpers/LightProbeGridHelper.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, cylinder, MotionType } from 'crashcat';
 import { Vehicle, MAX_SPEED } from './Vehicle.js';
 import { Camera } from './Camera.js';
@@ -17,7 +16,6 @@ import { createFlag, createSaudiFlagDataUrl } from './Flag.js';
 import { LapTimer } from './LapTimer.js';
 import { ColorMapGLTFLoader } from './Loader.js';
 import { ARManager } from './ARManager.js';
-import { PlaceableObject } from './PlaceableObject.js';
 
 
 const renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true, outputBufferType: THREE.HalfFloatType } );
@@ -1226,27 +1224,6 @@ function createAsphaltTexture() {
 // points scattered across the open paved area, loosely evoking street
 // lane markings (useful even with the barrier/stand dressing, since the
 // middle of a large arena can still feel empty without them).
-function createLaneMarkingsTexture() {
-
-	const size = 256;
-	const canvas = document.createElement( 'canvas' );
-	canvas.width = canvas.height = size;
-	const ctx = canvas.getContext( '2d' );
-	ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-	ctx.lineWidth = 3;
-	ctx.setLineDash( [ 14, 14 ] );
-	ctx.beginPath();
-	ctx.moveTo( size / 2, 0 );
-	ctx.lineTo( size / 2, size );
-	ctx.moveTo( 0, size / 2 );
-	ctx.lineTo( size, size / 2 );
-	ctx.stroke();
-
-	const texture = new THREE.CanvasTexture( canvas );
-	texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-	return texture;
-
-}
 
 function createSandTexture() {
 
@@ -1451,47 +1428,6 @@ function createTrackEdgeTexture( worldSizeX, worldSizeZ, halfX, halfZ ) {
 
 }
 
-function createCrowdTexture() {
-
-	const w = 256, h = 64;
-	const canvas = document.createElement( 'canvas' );
-	canvas.width = w;
-	canvas.height = h;
-	const ctx = canvas.getContext( '2d' );
-	ctx.fillStyle = '#1c1f26';
-	ctx.fillRect( 0, 0, w, h );
-
-	const colors = [ '#e2725b', '#f2c230', '#4CAF6D', '#5B8CFF', '#f4f4f4', '#8B5FBF', '#D9534F' ];
-	for ( let y = 6; y < h; y += 9 ) {
-
-		const rowOffset = ( Math.round( y / 9 ) % 2 === 0 ) ? 4 : 8.5;
-		for ( let x = rowOffset; x < w; x += 8.5 ) {
-
-			ctx.fillStyle = colors[ Math.floor( Math.random() * colors.length ) ];
-			ctx.beginPath();
-			ctx.arc( x, y, 2.5, 0, Math.PI * 2 );
-			ctx.fill();
-
-		}
-
-	}
-
-	const texture = new THREE.CanvasTexture( canvas );
-	texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-	return texture;
-
-}
-
-// Builds a 3-tier stepped grandstand (like Riyadh's Reem circuit) along
-// one perimeter wall. axis 'x' = wall runs along X (north/south walls,
-// fixedCoord is their Z); axis 'z' = wall runs along Z (east/west walls,
-// fixedCoord is their X). direction (+1/-1) is which way it extends
-// away from the track.
-// Real asset (models/barrier-segment.glb, 8 units long) placed in a
-// closed loop around a square footprint — shared between the AR drift
-// pad and (now) the web free-roam arena, so both use the same visual
-// barrier style as the actual race track instead of a separate
-// grandstand design.
 // Same red/white striped barrier the actual race track uses
 // (buildBarrierSegment, runtime-built geometry) placed in a closed loop
 // around a square footprint — shared between the web free-roam arena
@@ -1532,42 +1468,6 @@ function buildBarrierLoop( parentGroup, world, halfX, halfZ = halfX, yOffset = 0
 		}
 
 	}
-
-}
-
-function buildGrandstandWall( scene, axis, length, fixedCoord, baseDistance, direction ) {
-
-	// Many small rows (realistic stadium riser height, ~0.45m per step)
-	// instead of a few huge tiers — each individual step should read as
-	// smaller than the car, not towering over it.
-	const rowHeight = 0.45, rowDepth = 1.3, numRows = 6;
-	const tiers = [];
-	for ( let i = 0; i < numRows; i ++ ) tiers.push( { h: rowHeight * ( i + 1 ), d: rowDepth } );
-	let offset = 0;
-
-	tiers.forEach( ( t ) => {
-
-		const centerDist = baseDistance + offset + t.d / 2;
-		const sizeX = axis === 'x' ? length : t.d;
-		const sizeZ = axis === 'x' ? t.d : length;
-
-		const texture = createCrowdTexture();
-		texture.repeat.set( axis === 'x' ? length / 4 : 1,
-			axis === 'x' ? 1 : length / 4 );
-
-		const material = new THREE.MeshStandardMaterial( { map: texture, roughness: 1, metalness: 0 } );
-		const mesh = new THREE.Mesh( new THREE.BoxGeometry( sizeX, t.h, sizeZ ), material );
-		mesh.position.set(
-			axis === 'x' ? 0 : fixedCoord + direction * centerDist,
-			t.h / 2,
-			axis === 'x' ? fixedCoord + direction * centerDist : 0
-		);
-		mesh.receiveShadow = true;
-		scene.add( mesh );
-
-		offset += t.d;
-
-	} );
 
 }
 
@@ -2600,26 +2500,6 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false, haz
 }
 
 // ─── Race countdown ─────────────────────────────────────────
-
-// TEMPORARY diagnostic helper — flashes a short-lived note in the
-// corner of the screen. Used to get definitive visual proof the AI
-// stuck-recovery watchdog actually fires (console.warn alone isn't
-// visible on a phone). Safe to remove once the AI driving issue is
-// confirmed fixed.
-function flashDebugNote( text ) {
-
-	const el = document.createElement( 'div' );
-	el.textContent = text;
-	el.style.cssText = `
-		position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 80;
-		background: rgba(20,10,30,0.85); color: #fff; padding: 8px 16px; border-radius: 10px;
-		font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px; direction: rtl;
-		border: 1px solid rgba(139,95,191,0.5);
-	`;
-	document.body.appendChild( el );
-	setTimeout( () => el.remove(), 2500 );
-
-}
 
 function createCountdownUI() {
 
@@ -3795,70 +3675,9 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 // ─── AR MODE (Meta Quest 3 passthrough) ────────────────────
 
-// Stage 2 test: a plain placeholder box you can grab, move, and resize
-// in AR — proving out the shared mechanic (PlaceableObject.js) before
-// it's used for the real floating track/arena. Deliberately skips
-// ARManager's own hit-test floor-placement flow entirely (no session
-// requiredFeature for it either) since this test doesn't need a floor,
-// just controller tracking + passthrough, both of which ARManager's
-// constructor/requestSession already set up.
-async function startARPlaceableTest( { sessionPromise } ) {
-
-	const arManager = new ARManager( { renderer, scene, models } );
-	await arManager.requestSession( sessionPromise );
-	arManager.previewGroup.visible = false; // not using hit-test placement here
-
-	const placeholderCamera = new THREE.PerspectiveCamera();
-
-	const box = new THREE.Mesh(
-		new THREE.BoxGeometry( 0.3, 0.15, 0.4 ),
-		new THREE.MeshStandardMaterial( { color: 0x5B8CFF, roughness: 0.4, metalness: 0.2 } )
-	);
-	// Roughly a meter in front of, and slightly below, wherever the
-	// headset happens to be when the session starts — simplest possible
-	// starting point for a grab-test; the real track placement will
-	// need proper hit-test/preview like the existing room-drive AR mode.
-	box.position.set( 0, 0.9, - 0.8 );
-	scene.add( box );
-
-	const light = new THREE.DirectionalLight( 0xffffff, 2 );
-	light.position.set( 1, 2, 1 );
-	scene.add( light );
-	scene.add( new THREE.AmbientLight( 0xffffff, 0.6 ) );
-
-	const placeable = new PlaceableObject( box, arManager );
-	placeable.onConfirm = () => {
-
-		box.material.color.set( 0x5af168 ); // turns green once locked, so it's obvious the confirm worked
-
-	};
-
-	return {
-
-		frameUpdate( dt ) {
-
-			try {
-
-				placeable.update( dt );
-
-			} catch ( e ) {
-
-				console.error( '[main] PlaceableObject test update() error:', e );
-
-			}
-
-			renderer.render( scene, placeholderCamera );
-
-		}
-
-	};
-
-}
-
-// ─── AR floating track (Stage 3) ────────────────────────────
+// ─── AR floating track ───────────────────────────────────────
 // The default track, built exactly like NORMAL mode, but grabbable/
-// movable/scalable (PlaceableObject, same mechanic proven in Stage 2)
-// instead of fixed in place. No AI opponents yet — single car, kept
+// movable/scalable instead of fixed in place. No AI opponents yet — single car, kept
 // simple for this first working version.
 //
 // Physics note: crashcat's rigid bodies live in absolute world space,
@@ -3871,109 +3690,16 @@ async function startARPlaceableTest( { sessionPromise } ) {
 // track for free, no extra bookkeeping needed. It trades away momentum/
 // suspension/drift physics for correctness under a moving reference
 // frame; can revisit if that trade turns out to matter in practice.
-// ─── Kinematic AI (no physics — for the floating track/arena, ──
-// ─── where crashcat's world-space rigid bodies can't follow    ──
-// ─── a grabbable/scalable parent group's own transform)        ──
-// Same path-following/lookahead-steering math as the web version's
-// updateAIDrivers(), just operating on plain {x,z,heading,speed} state
-// instead of a Vehicle+rigidBody, and parented under the track/arena
-// group so movement is automatically correct after a grab or resize.
-
-function createKinematicTrackAI( npcConfigs, gridSlots, models, parentGroup, path ) {
-
-	if ( ! path || path.length < 2 ) return [];
-
-	let totalLen = 0;
-	for ( let j = 0; j < path.length; j ++ ) {
-
-		const a = path[ j ], b = path[ ( j + 1 ) % path.length ];
-		totalLen += Math.hypot( b.x - a.x, b.z - a.z );
-
-	}
-	const avgSpacing = totalLen / path.length;
-
-	return npcConfigs.map( ( cfg, i ) => {
-
-		const slot = gridSlots[ i + 1 ]; // slot 0 is the player
-		const model = ( models[ cfg.key ] || models[ 'vehicle-truck-yellow' ] ).clone();
-		model.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
-		model.position.set( slot.position[ 0 ], slot.position[ 1 ], slot.position[ 2 ] );
-		model.rotation.y = slot.angle;
-		parentGroup.add( model );
-
-		const stepsBack = Math.round( slot.backDist / avgSpacing );
-		const idx = ( ( path.length - stepsBack ) % path.length + path.length ) % path.length;
-
-		return {
-			model, idx,
-			x: slot.position[ 0 ], z: slot.position[ 2 ], heading: slot.angle, speed: 0,
-			y: slot.position[ 1 ],
-		};
-
-	} );
-
-}
-
-function updateKinematicTrackAI( drivers, path, dt, racing ) {
-
-	if ( ! path || path.length < 2 ) return;
-
-	const LOOKAHEAD = 2;
-	const MAX_SPEED = 8, ACCEL = 10, TURN_RATE = 3;
-
-	for ( const d of drivers ) {
-
-		if ( ! racing ) continue;
-
-		const target = path[ ( d.idx + 1 ) % path.length ];
-		const dx0 = target.x - d.x, dz0 = target.z - d.z;
-		if ( Math.hypot( dx0, dz0 ) < 1.0 ) d.idx = ( d.idx + 1 ) % path.length;
-
-		const lookaheadPoint = path[ ( d.idx + LOOKAHEAD ) % path.length ];
-		const dx = lookaheadPoint.x - d.x, dz = lookaheadPoint.z - d.z;
-		const dist = Math.hypot( dx, dz );
-
-		let targetSpeed = MAX_SPEED;
-		if ( dist > 0.001 ) {
-
-			const targetAngle = Math.atan2( dx, dz );
-			let angleDiff = targetAngle - d.heading;
-			// Wrap to (-PI, PI]. NOTE: `((x+PI)%(2*PI))-PI` alone is
-			// broken in JavaScript for x below -PI, because JS `%` keeps
-			// the sign of the dividend (unlike e.g. Python's modulo) —
-			// see the normalizeAngle() comment in AIController.js for the
-			// full writeup and a real-physics repro. The extra
-			// `+2*PI)%(2*PI)` forces a non-negative intermediate first.
-			angleDiff = ( ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) + Math.PI * 2 ) % ( Math.PI * 2 ) ) - Math.PI;
-
-			d.heading += THREE.MathUtils.clamp( angleDiff, - TURN_RATE * dt, TURN_RATE * dt );
-
-			const sharpness = THREE.MathUtils.clamp( Math.abs( angleDiff ) / ( Math.PI / 3 ), 0, 1 );
-			targetSpeed = MAX_SPEED * ( 1 - sharpness * 0.5 );
-
-		}
-
-		d.speed += THREE.MathUtils.clamp( targetSpeed - d.speed, - ACCEL * dt, ACCEL * dt );
-		d.x += Math.sin( d.heading ) * d.speed * dt;
-		d.z += Math.cos( d.heading ) * d.speed * dt;
-
-		d.model.position.set( d.x, d.y, d.z );
-		d.model.rotation.y = d.heading;
-
-	}
-
-}
 
 // ─── AR floating 3D mode menu ───────────────────────────────
 // Shown immediately on entering AR — three pointable/selectable cards
 // (room-drive / floating track / floating arena), replacing the old
 // flat pre-session sub-screen. Selection uses controller pointing
 // (raycasting, the natural VR/AR menu interaction) + trigger to
-// confirm, rather than the grab mechanic PlaceableObject uses
-// elsewhere (grabbing implies "pick this up", which doesn't fit
-// "choose one of these options").
+// confirm, rather than the grab mechanic used elsewhere (grabbing
+// implies "pick this up", which doesn't fit "choose one of these
+// options").
 const modeCardLoader = new THREE.TextureLoader();
-const modeCardFallbackColors = { room: '#5B8CFF', track: '#8B5FBF', arena: '#E0621B' };
 const modeCardTextures = {};
 for ( const key of [ 'room', 'track', 'arena' ] ) {
 
@@ -5239,8 +4965,8 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 // real track, world=null for visual-only/no physics), a curb-striped
 // edge line, and corner dressing (floodlight poles, tire stacks, parked
 // decoration cars) — but no walls/track loop of its own. Grabbable/
-// movable/scalable (PlaceableObject) and a simple kinematic car, same
-// mechanic as the floating track. halfX/halfZ are independent (was a
+// movable/scalable, and a simple kinematic car, same mechanic as the
+// floating track. halfX/halfZ are independent (was a
 // single `half`, square-only) per feedback that the pad should be
 // rectangular and bigger rather than a square.
 function buildDriftPad( halfX, halfZ, models, scale = 1 ) {
