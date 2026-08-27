@@ -5874,14 +5874,24 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 }
 
 // ─── AR climb mode (drive on any detected real-world surface) ──
-// Stage 1 (this function, for now): identical to startARMode above —
-// same hit-test room-drive placement, same full player car (lights,
-// flag, decals, smoke, drift marks, audio) — plus a one-time debug dump
-// of every surface WebXR mesh-detection found (getAllDetectedMeshesInfo,
-// see ARManager.js), drawn as wireframe boxes so the scan can be visually
-// confirmed working before any climb-specific physics gets built on top
-// of it in a later pass. Gravity/orientation are still the untouched
-// straight-down defaults for now — climbing itself isn't implemented yet.
+// Same hit-test room-drive placement and full player car (lights, flag,
+// decals, smoke, drift marks, audio) as startARMode above, plus: a
+// one-time debug dump of every surface WebXR mesh-detection found
+// (getAllDetectedMeshesInfo, see ARManager.js) drawn as wireframe boxes
+// so the scan can be visually confirmed working, real static colliders
+// built from those same surfaces, and per-frame custom-gravity/
+// reorientation physics (updateClimbGravity()) that pulls the car
+// toward and drives it on whichever of those surfaces it's currently
+// nearest — see that function's own comment for the two-raycast design.
+// ✏️ EASY RETUNING KNOB — full driving speed felt too fast for this mode
+// (surfaces transition smoothly but not instantly, and a wall coming up
+// fast leaves the forward-probe/reorientation less room to react) —
+// scales down just the forward/reverse input before it reaches Vehicle.js,
+// same as scaling MAX_SPEED for this mode alone would, but without
+// touching the shared constant every other mode also uses. Steering is
+// untouched. 1 = full speed (room-drive AR's own feel), lower = slower.
+const CLIMB_SPEED_SCALE = 0.5;
+
 async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, flagImage } ) {
 
 	// See ensureAREnvironment()'s own comment (top of file) — same as
@@ -6160,7 +6170,7 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 					const arInput = arManager.getDriveInput();
 					const input = {
 						x: Math.abs( arInput.x ) > Math.abs( kbInput.x ) ? arInput.x : kbInput.x,
-						z: Math.abs( arInput.z ) > Math.abs( kbInput.z ) ? arInput.z : kbInput.z,
+						z: ( Math.abs( arInput.z ) > Math.abs( kbInput.z ) ? arInput.z : kbInput.z ) * CLIMB_SPEED_SCALE,
 						touchActive: kbInput.touchActive,
 						handbrake: kbInput.handbrake || arManager.getHandbrakeHold(),
 					};
