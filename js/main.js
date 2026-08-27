@@ -5952,18 +5952,61 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 
 	}
 
-	// Per-frame climb physics: raycast from the sphere along its current
-	// "down" (−upVector) to find the nearest climb surface, pull toward
-	// it (custom gravity, since sphereBody.motionProperties.gravityFactor
-	// is 0 for this mode — see onPlaced below) instead of always
-	// straight down, and slowly reorient the car to match. No hit (ray
-	// missed, or no surfaces were ever detected) falls back to a plain
-	// downward force — the exact same push world gravity would apply —
-	// so the car never just floats.
+	// Per-frame climb physics: raycast from the sphere to find the
+	// nearest climb surface, pull toward it (custom gravity, since
+	// sphereBody.motionProperties.gravityFactor is 0 for this mode — see
+	// onPlaced below) instead of always straight down, and slowly
+	// reorient the car to match. No hit (both rays missed, or no
+	// surfaces were ever detected) falls back to a plain downward
+	// force — the exact same push world gravity would apply — so the
+	// car never just floats.
+	//
+	// TWO rays, not one: a single ray straight down (−upVector) can only
+	// ever find the surface directly under the car — reported after the
+	// first real test: driving toward a wall, the car just bumped into
+	// it like a normal obstacle instead of climbing it. A real room has
+	// no gap between floor and wall, so the down-ray keeps reporting the
+	// floor right up until the car is already inside the wall's
+	// collider — it never gets a chance to see the wall coming. The
+	// second ray, cast forward along the car's current facing, catches
+	// an approaching surface early enough to start turning onto it
+	// before contact.
 	const _climbUp = new THREE.Vector3( 0, 1, 0 );
-	const _climbNormal = new THREE.Vector3();
+	const _climbNormalDown = new THREE.Vector3();
+	const _climbNormalFwd = new THREE.Vector3();
 	const _climbForce = new THREE.Vector3();
 	const _climbOrigin = new THREE.Vector3();
+	const _climbForwardDir = new THREE.Vector3();
+
+	// Casts one ray from `origin` (plain [x,y,z]) along `dir` (plain
+	// [x,y,z], unit length) up to `length`, filtered to climb surfaces
+	// only. On a hit, fills `outNormal` with the surface normal there and
+	// returns the hit distance; returns null on a miss (or a body lookup/
+	// degenerate-normal failure, treated the same as a miss).
+	function castClimbRay( origin, dir, length, outNormal ) {
+
+		climbRayCollector.reset();
+		castRay( world, climbRayCollector, climbRaySettings, origin, dir, length, climbQueryFilter );
+
+		if ( climbRayCollector.hit.status !== CastRayStatus.COLLIDING ) return null;
+
+		const hit = climbRayCollector.hit;
+		const hitDistance = hit.fraction * length;
+		const hitPoint = [
+			origin[ 0 ] + dir[ 0 ] * hitDistance,
+			origin[ 1 ] + dir[ 1 ] * hitDistance,
+			origin[ 2 ] + dir[ 2 ] * hitDistance,
+		];
+		const hitBody = rigidBody.get( world, hit.bodyIdB );
+		if ( ! hitBody ) return null;
+
+		const n = rigidBody.getSurfaceNormal( [ 0, 0, 0 ], hitBody, hitPoint, hit.subShapeId );
+		outNormal.set( n[ 0 ], n[ 1 ], n[ 2 ] );
+		if ( outNormal.lengthSq() < 0.0001 ) return null;
+
+		return hitDistance;
+
+	}
 
 	function updateClimbGravity( dt, vehicle, sphereBody ) {
 
@@ -5973,33 +6016,30 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 		if ( climbSurfaceCount > 0 ) {
 
 			_climbOrigin.copy( vehicle.spherePos );
-			const rayDir = [ -_climbUp.x, -_climbUp.y, -_climbUp.z ];
-			const rayLength = vehicle.sphereRadius * 4;
+			const originArr = [ _climbOrigin.x, _climbOrigin.y, _climbOrigin.z ];
 
-			climbRayCollector.reset();
-			castRay(
-				world, climbRayCollector, climbRaySettings,
-				[ _climbOrigin.x, _climbOrigin.y, _climbOrigin.z ], rayDir, rayLength,
-				climbQueryFilter
+			const downDist = castClimbRay(
+				originArr, [ -_climbUp.x, -_climbUp.y, -_climbUp.z ],
+				vehicle.sphereRadius * 4, _climbNormalDown
 			);
 
-			if ( climbRayCollector.hit.status === CastRayStatus.COLLIDING ) {
+			_climbForwardDir.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+			const forwardDist = castClimbRay(
+				originArr, [ _climbForwardDir.x, _climbForwardDir.y, _climbForwardDir.z ],
+				vehicle.sphereRadius * 5, _climbNormalFwd
+			);
 
-				const hit = climbRayCollector.hit;
-				const hitDistance = hit.fraction * rayLength;
-				const hitPoint = [
-					_climbOrigin.x + rayDir[ 0 ] * hitDistance,
-					_climbOrigin.y + rayDir[ 1 ] * hitDistance,
-					_climbOrigin.z + rayDir[ 2 ] * hitDistance,
-				];
-				const hitBody = rigidBody.get( world, hit.bodyIdB );
-				if ( hitBody ) {
+			// Whichever surface is actually closer wins — right after a
+			// transition the "old" surface (now behind/below) would
+			// otherwise keep re-winning just because it's still the
+			// down-ray's target.
+			if ( downDist !== null && ( forwardDist === null || downDist <= forwardDist ) ) {
 
-					const n = rigidBody.getSurfaceNormal( [ 0, 0, 0 ], hitBody, hitPoint, hit.subShapeId );
-					_climbNormal.set( n[ 0 ], n[ 1 ], n[ 2 ] );
-					if ( _climbNormal.lengthSq() > 0.0001 ) targetUp = _climbNormal;
+				targetUp = _climbNormalDown;
 
-				}
+			} else if ( forwardDist !== null ) {
+
+				targetUp = _climbNormalFwd;
 
 			}
 
