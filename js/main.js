@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 // (RoomEnvironment import removed — replaced by buildARColorEnvironmentScene below.)
 import { LightProbeGrid } from 'three/addons/lighting/LightProbeGrid.js';
-import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, cylinder, MotionType, filter, castRay, createClosestCastRayCollector, createDefaultCastRaySettings, CastRayStatus } from 'crashcat';
+import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, triangleMesh, cylinder, MotionType, filter, castRay, createClosestCastRayCollector, createDefaultCastRaySettings, CastRayStatus } from 'crashcat';
 import { Vehicle, MAX_SPEED } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
@@ -5875,14 +5875,15 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 
 // ─── AR climb mode (drive on any detected real-world surface) ──
 // Same hit-test room-drive placement and full player car (lights, flag,
-// decals, smoke, drift marks, audio) as startARMode above, plus: a
-// one-time debug dump of every surface WebXR mesh-detection found
-// (getAllDetectedMeshesInfo, see ARManager.js) drawn as wireframe boxes
-// so the scan can be visually confirmed working, real static colliders
-// built from those same surfaces, and per-frame custom-gravity/
-// reorientation physics (updateClimbGravity()) that pulls the car
-// toward and drives it on whichever of those surfaces it's currently
-// nearest — see that function's own comment for the two-raycast design.
+// decals, smoke, drift marks, audio) as startARMode above, plus:
+// processClimbMeshes() tracks every WebXR-detected surface live (added/
+// updated/removed per frame, following the official immersive-web
+// mesh-detection sample's pattern) and builds a real triangle-mesh
+// physics collider from each one's actual geometry, drawn as a teal
+// wireframe so the scan can be visually confirmed working; and
+// updateClimbGravity() pulls the car toward and drives it on whichever
+// of those surfaces it's currently nearest — see that function's own
+// comment for the two-raycast design.
 // ✏️ EASY RETUNING KNOB — full driving speed felt too fast for this mode
 // (surfaces transition smoothly but not instantly, and a wall coming up
 // fast leaves the forward-probe/reorientation less room to react) —
@@ -5906,76 +5907,218 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 	let gameState = null; // populated once the user confirms spawn placement
 	const controls = new Controls();
 
-	// ─── Climb surfaces: real static colliders built from every ──
-	// ─── WebXR-detected mesh (floor + walls, unlike ARManager's  ──
-	// ─── own furniture-only _buildRoomFurnitureColliders)        ──
+	// ─── Climb surfaces: real static colliders built directly from ──
+	// ─── WebXR mesh-detection's own triangle data (floor + walls,  ──
+	// ─── unlike ARManager's furniture-only                         ──
+	// ─── _buildRoomFurnitureColliders) — reworked to follow the     ──
+	// ─── official immersive-web mesh-detection sample after the     ──
+	// ─── bounding-box version's real-device issues, see below.      ──
 	// Restricted to world._OL_STATIC so the raycast below only ever hits
 	// these, never the car's own moving sphere.
-	let climbSurfaceCount = 0;
 	const climbQueryFilter = filter.create( world.settings.layers );
 	filter.disableAllLayers( climbQueryFilter, world.settings.layers );
 	filter.enableObjectLayer( climbQueryFilter, world.settings.layers, world._OL_STATIC );
 	const climbRayCollector = createClosestCastRayCollector();
 	const climbRaySettings = createDefaultCastRaySettings();
 
-	// Re-scanned periodically (not just once right after placement) —
-	// reported after the first real test: near the placement spot the
-	// floor sometimes had no working collider at all (the car fell
-	// through, then respawned somewhere the scan DID cover). Meta's room
-	// mesh-detection keeps refining/expanding coverage over time and can
-	// have gaps right where the headset was pointed at placement time, so
-	// a single capture can permanently miss surfaces a few seconds of
-	// scanning would have caught. Re-scanning periodically instead picks
-	// those up as they appear, without ever rebuilding a collider twice
-	// (deduped by a rounded position+label key — good enough since a real
-	// surface's reported position is stable frame to frame, only
-	// resolution/bounds refine).
-	const CLIMB_RESCAN_INTERVAL = 1.5; // seconds
-	let climbRescanTimer = CLIMB_RESCAN_INTERVAL; // scan on the very first frame after placement
-	const climbSeenSurfaceKeys = new Set();
+	// mesh-detection is only ever requested as an optionalFeature (every
+	// AR entry point does this, not just climb mode's — the session is
+	// requested once from the main menu, before the person has picked a
+	// sub-mode from the in-XR floating menu, so there's no way to make it
+	// required for climb specifically without ending and re-requesting
+	// the session, which needs a user gesture WebXR generally won't
+	// accept from inside an already-active session). So: confirm whether
+	// it actually got granted for THIS session and say so clearly instead
+	// of silently degrading — the previous version's silent fallback (car
+	// just used plain gravity with no explanation) was reported as
+	// confusing "why isn't this working at all".
+	let meshDetectionWarned = false;
 
-	function rescanClimbSurfaces( frame ) {
+	function checkMeshDetectionSupport() {
 
-		const infos = arManager.getAllDetectedMeshesInfo( frame, renderer.xr.getReferenceSpace() );
+		const enabled = arManager.session && arManager.session.enabledFeatures;
+		if ( enabled && enabled.includes( 'mesh-detection' ) ) return true;
 
-		let added = 0;
-		for ( const info of infos ) {
+		if ( ! meshDetectionWarned ) {
 
-			const key = `${ info.label }:${ info.position.x.toFixed( 2 ) }:${ info.position.y.toFixed( 2 ) }:${ info.position.z.toFixed( 2 ) }`;
-			if ( climbSeenSurfaceKeys.has( key ) ) continue;
-			climbSeenSurfaceKeys.add( key );
-			added ++;
+			meshDetectionWarned = true;
+			console.warn( '[climb] mesh-detection was not enabled for this AR session — falling back to plain downward gravity. On the headset, make sure a room scan (Space Setup) has been done.' );
+			showClimbNotice( 'وضع "تسلّق حر" يحتاج مسح الغرفة (Space Setup) على الهيدسِت — القيادة الآن بجاذبية عادية.' );
 
-			rigidBody.create( world, {
-				shape: box.create( { halfExtents: info.halfExtents } ),
+		}
+		return false;
+
+	}
+
+	// Short-lived floating notice, facing wherever the camera was looking
+	// when triggered (not a persistent HUD element — this fires once).
+	function showClimbNotice( text ) {
+
+		const canvas = document.createElement( 'canvas' );
+		canvas.width = 512; canvas.height = 220;
+		const ctx = canvas.getContext( '2d' );
+		ctx.fillStyle = '#C0392B';
+		ctx.fillRect( 0, 0, canvas.width, canvas.height );
+		ctx.fillStyle = '#fff';
+		ctx.font = 'bold 26px "Segoe UI", Tahoma, Arial, sans-serif';
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.direction = 'rtl';
+
+		const words = text.split( ' ' );
+		const lines = [];
+		let line = '';
+		for ( const w of words ) {
+
+			const test = line ? `${ line } ${ w }` : w;
+			if ( line && ctx.measureText( test ).width > canvas.width - 60 ) { lines.push( line ); line = w; }
+			else line = test;
+
+		}
+		if ( line ) lines.push( line );
+		lines.forEach( ( l, i ) => ctx.fillText( l, canvas.width / 2, canvas.height / 2 + ( i - ( lines.length - 1 ) / 2 ) * 34 ) );
+
+		const texture = new THREE.CanvasTexture( canvas );
+		texture.colorSpace = THREE.SRGBColorSpace;
+		const card = new THREE.Mesh(
+			new THREE.PlaneGeometry( 0.44, 0.19 ),
+			new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide, transparent: true } )
+		);
+
+		const cam = renderer.xr.getCamera();
+		const camPos = new THREE.Vector3();
+		const camQuat = new THREE.Quaternion();
+		cam.getWorldPosition( camPos );
+		cam.getWorldQuaternion( camQuat );
+		const fwd = new THREE.Vector3( 0, 0, -1 ).applyQuaternion( camQuat );
+		card.position.copy( camPos ).addScaledVector( fwd, 0.8 );
+		card.quaternion.copy( camQuat );
+		scene.add( card );
+
+		setTimeout( () => { scene.remove( card ); texture.dispose(); }, 6000 );
+
+	}
+
+	// XRMesh -> { wireframe, colliderBody, lastChangedTime }. Keyed by the
+	// mesh object itself — stable across frames for the same real
+	// surface, per the WebXR mesh-detection spec (and the official
+	// sample's own pattern).
+	const climbMeshMap = new Map();
+	const _climbMatrix = new THREE.Matrix4();
+	const _climbMeshPos = new THREE.Vector3();
+	const _climbMeshQuat = new THREE.Quaternion();
+	const _climbMeshScale = new THREE.Vector3();
+
+	function buildClimbGeometry( mesh ) {
+
+		const vertices = mesh.vertices;
+		const indices = mesh.indices;
+		if ( ! vertices || ! indices || vertices.length < 9 || indices.length < 3 ) {
+
+			console.warn( '[climb] detected mesh has no usable vertices/indices, skipped:', mesh.semanticLabel || '(no label)' );
+			return null;
+
+		}
+
+		const geometry = new THREE.BufferGeometry();
+		geometry.setIndex( new THREE.BufferAttribute( indices, 1 ) );
+		geometry.setAttribute( 'position', new THREE.BufferAttribute( vertices, 3 ) );
+		return geometry;
+
+	}
+
+	function removeClimbEntry( entry ) {
+
+		scene.remove( entry.wireframe );
+		entry.wireframe.geometry.dispose();
+		entry.wireframe.material.dispose();
+		rigidBody.remove( world, entry.colliderBody );
+
+	}
+
+	// Called every frame (not once, not on a timer) — matches the
+	// official sample: cheap when nothing changed (existing entries just
+	// get a pose refresh), and picks up newly-scanned or refined surfaces
+	// as soon as they appear instead of only at one fixed capture point.
+	function processClimbMeshes( frame, referenceSpace ) {
+
+		const meshes = frame.detectedMeshes;
+		if ( ! meshes ) return;
+
+		for ( const mesh of meshes ) {
+
+			const pose = frame.getPose( mesh.meshSpace, referenceSpace );
+			if ( ! pose ) continue;
+
+			const existing = climbMeshMap.get( mesh );
+
+			if ( existing && existing.lastChangedTime === mesh.lastChangedTime ) {
+
+				// Geometry unchanged — just refresh pose (cheap: no
+				// geometry/collider rebuild), in case tracking refined the
+				// surface's position without re-triangulating it.
+				_climbMatrix.fromArray( pose.transform.matrix );
+				_climbMatrix.decompose( _climbMeshPos, _climbMeshQuat, _climbMeshScale );
+				existing.wireframe.matrix.copy( _climbMatrix );
+				rigidBody.setTransform(
+					world, existing.colliderBody,
+					[ _climbMeshPos.x, _climbMeshPos.y, _climbMeshPos.z ],
+					[ _climbMeshQuat.x, _climbMeshQuat.y, _climbMeshQuat.z, _climbMeshQuat.w ],
+					false
+				);
+				continue;
+
+			}
+
+			// New mesh, or its geometry changed (mesh-detection re-scanned
+			// it) — (re)build both the debug wireframe and the real
+			// triangle-mesh physics collider from the same vertices/
+			// indices, so the car's climb raycast gets an exact normal
+			// instead of a bounding-box approximation's coarse one.
+			if ( existing ) removeClimbEntry( existing );
+
+			const geometry = buildClimbGeometry( mesh );
+			if ( ! geometry ) continue;
+
+			_climbMatrix.fromArray( pose.transform.matrix );
+			_climbMatrix.decompose( _climbMeshPos, _climbMeshQuat, _climbMeshScale );
+
+			const wireframe = new THREE.LineSegments(
+				new THREE.EdgesGeometry( geometry ),
+				new THREE.LineBasicMaterial( { color: 0x00ffcc } )
+			);
+			wireframe.matrixAutoUpdate = false;
+			wireframe.matrix.copy( _climbMatrix );
+			scene.add( wireframe );
+
+			const colliderBody = rigidBody.create( world, {
+				shape: triangleMesh.create( {
+					positions: Array.from( mesh.vertices ),
+					indices: Array.from( mesh.indices ),
+				} ),
 				motionType: MotionType.STATIC,
 				objectLayer: world._OL_STATIC,
-				position: [ info.position.x, info.position.y, info.position.z ],
-				quaternion: [ info.quaternion.x, info.quaternion.y, info.quaternion.z, info.quaternion.w ],
+				position: [ _climbMeshPos.x, _climbMeshPos.y, _climbMeshPos.z ],
+				quaternion: [ _climbMeshQuat.x, _climbMeshQuat.y, _climbMeshQuat.z, _climbMeshQuat.w ],
 				friction: 0.8,
 				restitution: 0.2,
 			} );
 
-			// Magenta wireframe so the scan's coverage can be visually
-			// confirmed working, including surfaces picked up on a later
-			// rescan rather than the first one.
-			const geo = new THREE.BoxGeometry(
-				info.halfExtents[ 0 ] * 2, info.halfExtents[ 1 ] * 2, info.halfExtents[ 2 ] * 2
-			);
-			const wire = new THREE.LineSegments(
-				new THREE.EdgesGeometry( geo ),
-				new THREE.LineBasicMaterial( { color: 0xff00ff } )
-			);
-			wire.position.copy( info.position );
-			wire.quaternion.copy( info.quaternion );
-			scene.add( wire );
+			climbMeshMap.set( mesh, { wireframe, colliderBody, lastChangedTime: mesh.lastChangedTime } );
+			console.log( `[climb] +surface (${ climbMeshMap.size } total):`, mesh.semanticLabel || '(no label)' );
 
 		}
 
-		if ( added > 0 ) {
+		// Drop entries for meshes no longer reported (merged into a
+		// bigger one, or the room was re-scanned differently).
+		for ( const [ mesh, entry ] of climbMeshMap ) {
 
-			console.log( `[climb] +${ added } new surface(s) (${ climbSeenSurfaceKeys.size } total):`, infos.map( ( i ) => i.label ) );
-			climbSurfaceCount = climbSeenSurfaceKeys.size;
+			if ( ! meshes.has( mesh ) ) {
+
+				removeClimbEntry( entry );
+				climbMeshMap.delete( mesh );
+
+			}
 
 		}
 
@@ -6042,7 +6185,7 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 		const mass = 1 / Math.max( sphereBody.motionProperties.invMass, 1e-6 );
 		let targetUp = null;
 
-		if ( climbSurfaceCount > 0 ) {
+		if ( climbMeshMap.size > 0 ) {
 
 			_climbOrigin.copy( vehicle.spherePos );
 			const originArr = [ _climbOrigin.x, _climbOrigin.y, _climbOrigin.z ];
@@ -6089,9 +6232,11 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 
 		// ×1.5 to match createSphereBody's own gravityFactor (Physics.js) —
 		// the strength this car falls at everywhere else in the game.
-		// climbSurfaceCount stays 0 until the first rescan finds anything
-		// (see rescanClimbSurfaces), so this fallback is also what the car
-		// falls under for that first instant right after placement.
+		// climbMeshMap stays empty until processClimbMeshes finds
+		// something, so this fallback is also what the car falls under for
+		// that first instant right after placement (and permanently, if
+		// mesh-detection never finds anything usable — see
+		// checkMeshDetectionSupport()).
 		const GRAVITY_STRENGTH = 9.81 * 1.5;
 
 		if ( targetUp ) {
@@ -6198,13 +6343,8 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 
 				if ( gameState ) {
 
-					climbRescanTimer += dt;
-					if ( climbRescanTimer >= CLIMB_RESCAN_INTERVAL ) {
-
-						climbRescanTimer = 0;
-						rescanClimbSurfaces( frame );
-
-					}
+					checkMeshDetectionSupport(); // warns once, cheap to re-check
+					processClimbMeshes( frame, renderer.xr.getReferenceSpace() );
 
 					const kbInput = controls.update();
 					const arInput = arManager.getDriveInput();
