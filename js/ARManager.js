@@ -596,6 +596,48 @@ export class ARManager {
 
 	}
 
+	// Unfiltered counterpart to _buildRoomFurnitureColliders above — returns
+	// every detected surface (floor/wall/ceiling included, none of that
+	// method's skipLabels filtering) as plain {label, position, quaternion,
+	// halfExtents} data instead of building colliders itself. Callers decide
+	// what to do with it (climb mode: build real static colliders + a debug
+	// wireframe from these; see startARClimbMode in main.js).
+	getAllDetectedMeshesInfo( frame, refSpace ) {
+
+		const results = [];
+		try {
+			const meshes = frame.detectedMeshes;
+			if ( ! meshes || meshes.size === 0 ) return results;
+
+			meshes.forEach( ( mesh ) => {
+				const pose = frame.getPose( mesh.meshSpace, refSpace );
+				if ( ! pose ) return;
+				const bounds = this._computeVertexBounds( mesh.vertices );
+				if ( ! bounds ) return;
+
+				const poseQuat = new THREE.Quaternion(
+					pose.transform.orientation.x, pose.transform.orientation.y,
+					pose.transform.orientation.z, pose.transform.orientation.w
+				);
+				const centerLocal = new THREE.Vector3( bounds.cx, bounds.cy, bounds.cz ).applyQuaternion( poseQuat );
+				const worldCenter = new THREE.Vector3(
+					pose.transform.position.x, pose.transform.position.y, pose.transform.position.z
+				).add( centerLocal );
+
+				results.push( {
+					label: mesh.semanticLabel || '(no label)',
+					position: worldCenter,
+					quaternion: poseQuat,
+					halfExtents: [ Math.max( bounds.hx, 0.02 ), Math.max( bounds.hy, 0.02 ), Math.max( bounds.hz, 0.02 ) ],
+				} );
+			} );
+		} catch ( e ) {
+			console.warn( '[ARManager] getAllDetectedMeshesInfo failed:', e );
+		}
+		return results;
+
+	}
+
 	// ─── Public queries used by main.js after placement ──
 
 	isPlaced() {

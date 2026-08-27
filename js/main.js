@@ -3797,26 +3797,60 @@ for ( const key of [ 'room', 'track', 'arena' ] ) {
 
 }
 
+// Labels for mode keys that have no illustrative photo (models/Textures/
+// mode-*.jpeg) yet — drawn as a plain text card instead (same technique
+// showExitConfirm's makeCard() uses), same portrait footprint as the
+// photo cards so it doesn't look out of place in the same row.
+const MODE_CARD_TEXT_LABELS = {
+	climb: 'تسلّق حر',
+};
+
 function createModeCard( textureKey ) {
 
-	// Portrait aspect ratio matching the source images (≈469:768) —
-	// title text is already baked into the image itself, so no canvas
-	// text overlay needed here.
-	const mesh = new THREE.Mesh(
-		new THREE.PlaneGeometry( 0.22, 0.36 ),
-		new THREE.MeshBasicMaterial( { map: modeCardTextures[ textureKey ], side: THREE.DoubleSide } )
-	);
+	if ( modeCardTextures[ textureKey ] ) {
 
-	return mesh;
+		// Portrait aspect ratio matching the source images (≈469:768) —
+		// title text is already baked into the image itself, so no canvas
+		// text overlay needed here.
+		return new THREE.Mesh(
+			new THREE.PlaneGeometry( 0.22, 0.36 ),
+			new THREE.MeshBasicMaterial( { map: modeCardTextures[ textureKey ], side: THREE.DoubleSide } )
+		);
+
+	}
+
+	// No photo for this mode (e.g. 'climb') — draw a plain text card at
+	// the same portrait aspect ratio instead.
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = 293; canvas.height = 480;
+	const ctx = canvas.getContext( '2d' );
+	ctx.fillStyle = '#2a1f3d';
+	ctx.fillRect( 0, 0, canvas.width, canvas.height );
+	ctx.strokeStyle = '#8B5FBF';
+	ctx.lineWidth = 6;
+	ctx.strokeRect( 3, 3, canvas.width - 6, canvas.height - 6 );
+	ctx.fillStyle = '#fff';
+	ctx.font = 'bold 40px "Segoe UI", Tahoma, Arial, sans-serif';
+	ctx.textAlign = 'center';
+	ctx.textBaseline = 'middle';
+	ctx.direction = 'rtl';
+	ctx.fillText( MODE_CARD_TEXT_LABELS[ textureKey ] || textureKey, canvas.width / 2, canvas.height / 2 );
+	const texture = new THREE.CanvasTexture( canvas );
+	texture.colorSpace = THREE.SRGBColorSpace;
+
+	return new THREE.Mesh(
+		new THREE.PlaneGeometry( 0.22, 0.36 ),
+		new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide } )
+	);
 
 }
 
-// Returns a Promise resolving to 'room' | 'track' | 'arena'.
+// Returns a Promise resolving to 'room' | 'track' | 'arena' | 'climb'.
 function showFloatingModeMenu( arManager, scene ) {
 
 	return new Promise( ( resolve ) => {
 
-		const options = [ 'room', 'track', 'arena' ];
+		const options = [ 'room', 'track', 'arena', 'climb' ];
 
 		const menuGroup = new THREE.Group();
 		scene.add( menuGroup );
@@ -3824,7 +3858,9 @@ function showFloatingModeMenu( arManager, scene ) {
 		const cards = options.map( ( id, i ) => {
 
 			const card = createModeCard( id );
-			card.position.set( ( i - 1 ) * 0.26, 0, 0 );
+			// Centered around x=0 regardless of how many options there are
+			// (was a flat `(i - 1) * 0.26`, only correct for exactly 3).
+			card.position.set( ( i - ( options.length - 1 ) / 2 ) * 0.26, 0, 0 );
 			card.userData.optionId = id;
 			card.userData.baseScale = 1;
 			menuGroup.add( card );
@@ -4292,6 +4328,10 @@ async function startARWithFloatingMenu( { mapParam, customCells, customText, veh
 			} else if ( chosenId === 'arena' ) {
 
 				subMode = await startARFloatingArena( { arManager, vehicleKey, customText, flagImage } );
+
+			} else if ( chosenId === 'climb' ) {
+
+				subMode = await startARClimbMode( { arManager, mapParam, customText, vehicleKey, flagImage } );
 
 			} else {
 
@@ -5822,6 +5862,199 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 			} catch ( e ) {
 
 				console.error( '[main] AR frameUpdate() error:', e );
+
+			}
+
+			renderer.render( scene, placeholderCamera );
+
+		}
+
+	};
+
+}
+
+// ─── AR climb mode (drive on any detected real-world surface) ──
+// Stage 1 (this function, for now): identical to startARMode above —
+// same hit-test room-drive placement, same full player car (lights,
+// flag, decals, smoke, drift marks, audio) — plus a one-time debug dump
+// of every surface WebXR mesh-detection found (getAllDetectedMeshesInfo,
+// see ARManager.js), drawn as wireframe boxes so the scan can be visually
+// confirmed working before any climb-specific physics gets built on top
+// of it in a later pass. Gravity/orientation are still the untouched
+// straight-down defaults for now — climbing itself isn't implemented yet.
+async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, flagImage } ) {
+
+	// See ensureAREnvironment()'s own comment (top of file) — same as
+	// startARMode/the floating track/arena.
+	ensureAREnvironment();
+
+	const world = createPhysicsWorld();
+	arManager.setWorld( world );
+
+	const placeholderCamera = new THREE.PerspectiveCamera(); // pose is overridden by WebXR while presenting
+
+	let gameState = null; // populated once the user confirms spawn placement
+	const controls = new Controls();
+
+	// One-time debug capture of every detected surface, done from the
+	// first frameUpdate after placement (not from onPlaced itself, which
+	// only gets {position, angle} — not the WebXR `frame` this needs).
+	let meshInfoCaptured = false;
+
+	function showDetectedMeshesDebug( frame ) {
+
+		const infos = arManager.getAllDetectedMeshesInfo( frame, renderer.xr.getReferenceSpace() );
+		console.log( `[climb] ${ infos.length } detected surface(s):`, infos.map( ( i ) => i.label ) );
+
+		const debugGroup = new THREE.Group();
+		for ( const info of infos ) {
+
+			const geo = new THREE.BoxGeometry(
+				info.halfExtents[ 0 ] * 2, info.halfExtents[ 1 ] * 2, info.halfExtents[ 2 ] * 2
+			);
+			const wire = new THREE.LineSegments(
+				new THREE.EdgesGeometry( geo ),
+				new THREE.LineBasicMaterial( { color: 0xff00ff } )
+			);
+			wire.position.copy( info.position );
+			wire.quaternion.copy( info.quaternion );
+			debugGroup.add( wire );
+
+		}
+		scene.add( debugGroup );
+
+	}
+
+	arManager.onPlaced = ( spawn ) => {
+
+		const sphereBody = createSphereBody( world, [ spawn.position.x, spawn.position.y, spawn.position.z ] );
+
+		const vehicle = new Vehicle();
+		vehicle.rigidBody = sphereBody;
+		vehicle.physicsWorld = world;
+		vehicle.spherePos.copy( spawn.position );
+		vehicle.prevModelPos.set( spawn.position.x, 0, spawn.position.z );
+		vehicle.container.rotation.y = spawn.angle;
+
+		// Same as room-drive AR mode: a direct child of `scene` (true
+		// WebXR world space).
+		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
+		scene.add( vehicleGroup );
+		addCustomTextDecals( vehicleGroup, customText );
+		const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
+		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+		const contactShadow = addARContactShadow( vehicleGroup );
+
+		dirLight.target = vehicleGroup;
+
+		const vehicleModel = vehicleGroup.children[ 0 ];
+		const vehicleModelMinY = new THREE.Box3().setFromObject( vehicleModel ).min.y;
+
+		const particles = new SmokeTrails( scene, 0.12 );
+		const driftMarks = new DriftMarks( scene, mapParam || 'ar-climb', 1, 9 );
+
+		const audio = new GameAudio();
+		audio.init( renderer.xr.getCamera(), vehicleGroup );
+		audio.forceUnlock();
+
+		const _forward = new THREE.Vector3();
+
+		const contactListener = {
+			onContactAdded( bodyA, bodyB ) {
+
+				if ( bodyA !== sphereBody && bodyB !== sphereBody ) return;
+
+				_forward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+				_forward.y = 0;
+				_forward.normalize();
+
+				const impactVelocity = Math.abs( vehicle.modelVelocity.dot( _forward ) );
+				audio.playImpact( impactVelocity );
+
+			}
+		};
+
+		gameState = {
+			vehicle, vehicleGroup, vehicleModel, vehicleModelMinY, vehicleScale: 1,
+			particles, driftMarks, audio, vehicleLights, vehicleFlag, contactListener, contactShadow
+		};
+
+	};
+
+	return {
+
+		// See the identical getter in startARFloatingTrack for why.
+		get audio() { return gameState && gameState.audio; },
+
+		frameUpdate( dt, timestamp, frame ) {
+
+			try {
+
+				arManager.update( frame, dt );
+
+				if ( gameState ) {
+
+					if ( ! meshInfoCaptured ) {
+
+						meshInfoCaptured = true;
+						showDetectedMeshesDebug( frame );
+
+					}
+
+					const kbInput = controls.update();
+					const arInput = arManager.getDriveInput();
+					const input = {
+						x: Math.abs( arInput.x ) > Math.abs( kbInput.x ) ? arInput.x : kbInput.x,
+						z: Math.abs( arInput.z ) > Math.abs( kbInput.z ) ? arInput.z : kbInput.z,
+						touchActive: kbInput.touchActive,
+						handbrake: kbInput.handbrake || arManager.getHandbrakeHold(),
+					};
+
+					updateVehicleAndFx( dt, input, { world, ...gameState } );
+					const roomHazardScale = gameState.vehicleScale * 3.2;
+					updateVehicleLights( gameState.vehicleLights, dt, gameState.vehicleScale, gameState.vehicle.linearSpeed < -0.01, roomHazardScale );
+
+					const scaleInput = arManager.getScaleAdjustInput();
+					if ( scaleInput !== 0 ) {
+
+						gameState.vehicleScale = THREE.MathUtils.clamp(
+							gameState.vehicleScale * ( 1 - scaleInput * 0.8 * dt ),
+							0.03, 3.0
+						);
+
+						const s = gameState.vehicleScale;
+						gameState.vehicleModel.scale.setScalar( s );
+						gameState.vehicleModel.position.y = gameState.vehicleModelMinY * ( 1 - s );
+						if ( gameState.contactShadow ) gameState.contactShadow.scale.setScalar( s );
+
+					}
+
+					if ( arManager.getHeadlightToggle() ) toggleHeadlights( gameState.vehicleLights );
+					if ( arManager.getHazardToggle() ) toggleHazards( gameState.vehicleLights );
+					setHighBeam( gameState.vehicleLights, arManager.getHighBeamHold(), gameState.vehicleScale );
+					gameState.audio.setHorn( arManager.getHornHold() );
+
+					if ( gameState.vehicleLights ) {
+
+						arManager.setFloorGridVisible( gameState.vehicleLights.headlights[ 0 ].light.visible );
+
+					}
+
+					dirLight.position.set(
+						gameState.vehicle.spherePos.x + 11.4,
+						15,
+						gameState.vehicle.spherePos.z - 5.3
+					);
+
+				} else {
+
+					updateWorld( world, null, dt );
+
+				}
+
+			} catch ( e ) {
+
+				console.error( '[main] AR climb frameUpdate() error:', e );
 
 			}
 
