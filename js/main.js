@@ -1931,8 +1931,14 @@ const TRUCK_LAYOUT = {
 	// actually keeps the beam from clipping/overexposing the car's own
 	// hood) and headlightSpotTarget (aim point far ahead, unaffected by
 	// this small a shift in the source) are untouched.
-	headlightSpot: [ 0.6, 2.0995, 1.7612 ],
-	headlightSpotTarget: [ 0.6, 0.2002, 18.004 ],
+	// x corrected to match headlightLens.x (0.3975) — it had been
+	// carrying flag.x's magnitude (0.6, from the opposite rear corner of
+	// the car, unrelated to the headlights) instead, so the actual light
+	// source sat noticeably outboard of the visible lens it's supposed to
+	// shine from. headlightSpotTarget.x moved the same amount so the beam
+	// still aims straight ahead rather than on an inward slant.
+	headlightSpot: [ 0.3975, 2.0995, 1.7612 ],
+	headlightSpotTarget: [ 0.3975, 0.2002, 18.004 ],
 	hazards: [
 		[ -0.3975, 0.299, 1.4 ], [ 0.3975, 0.299, 1.4 ],
 		[ -0.3975, 0.429, -1.33 ], [ 0.3975, 0.429, -1.33 ],
@@ -1965,8 +1971,10 @@ const CAMRY_LAYOUT = {
 	// headlightLens in the wrong spot too — so it's pulled in further
 	// (to ≈45% of the old offset, vs 60% for the other two) to land at a
 	// comparable proportion.
-	headlightSpot: [ 0.8744, 2.4018, 2.8763 ],
-	headlightSpotTarget: [ 0.8744, 0.1034, 33.1454 ],
+	// x corrected to headlightLens.x (0.6535) — see the identical fix in
+	// TRUCK_LAYOUT above for why (it had been flag.x's 0.8744 instead).
+	headlightSpot: [ 0.6535, 2.4018, 2.8763 ],
+	headlightSpotTarget: [ 0.6535, 0.1034, 33.1454 ],
 	hazards: [
 		[ -0.6535, 0.5198, 2.214 ], [ 0.6535, 0.5198, 2.214 ],
 		[ -0.7639, 0.7748, -2.3324 ], [ 0.7639, 0.7748, -2.3324 ],
@@ -1982,8 +1990,10 @@ const CAMARO_LAYOUT = {
 	// Nudged up — see the identical nudge in TRUCK_LAYOUT above for why.
 	tailgateDecal: [ 0, 0.2229, -1.5231 ],
 	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
-	headlightSpot: [ 0.4603, 1.2719, 1.7232 ],
-	headlightSpotTarget: [ 0.4603, 0.1209, 17.8476 ],
+	// x corrected to headlightLens.x (0.3584) — see the identical fix in
+	// TRUCK_LAYOUT above for why (it had been flag.x's 0.4603 instead).
+	headlightSpot: [ 0.3584, 1.2719, 1.7232 ],
+	headlightSpotTarget: [ 0.3584, 0.1209, 17.8476 ],
 	hazards: [
 		[ -0.3584, 0.336, 1.3312 ], [ 0.3584, 0.336, 1.3312 ],
 		[ -0.3123, 0.3876, -1.5104 ], [ 0.3123, 0.3876, -1.5104 ],
