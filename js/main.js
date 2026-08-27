@@ -1116,6 +1116,7 @@ function showControlsModal() {
 				[ '💡 ⚠️', 'أضواء / طوارئ' ],
 				[ '🔆 (مسّك)', 'إضاءة عالية' ],
 				[ '⛶', 'ملء الشاشة' ],
+				[ '🔊', 'إيقاف/تشغيل الموسيقى' ],
 			]
 		},
 		{
@@ -2725,6 +2726,59 @@ function setupFullscreenToggle() {
 
 }
 
+// Small floating toggle for the background music (bgMusic, started once
+// per session on the first pointerdown/keydown — see startBgMusic() near
+// the top of this file) — NORMAL/web mode only, same corner-button style
+// as setupFullscreenToggle() just above but mirrored to the top-right so
+// the two don't overlap.
+function setupMusicToggle() {
+
+	const style = document.createElement( 'style' );
+	style.textContent = `
+		#hw-music-btn {
+			position: fixed; right: 14px; top: 14px; z-index: 30;
+			width: 46px; height: 46px; border-radius: 50%; border: none; padding: 0;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 19px; color: #fff;
+			background: linear-gradient(165deg, rgba(32,20,54,0.72), rgba(13,13,22,0.72));
+			border: 1px solid rgba(139,95,191,0.35);
+			backdrop-filter: blur(6px);
+			box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+			touch-action: manipulation; transition: background 0.12s, transform 0.08s;
+		}
+		#hw-music-btn:active {
+			background: linear-gradient(135deg, #8B5FBF, #5B8CFF);
+			transform: scale(0.94);
+		}
+	`;
+	document.head.appendChild( style );
+
+	const btn = document.createElement( 'button' );
+	btn.id = 'hw-music-btn';
+	document.body.appendChild( btn );
+
+	function sync() {
+
+		btn.textContent = bgMusic.muted ? '🔇' : '🔊';
+		btn.title = bgMusic.muted ? 'تشغيل الموسيقى الخلفية' : 'إيقاف الموسيقى الخلفية';
+
+	}
+
+	// Muting (not pausing) keeps bgMusic's own loop/playback position
+	// running, so unmuting resumes instantly in sync rather than
+	// re-triggering the autoplay-unlock dance startBgMusic() guards against.
+	btn.addEventListener( 'pointerdown', ( e ) => {
+
+		e.stopPropagation();
+		bgMusic.muted = ! bgMusic.muted;
+		sync();
+
+	} );
+
+	sync();
+
+}
+
 // ─── Touch controls dock (phones/tablets — no keyboard, no VR hands) ──
 // Controls.js already covers a full-screen invisible steering zone for
 // touch, so these buttons need a higher z-index to receive taps first.
@@ -3532,6 +3586,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	const touchState = setupTouchUI( vehicleLights );
 	setupFullscreenToggle();
+	setupMusicToggle();
 
 	const _forward = new THREE.Vector3();
 	const _camLead = new THREE.Vector3();
