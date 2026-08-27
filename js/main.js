@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 // (RoomEnvironment import removed — replaced by buildARColorEnvironmentScene below.)
 import { LightProbeGrid } from 'three/addons/lighting/LightProbeGrid.js';
-import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, cylinder, MotionType } from 'crashcat';
+import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, cylinder, MotionType, filter, castRay, createClosestCastRayCollector, createDefaultCastRaySettings, CastRayStatus } from 'crashcat';
 import { Vehicle, MAX_SPEED } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
@@ -5896,18 +5896,43 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 	let gameState = null; // populated once the user confirms spawn placement
 	const controls = new Controls();
 
-	// One-time debug capture of every detected surface, done from the
-	// first frameUpdate after placement (not from onPlaced itself, which
-	// only gets {position, angle} — not the WebXR `frame` this needs).
+	// ─── Climb surfaces: real static colliders built from every ──
+	// ─── WebXR-detected mesh (floor + walls, unlike ARManager's  ──
+	// ─── own furniture-only _buildRoomFurnitureColliders)        ──
+	// Restricted to world._OL_STATIC so the raycast below only ever hits
+	// these, never the car's own moving sphere.
+	let climbSurfaceCount = 0;
+	const climbQueryFilter = filter.create( world.settings.layers );
+	filter.disableAllLayers( climbQueryFilter, world.settings.layers );
+	filter.enableObjectLayer( climbQueryFilter, world.settings.layers, world._OL_STATIC );
+	const climbRayCollector = createClosestCastRayCollector();
+	const climbRaySettings = createDefaultCastRaySettings();
+
+	// One-time capture of every detected surface, done from the first
+	// frameUpdate after placement (not from onPlaced itself, which only
+	// gets {position, angle} — not the WebXR `frame` this needs). Builds
+	// the real colliders climb physics rides on below, AND draws a
+	// magenta wireframe over each one so the scan can be visually
+	// confirmed working.
 	let meshInfoCaptured = false;
 
-	function showDetectedMeshesDebug( frame ) {
+	function initClimbSurfaces( frame ) {
 
 		const infos = arManager.getAllDetectedMeshesInfo( frame, renderer.xr.getReferenceSpace() );
 		console.log( `[climb] ${ infos.length } detected surface(s):`, infos.map( ( i ) => i.label ) );
 
 		const debugGroup = new THREE.Group();
 		for ( const info of infos ) {
+
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents: info.halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position: [ info.position.x, info.position.y, info.position.z ],
+				quaternion: [ info.quaternion.x, info.quaternion.y, info.quaternion.z, info.quaternion.w ],
+				friction: 0.8,
+				restitution: 0.2,
+			} );
 
 			const geo = new THREE.BoxGeometry(
 				info.halfExtents[ 0 ] * 2, info.halfExtents[ 1 ] * 2, info.halfExtents[ 2 ] * 2
@@ -5923,11 +5948,95 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 		}
 		scene.add( debugGroup );
 
+		climbSurfaceCount = infos.length;
+
+	}
+
+	// Per-frame climb physics: raycast from the sphere along its current
+	// "down" (−upVector) to find the nearest climb surface, pull toward
+	// it (custom gravity, since sphereBody.motionProperties.gravityFactor
+	// is 0 for this mode — see onPlaced below) instead of always
+	// straight down, and slowly reorient the car to match. No hit (ray
+	// missed, or no surfaces were ever detected) falls back to a plain
+	// downward force — the exact same push world gravity would apply —
+	// so the car never just floats.
+	const _climbUp = new THREE.Vector3( 0, 1, 0 );
+	const _climbNormal = new THREE.Vector3();
+	const _climbForce = new THREE.Vector3();
+	const _climbOrigin = new THREE.Vector3();
+
+	function updateClimbGravity( dt, vehicle, sphereBody ) {
+
+		const mass = 1 / Math.max( sphereBody.motionProperties.invMass, 1e-6 );
+		let targetUp = null;
+
+		if ( climbSurfaceCount > 0 ) {
+
+			_climbOrigin.copy( vehicle.spherePos );
+			const rayDir = [ -_climbUp.x, -_climbUp.y, -_climbUp.z ];
+			const rayLength = vehicle.sphereRadius * 4;
+
+			climbRayCollector.reset();
+			castRay(
+				world, climbRayCollector, climbRaySettings,
+				[ _climbOrigin.x, _climbOrigin.y, _climbOrigin.z ], rayDir, rayLength,
+				climbQueryFilter
+			);
+
+			if ( climbRayCollector.hit.status === CastRayStatus.COLLIDING ) {
+
+				const hit = climbRayCollector.hit;
+				const hitDistance = hit.fraction * rayLength;
+				const hitPoint = [
+					_climbOrigin.x + rayDir[ 0 ] * hitDistance,
+					_climbOrigin.y + rayDir[ 1 ] * hitDistance,
+					_climbOrigin.z + rayDir[ 2 ] * hitDistance,
+				];
+				const hitBody = rigidBody.get( world, hit.bodyIdB );
+				if ( hitBody ) {
+
+					const n = rigidBody.getSurfaceNormal( [ 0, 0, 0 ], hitBody, hitPoint, hit.subShapeId );
+					_climbNormal.set( n[ 0 ], n[ 1 ], n[ 2 ] );
+					if ( _climbNormal.lengthSq() > 0.0001 ) targetUp = _climbNormal;
+
+				}
+
+			}
+
+		}
+
+		if ( targetUp ) {
+
+			_climbForce.copy( targetUp ).multiplyScalar( - mass * 9.81 );
+
+		} else {
+
+			targetUp = _climbUp; // fallback: plain world gravity, straight down
+			_climbForce.set( 0, - mass * 9.81, 0 );
+
+		}
+
+		rigidBody.addForce( world, sphereBody, [ _climbForce.x, _climbForce.y, _climbForce.z ], true );
+
+		// Gradual, not a snap — same slerp-speed convention already used
+		// elsewhere in this file (e.g. showFloatingModeMenu's card follow).
+		const t = 1 - Math.exp( -3 * dt );
+		_climbUp.lerp( targetUp, t ).normalize();
+		vehicle.upVector = _climbUp;
+		vehicle.container.quaternion.slerp(
+			vehicle.alignWithY( vehicle.container.quaternion, _climbUp ), t
+		);
+
 	}
 
 	arManager.onPlaced = ( spawn ) => {
 
 		const sphereBody = createSphereBody( world, [ spawn.position.x, spawn.position.y, spawn.position.z ] );
+		// updateClimbGravity() applies its own force every frame in place
+		// of world gravity (straight down, or toward whatever surface the
+		// raycast finds) — zeroing this here stops the world's own
+		// straight-down gravity from adding on top of that.
+		sphereBody.motionProperties.gravityFactor = 0;
 
 		const vehicle = new Vehicle();
 		vehicle.rigidBody = sphereBody;
@@ -5935,6 +6044,12 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 		vehicle.spherePos.copy( spawn.position );
 		vehicle.prevModelPos.set( spawn.position.x, 0, spawn.position.z );
 		vehicle.container.rotation.y = spawn.angle;
+		// Vehicle.js's own auto-level snaps the car back toward world +Y
+		// whenever it's already mostly upright — exactly what would fight
+		// updateClimbGravity()'s own reorientation toward a wall. This
+		// mode owns 100% of the car's orientation itself instead (see
+		// updateClimbGravity()'s alignWithY() call below).
+		vehicle.autoLevelToUp = false;
 
 		// Same as room-drive AR mode: a direct child of `scene` (true
 		// WebXR world space).
@@ -5997,7 +6112,7 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 					if ( ! meshInfoCaptured ) {
 
 						meshInfoCaptured = true;
-						showDetectedMeshesDebug( frame );
+						initClimbSurfaces( frame );
 
 					}
 
@@ -6009,6 +6124,12 @@ async function startARClimbMode( { arManager, mapParam, customText, vehicleKey, 
 						touchActive: kbInput.touchActive,
 						handbrake: kbInput.handbrake || arManager.getHandbrakeHold(),
 					};
+
+					// Queues this frame's custom gravity force + reorients
+					// toward the current climb surface — must run before
+					// updateVehicleAndFx() below, since that's what steps
+					// physics (crashcat clears queued forces after each step).
+					updateClimbGravity( dt, gameState.vehicle, gameState.vehicle.rigidBody );
 
 					updateVehicleAndFx( dt, input, { world, ...gameState } );
 					const roomHazardScale = gameState.vehicleScale * 3.2;
