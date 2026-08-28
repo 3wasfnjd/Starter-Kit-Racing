@@ -1,12 +1,11 @@
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 // (RoomEnvironment import removed — replaced by buildARColorEnvironmentScene below.)
-import { LightProbeGrid } from 'three/addons/lighting/LightProbeGrid.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, cylinder, MotionType } from 'crashcat';
 import { Vehicle, MAX_SPEED } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath, NPC_TRUCKS, TRACK_CELLS, GRID_SCALE } from './Track.js';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath, NPC_TRUCKS, TRACK_CELLS } from './Track.js';
 import { updateRaceAIDrivers, updateFreeRoamAIDrivers } from './AIController.js';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
@@ -18,11 +17,14 @@ import { ColorMapGLTFLoader } from './Loader.js';
 import { ARManager } from './ARManager.js';
 
 
-const renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true, outputBufferType: THREE.HalfFloatType } );
+const renderer = new THREE.WebGLRenderer( { alpha: true } );
 renderer.setSize( window.innerWidth, window.innerHeight );
-renderer.setPixelRatio( window.devicePixelRatio );
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap; // softer shadow edges than the default PCFShadowMap
+// Capped at 1.5 (not the raw devicePixelRatio, which hits 3+ on many phones/
+// tablets) — every render-cost-scaling-with-pixel-count effect (bloom,
+// lighting, post-processing) otherwise renders several times more pixels
+// than the screen can even show, which is exactly what was showing up as
+// low-end-mobile stutter.
+renderer.setPixelRatio( Math.min( window.devicePixelRatio, 1.5 ) );
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 renderer.xr.enabled = true; // required so main.js can offer AR MODE; NORMAL mode is unaffected
@@ -55,11 +57,6 @@ scene.fog = new THREE.Fog( 0xadb2ba, 30, 55 );
 
 const dirLight = new THREE.DirectionalLight( 0xffffff, 3 );
 dirLight.position.set( 11.4, 15, -5.3 );
-dirLight.castShadow = true;
-dirLight.shadow.mapSize.setScalar( 4096 );
-dirLight.shadow.camera.near = 0.5;
-dirLight.shadow.camera.far = 60;
-dirLight.shadow.radius = 4;
 scene.add( dirLight );
 
 const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 2 );
@@ -1516,7 +1513,6 @@ function buildFloodlightPole( scene, x, z, aimTarget, world = null ) {
 		new THREE.MeshStandardMaterial( { color: 0x3a3a3e, roughness: 0.7, metalness: 0.4 } )
 	);
 	pole.position.set( x, poleHeight / 2, z );
-	pole.castShadow = true;
 	scene.add( pole );
 
 	// Small lamp head cluster at the top, tilted toward the track.
@@ -1541,7 +1537,6 @@ function buildFloodlightPole( scene, x, z, aimTarget, world = null ) {
 	const light = new THREE.SpotLight( 0xffdba0, 45, 70, THREE.MathUtils.degToRad( 42 ), 0.4, 1.0 );
 	light.position.set( x, poleHeight - 0.1, z );
 	light.target.position.set( aimTarget.x, 0, aimTarget.z );
-	light.castShadow = false; // 4 shadow-casting spotlights would be very expensive; dirLight still casts the car's shadow
 	scene.add( light );
 	scene.add( light.target );
 
@@ -1580,8 +1575,6 @@ function buildBarrierSegment( scene, world, x, z, length, axis, yOffset = 0, hei
 		new THREE.MeshStandardMaterial( { color: 0x9a9a92, roughness: 0.95, metalness: 0 } )
 	);
 	body.position.set( x, h / 2 + yOffset, z );
-	body.castShadow = true;
-	body.receiveShadow = true;
 	scene.add( body );
 
 	const stripe = new THREE.Mesh(
@@ -1618,8 +1611,6 @@ function buildTireStack( scene, x, z, count ) {
 		const tire = new THREE.Mesh( new THREE.TorusGeometry( 0.35, 0.13, 10, 20 ), tireMat );
 		tire.rotation.x = Math.PI / 2;
 		tire.position.set( x + ( Math.random() - 0.5 ) * 0.04, y, z + ( Math.random() - 0.5 ) * 0.04 );
-		tire.castShadow = true;
-		tire.receiveShadow = true;
 		scene.add( tire );
 		y += 0.23;
 
@@ -1641,7 +1632,6 @@ function buildEntranceGate( scene, x, z, axis ) {
 		const pz = axis === 'x' ? z : z + side * gap / 2;
 		const pillar = new THREE.Mesh( new THREE.BoxGeometry( pillarSize, pillarH, pillarSize ), mat );
 		pillar.position.set( px, pillarH / 2, pz );
-		pillar.castShadow = true;
 		scene.add( pillar );
 
 	}
@@ -1651,7 +1641,6 @@ function buildEntranceGate( scene, x, z, axis ) {
 		mat
 	);
 	beam.position.set( x, pillarH + 0.2, z );
-	beam.castShadow = true;
 	scene.add( beam );
 
 }
@@ -1706,7 +1695,6 @@ function buildFloodlightPoleVisual( parent, x, z, aimTarget, poleHeight = 9, sca
 		new THREE.MeshStandardMaterial( { color: 0x3a3a3e, roughness: 0.7, metalness: 0.4 } )
 	);
 	pole.position.set( x, poleHeight / 2, z );
-	pole.castShadow = true;
 	parent.add( pole );
 
 	const headGroup = new THREE.Group();
@@ -1793,11 +1781,6 @@ function scatterCornerDecor( parent, models, halfX, halfZ = halfX, truckKeys, wo
 					const carZ = cz - sz * jitterZ * 1.8 + ( Math.random() - 0.5 ) * jitterZ;
 					car.position.set( carX, 0, carZ );
 					car.rotation.y = Math.random() * Math.PI * 2;
-					car.traverse( ( c ) => {
-
-						if ( c.isMesh ) { c.castShadow = true; c.receiveShadow = true; }
-
-					} );
 					parent.add( car );
 					decor.push( { type: 'car', x: carX, z: carZ, rotationY: car.rotation.y } );
 
@@ -3308,13 +3291,6 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 		const roadHalf = groundSize / 2;
 
-		const shadowExtent = roadHalf;
-		dirLight.shadow.camera.left = - shadowExtent;
-		dirLight.shadow.camera.right = shadowExtent;
-		dirLight.shadow.camera.top = shadowExtent;
-		dirLight.shadow.camera.bottom = - shadowExtent;
-		dirLight.shadow.camera.updateProjectionMatrix();
-
 		scene.fog.near = groundSize * 0.5;
 		scene.fog.far = groundSize * 1.1;
 
@@ -3336,7 +3312,6 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		);
 		groundMesh.rotation.x = - Math.PI / 2;
 		groundMesh.position.set( 0, - 0.12, 0 );
-		groundMesh.receiveShadow = true;
 		scene.add( groundMesh );
 
 		// Solid perimeter walls so the car bounces off the edge instead of
@@ -3398,7 +3373,6 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		);
 		sandMesh.rotation.x = - Math.PI / 2;
 		sandMesh.position.set( 0, - 0.121, 0 );
-		sandMesh.receiveShadow = true;
 		scene.add( sandMesh );
 
 		// Burnout circles + drift trails, baked once across the whole
@@ -3482,36 +3456,17 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	} else {
 
-		// Compute track bounds and size physics/shadows to fit
+		// Compute track bounds and size physics to fit
 		const bounds = computeTrackBounds( customCells );
 		const hw = bounds.halfWidth;
 		const hd = bounds.halfDepth;
 		const groundSize = Math.max( hw, hd ) * 2 + 20;
-
-		const shadowExtent = Math.max( hw, hd ) + 10;
-		dirLight.shadow.camera.left = - shadowExtent;
-		dirLight.shadow.camera.right = shadowExtent;
-		dirLight.shadow.camera.top = shadowExtent;
-		dirLight.shadow.camera.bottom = - shadowExtent;
-		dirLight.shadow.camera.updateProjectionMatrix();
 
 		scene.fog.near = groundSize * 0.4;
 		scene.fog.far = groundSize * 0.8;
 
 		const { npcConfigs } = buildTrack( scene, models, customCells );
 		trackPath = computeTrackPath( customCells );
-
-		// Probes
-		const probeHeight = 6;
-		const probes = new LightProbeGrid(
-			hw * 2, probeHeight, hd * 2,
-			Math.max( 4, Math.round( hw / 4 ) ),
-			2,
-			Math.max( 4, Math.round( hd / 4 ) ),
-		);
-		probes.position.set( bounds.centerX, probeHeight / 2, bounds.centerZ );
-		probes.bake( renderer, scene, { cubemapSize: 32, near: 0.1, far: groundSize } );
-		scene.add( probes );
 
 		buildWallColliders( world, null, customCells );
 
@@ -4604,30 +4559,11 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 	const light = new THREE.DirectionalLight( 0xffffff, 3 );
 	light.position.set( 0.6, 1, 0.6 );
-	light.castShadow = true;
-	// Shadow camera frustum sized to the track's small AR footprint
-	// (span ≈ 60 × FIXED_SCALE meters) — the default frustum is tuned
-	// for NORMAL mode's much larger real-scale track and was far too
-	// wide here, making shadow resolution effectively zero.
-	const shadowExtent = 60 * GRID_SCALE * FIXED_SCALE;
-	light.shadow.camera.left = - shadowExtent;
-	light.shadow.camera.right = shadowExtent;
-	light.shadow.camera.top = shadowExtent;
-	light.shadow.camera.bottom = - shadowExtent;
-	light.shadow.camera.near = 0.1;
-	light.shadow.camera.far = shadowExtent * 4;
-	light.shadow.mapSize.setScalar( 1024 );
-	light.shadow.camera.updateProjectionMatrix();
 	scene.add( light );
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.6 ) );
 
-	// Fill light from the opposite side, no shadow (cheap — a second
-	// shadow-casting light here would double the shadow-map cost this
-	// mode already went out of its way to avoid, see dirLight below) —
-	// softens the side of the car facing away from `light` above instead
-	// of it reading pure black. The track/car placement is frozen once
-	// locked in (frameUpdate stops moving arRoot after that point), so a
-	// static position here is fine — nothing needs to track it per frame.
+	// Fill light from the opposite side — softens the side of the car
+	// facing away from `light` above instead of it reading pure black.
 	const fillLight = new THREE.DirectionalLight( 0xffffff, 0.22 );
 	fillLight.position.set( -0.6, 0.5, -0.6 );
 	scene.add( fillLight );
@@ -4638,21 +4574,13 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	ensureAREnvironment();
 
 	// dirLight (module-level, top of file) is created once at page load
-	// and stays castShadow=true forever — nothing ever turned it back off
-	// for this mode. So this scene was rendering TWO full shadow-casting
-	// directional lights every single frame: dirLight (4096×4096 map,
-	// still using its NORMAL-mode shadow frustum since only startNormalMode
-	// ever calls dirLight.shadow.camera.left/right/top/bottom) stacked on
-	// top of this mode's own purpose-built `light` above. A second full
-	// shadow-map render pass every frame is real, avoidable GPU cost —
-	// exactly the kind of thing that pushes frame time past a Quest's
-	// ~11ms/frame budget and shows up as the reprojection judder/shake
-	// reported when turning your head after locking the track in. `light`
+	// and stays visible/full intensity (3) forever unless something turns
+	// it off — nothing did for this mode, so it was double-lighting the
+	// scene on top of this mode's own purpose-built `light` above. `light`
 	// + the ambient above are the actual intended lighting for this tiny
-	// AR scene, so dirLight is switched off entirely here rather than
-	// just its shadow — it was also double-lighting the scene from a
-	// second directional source at full (3) intensity. Page reload on
-	// exit (see the exit handler below) restores it for the next mode.
+	// AR scene, so dirLight is switched off entirely here instead. Page
+	// reload on exit (see the exit handler below) restores it for the
+	// next mode.
 	dirLight.visible = false;
 
 	let raceCtx = null;
@@ -5200,7 +5128,6 @@ function createKinematicArenaAI( npcConfigs, models, parentGroup, halfX, halfZ )
 		const heading = Math.random() * Math.PI * 2;
 
 		const model = ( models[ cfg.key ] || models[ 'vehicle-truck-yellow' ] ).clone();
-		model.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
 		model.position.set( x, 0.5, z );
 		model.rotation.y = heading;
 		parentGroup.add( model );
@@ -5326,22 +5253,11 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 	const light = new THREE.DirectionalLight( 0xffffff, 3 );
 	light.position.set( 0.6, 1, 0.6 );
-	light.castShadow = true;
-	const shadowExtent = Math.max( PAD_HALF_X, PAD_HALF_Z ) * 2 * FIXED_SCALE;
-	light.shadow.camera.left = - shadowExtent;
-	light.shadow.camera.right = shadowExtent;
-	light.shadow.camera.top = shadowExtent;
-	light.shadow.camera.bottom = - shadowExtent;
-	light.shadow.camera.near = 0.1;
-	light.shadow.camera.far = shadowExtent * 4;
-	light.shadow.mapSize.setScalar( 1024 );
-	light.shadow.camera.updateProjectionMatrix();
 	scene.add( light );
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.6 ) );
 
 	// Fill light + environment map — see the identical comments in
-	// startARFloatingTrack for why each one is here (no shadow on the
-	// fill light to avoid doubling shadow-map cost; static position since
+	// startARFloatingTrack for why each one is here (static position since
 	// the arena is frozen in place once locked in).
 	const fillLight = new THREE.DirectionalLight( 0xffffff, 0.22 );
 	fillLight.position.set( -0.6, 0.5, -0.6 );
@@ -5349,21 +5265,16 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	ensureAREnvironment();
 
 	// Same fix as startARFloatingTrack: dirLight (module-level, top of
-	// file) is created once at page load and stays castShadow=true
-	// forever unless something turns it off — nothing did for this mode,
-	// so it was rendering a second full shadow-casting pass every frame
-	// on top of this mode's own `light` above (and double-lighting the
-	// scene from two directional sources at once). That extra shadow
-	// pass is real, avoidable GPU cost — the kind that pushes frame time
-	// past a Quest's budget and shows up as reprojection judder when
-	// turning your head after locking the arena in. Page reload on exit
-	// restores it for the next mode.
+	// file) is created once at page load and stays visible/full intensity
+	// (3) forever unless something turns it off — nothing did for this
+	// mode, so it was double-lighting the scene on top of this mode's own
+	// purpose-built `light` above. Page reload on exit restores it for the
+	// next mode.
 	dirLight.visible = false;
 
 	// ── Placement-phase preview: lightweight kinematic car + AI ──
 	const previewContainer = new THREE.Group();
 	const previewModel = ( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] ).clone();
-	previewModel.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
 	previewContainer.add( previewModel );
 	previewContainer.position.set( 0, 0.5, 0 );
 	arenaGroup.add( previewContainer );
