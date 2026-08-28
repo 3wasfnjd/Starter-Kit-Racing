@@ -6,12 +6,18 @@ const _lookPoint = new THREE.Vector3();
 
 export class Camera {
 
-	constructor() {
+	// distanceScale: uniform multiplier on the base chase-cam offset — keeps
+	// the same 45°/35° viewing angle, just further away, so more of a wide
+	// open space (e.g. the free-roam arena) fits in frame. far: clip plane,
+	// needs raising alongside distanceScale or a pulled-back camera would
+	// itself sit past the default 60-unit far plane, or leave the arena's
+	// far edge clipped/invisible instead of fading out through fog.
+	constructor( { distanceScale = 1, far = 60 } = {} ) {
 
-		this.camera = new THREE.PerspectiveCamera( 40, window.innerWidth / window.innerHeight, 0.1, 60 );
+		this.camera = new THREE.PerspectiveCamera( 40, window.innerWidth / window.innerHeight, 0.1, far );
 
-		// Matches Godot View: 45° azimuth, 35° elevation, distance 16
-		this.offset = new THREE.Vector3( 9.27, 9.18, 9.27 );
+		// Matches Godot View: 45° azimuth, 35° elevation, distance 16 (×distanceScale)
+		this.offset = new THREE.Vector3( 9.27, 9.18, 9.27 ).multiplyScalar( distanceScale );
 
 		this.camera.position.copy( this.offset );
 		this.camera.lookAt( 0, 0, 0 );
