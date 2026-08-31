@@ -1916,16 +1916,16 @@ function createTextTexture( text ) {
 // headlightSpot's y is kept in sync with headlightLens' own y (same
 // reasoning as the original total-lift passes above); its z is untouched.
 // ✏️ windshieldDecal/tailgateDecal (the custom name text) and reverseLight
-// y all raised to match headlightLens' own y (0.719) per explicit request
-// that they sit at the same height as the front lighting — same for all 3
-// vehicles below, each matched to its own headlightLens.y.
+// y raised to match headlightLens' own y, then lowered -0.03 per
+// follow-up feedback — same for all 3 vehicles below, each matched to its
+// own headlightLens.y.
 const TRUCK_LAYOUT = {
 	headlightLens: [ 0.3975, 0.719, 1.42 ],
 	taillight: [ 0.3975, 0.879, -1.33 ],
-	reverseLight: [ 0.24975, 0.719, -1.3398 ],
+	reverseLight: [ 0.24975, 0.689, -1.3398 ],
 	flag: [ -0.6, 0.593, -1.358 ],
-	windshieldDecal: [ 0, 0.719, 0.574 ],
-	tailgateDecal: [ 0, 0.719, -1.4 ],
+	windshieldDecal: [ 0, 0.689, 0.574 ],
+	tailgateDecal: [ 0, 0.689, -1.4 ],
 	// headlightSpot's z (how far past headlightLens the actual light
 	// SOURCE floats, in open air above the roof — see addVehicleLights())
 	// pulled in per feedback that the lighting read as sitting too far
@@ -1963,13 +1963,13 @@ const TRUCK_LAYOUT = {
 const CAMRY_LAYOUT = {
 	headlightLens: [ 0.6535, 0.9398, 2.234 ],
 	taillight: [ 0.7639, 1.2248, -2.3324 ],
-	reverseLight: [ 0.4797, 0.9398, -2.3496 ],
+	reverseLight: [ 0.4797, 0.9098, -2.3496 ],
 	flag: [ -0.8744, 0.4842, -2.5813 ],
 	// windshieldDecal/tailgateDecal/reverseLight y raised to match
-	// headlightLens' own y — see the identical change in TRUCK_LAYOUT
-	// above for why.
-	windshieldDecal: [ 0, 0.9398, 1.0567 ],
-	tailgateDecal: [ 0, 0.9398, -2.6611 ],
+	// headlightLens' own y, then lowered -0.03 — see the identical change
+	// in TRUCK_LAYOUT above for why.
+	windshieldDecal: [ 0, 0.9098, 1.0567 ],
+	tailgateDecal: [ 0, 0.9098, -2.6611 ],
 	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
 	// The Camry's old z carried a disproportionately large forward offset
 	// (≈66% of its own lens-z, vs ≈43-49% for the truck/Camaro) — a relic
@@ -2013,13 +2013,13 @@ const CAMARO_LAYOUT = {
 	// Left headlightLens only — see addVehicleLights()'s own comment.
 	headlightLensLeftXOffset: -0.11,
 	taillight: [ 0.3123, 0.2076, -1.5104 ],
-	reverseLight: [ 0.1961, 0.366, -1.5215 ],
+	reverseLight: [ 0.1961, 0.336, -1.5215 ],
 	flag: [ -0.4603, 0.4862, -1.3774 ],
 	// windshieldDecal/tailgateDecal/reverseLight y raised to match
-	// headlightLens' own y — see the identical change in TRUCK_LAYOUT
-	// above for why.
-	windshieldDecal: [ 0, 0.366, 0.569 ],
-	tailgateDecal: [ 0, 0.366, -1.5231 ],
+	// headlightLens' own y, then lowered -0.03 — see the identical change
+	// in TRUCK_LAYOUT above for why.
+	windshieldDecal: [ 0, 0.336, 0.569 ],
+	tailgateDecal: [ 0, 0.336, -1.5231 ],
 	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
 	// x corrected to headlightLens.x (0.3584) — see the identical fix in
 	// TRUCK_LAYOUT above for why (it had been flag.x's 0.4603 instead).
