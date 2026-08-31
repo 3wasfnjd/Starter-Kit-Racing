@@ -1899,17 +1899,20 @@ function createTextTexture( text ) {
 // separately calibrated against those models' own measured proportions.
 // Simpler, and nothing left to break at runtime.
 // ✏️ RETUNING KNOB — headlightLens/taillight/hazards' y and flag's y each
-// nudged up +0.24 total (0.03, 0.03, 0.06, 0.12 — four passes) per
+// nudged up +0.6 total (0.03, 0.03, 0.06, 0.12, 0.36 — five passes) per
 // feedback that the front lighting, hazards, and flag were all sitting a
 // bit low. headlightSpot's y raised by the same amount to keep the actual
 // light source aligned with the (now higher) visible lens;
 // headlightSpotTarget (far-ahead aim point) and reverseLight are
 // unaffected — same reasoning as the z-only headlightSpot nudge below.
+// headlightLens' (and the matching front hazard pair's) z also pulled
+// forward +0.1 per feedback that they needed to be more visible/prominent
+// against the body.
 const TRUCK_LAYOUT = {
-	headlightLens: [ 0.3975, 0.539, 1.4 ],
-	taillight: [ 0.3975, 0.669, -1.33 ],
+	headlightLens: [ 0.3975, 0.899, 1.5 ],
+	taillight: [ 0.3975, 1.029, -1.33 ],
 	reverseLight: [ 0.24975, 0.429, -1.3398 ],
-	flag: [ -0.6, 0.383, -1.358 ],
+	flag: [ -0.6, 0.743, -1.358 ],
 	windshieldDecal: [ 0, 0.663, 0.574 ],
 	// Nudged up (+0.05, ≈10% of the decal's own 0.5-unit height — same
 	// nudge applied to all 3 vehicles below) per feedback that the custom
@@ -1928,11 +1931,11 @@ const TRUCK_LAYOUT = {
 	// source sat noticeably outboard of the visible lens it's supposed to
 	// shine from. headlightSpotTarget.x moved the same amount so the beam
 	// still aims straight ahead rather than on an inward slant.
-	headlightSpot: [ 0.3975, 2.3395, 1.7612 ],
+	headlightSpot: [ 0.3975, 2.6995, 1.7612 ],
 	headlightSpotTarget: [ 0.3975, 0.2002, 18.004 ],
 	hazards: [
-		[ -0.3975, 0.539, 1.4 ], [ 0.3975, 0.539, 1.4 ],
-		[ -0.3975, 0.669, -1.33 ], [ 0.3975, 0.669, -1.33 ],
+		[ -0.3975, 0.899, 1.5 ], [ 0.3975, 0.899, 1.5 ],
+		[ -0.3975, 1.029, -1.33 ], [ 0.3975, 1.029, -1.33 ],
 	],
 };
 
@@ -1947,13 +1950,14 @@ const TRUCK_LAYOUT = {
 // reverseLight keeps the same x/y/z ratio to taillight the truck's own
 // numbers already use (×0.628 / ×1 / ×1.0074) — there's no dedicated
 // reverse-light graphic on either model to sample directly.
-// ✏️ Same +0.24 total lift as TRUCK_LAYOUT above (headlightLens/taillight/
-// hazards/flag y, and headlightSpot y to match) — see its comment for why.
+// ✏️ Same +0.6 total lift and +0.1 forward nudge as TRUCK_LAYOUT above
+// (headlightLens/taillight/hazards/flag y, headlightSpot y, headlightLens/
+// front-hazards z) — see its comment for why.
 const CAMRY_LAYOUT = {
-	headlightLens: [ 0.6535, 0.7598, 2.214 ],
-	taillight: [ 0.7639, 1.0148, -2.3324 ],
+	headlightLens: [ 0.6535, 1.1198, 2.314 ],
+	taillight: [ 0.7639, 1.3748, -2.3324 ],
 	reverseLight: [ 0.4797, 0.7748, -2.3496 ],
-	flag: [ -0.8744, 0.2742, -2.5813 ],
+	flag: [ -0.8744, 0.6342, -2.5813 ],
 	windshieldDecal: [ 0, 0.6635, 1.0567 ],
 	// Nudged up — see the identical nudge in TRUCK_LAYOUT above for why.
 	tailgateDecal: [ 0, 0.2573, -2.6611 ],
@@ -1966,32 +1970,33 @@ const CAMRY_LAYOUT = {
 	// comparable proportion.
 	// x corrected to headlightLens.x (0.6535) — see the identical fix in
 	// TRUCK_LAYOUT above for why (it had been flag.x's 0.8744 instead).
-	headlightSpot: [ 0.6535, 2.6418, 2.8763 ],
+	headlightSpot: [ 0.6535, 3.0018, 2.8763 ],
 	headlightSpotTarget: [ 0.6535, 0.1034, 33.1454 ],
 	hazards: [
-		[ -0.6535, 0.7598, 2.214 ], [ 0.6535, 0.7598, 2.214 ],
-		[ -0.7639, 1.0148, -2.3324 ], [ 0.7639, 1.0148, -2.3324 ],
+		[ -0.6535, 1.1198, 2.314 ], [ 0.6535, 1.1198, 2.314 ],
+		[ -0.7639, 1.3748, -2.3324 ], [ 0.7639, 1.3748, -2.3324 ],
 	],
 };
 
-// ✏️ Same +0.24 total lift as TRUCK_LAYOUT above (headlightLens/taillight/
-// hazards/flag y, and headlightSpot y to match) — see its comment for why.
+// ✏️ Same +0.6 total lift and +0.1 forward nudge as TRUCK_LAYOUT above
+// (headlightLens/taillight/hazards/flag y, headlightSpot y, headlightLens/
+// front-hazards z) — see its comment for why.
 const CAMARO_LAYOUT = {
-	headlightLens: [ 0.3584, 0.576, 1.3312 ],
-	taillight: [ 0.3123, 0.6276, -1.5104 ],
+	headlightLens: [ 0.3584, 0.936, 1.4312 ],
+	taillight: [ 0.3123, 0.9876, -1.5104 ],
 	reverseLight: [ 0.1961, 0.3876, -1.5215 ],
-	flag: [ -0.4603, 0.3262, -1.4774 ],
+	flag: [ -0.4603, 0.6862, -1.4774 ],
 	windshieldDecal: [ 0, 0.4013, 0.569 ],
 	// Nudged up — see the identical nudge in TRUCK_LAYOUT above for why.
 	tailgateDecal: [ 0, 0.2229, -1.5231 ],
 	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
 	// x corrected to headlightLens.x (0.3584) — see the identical fix in
 	// TRUCK_LAYOUT above for why (it had been flag.x's 0.4603 instead).
-	headlightSpot: [ 0.3584, 1.5119, 1.7232 ],
+	headlightSpot: [ 0.3584, 1.7519, 1.7232 ],
 	headlightSpotTarget: [ 0.3584, 0.1209, 17.8476 ],
 	hazards: [
-		[ -0.3584, 0.576, 1.3312 ], [ 0.3584, 0.576, 1.3312 ],
-		[ -0.3123, 0.6276, -1.5104 ], [ 0.3123, 0.6276, -1.5104 ],
+		[ -0.3584, 0.936, 1.4312 ], [ 0.3584, 0.936, 1.4312 ],
+		[ -0.3123, 0.9876, -1.5104 ], [ 0.3123, 0.9876, -1.5104 ],
 	],
 };
 
@@ -2065,16 +2070,23 @@ function addCustomTextDecals( vehicleGroup, text ) {
 // and near the left edge — matching a real full-size flag planted at the
 // back of the vehicle, leaning up and outward, rather than a small
 // roof-mounted pennant.
-function addVehicleFlag( vehicleGroup, imageUrl ) {
+function addVehicleFlag( vehicle, imageUrl ) {
 
+	const vehicleGroup = vehicle.container;
 	const vehicleModel = vehicleGroup.children[ 0 ];
-	const anchorNode = vehicleModel;
 	const layout = layoutFor( vehicleModel );
+
+	// Anchored to the body pivot, same as addVehicleLights() — see its own
+	// comment on anchorNode/bodyOffset for why.
+	const anchorNode = vehicle.bodyNode || vehicleModel;
+	const bodyOffset = vehicle.bodyNode ? vehicle.bodyNode.position : null;
 
 	const flag = createFlag( imageUrl );
 	// Pole planted right at the rear bumper — pulled left (clear of the
 	// bumper's width) and just past its depth, not floating away from it.
-	flag.group.position.set( ...layout.flag );
+	const flagPosition = new THREE.Vector3( ...layout.flag );
+	if ( bodyOffset ) flagPosition.sub( bodyOffset );
+	flag.group.position.copy( flagPosition );
 	anchorNode.add( flag.group );
 
 	return flag;
@@ -2096,21 +2108,38 @@ function addVehicleFlag( vehicleGroup, imageUrl ) {
 // there's no gameplay reason for an AI car's hazards to illuminate
 // anything. One player car adding 4 real lights back is negligible
 // by comparison.
-function addVehicleLights( vehicleGroup, realHazards = false ) {
+function addVehicleLights( vehicle, realHazards = false ) {
 
+	const vehicleGroup = vehicle.container;
 	const vehicleModel = vehicleGroup.children[ 0 ];
-	// Anchor to the model's TOP-LEVEL group, not the "body" mesh node
-	// itself. For the original truck models the two are equivalent (body
-	// sits at the model's own origin with no extra transform), so this is
-	// a no-op change for them — but imported models like vehicle-camry.glb
-	// bake their own corrective rotation/scale directly onto the "body"
-	// node (see Vehicle.js's createPivot() for the full story), so a fixed
-	// local offset attached under THAT node didn't land anywhere near the
-	// real headlight/taillight bumps. vehicleModel's own frame doesn't
-	// have that per-node distortion, so the static layout offsets below
-	// line up correctly on every vehicle.
-	const anchorNode = vehicleModel;
 	const layout = layoutFor( vehicleModel );
+
+	// Headlights/hazards/taillights/reverse lights anchor to the body
+	// pivot (vehicle.bodyNode — see Vehicle.js's createPivot()/
+	// updateBody()) instead of vehicleModel directly, so they visually
+	// follow the body's own launch-pitch/lean/suspension-settle animation
+	// instead of staying rigidly fixed while the body tilts underneath
+	// them (reported: the front visibly rises under hard acceleration but
+	// the lighting stayed put, reading as detached from the car). Falls
+	// back to vehicleModel itself for any model with no recognizable
+	// "body" node (bodyNode stays null — see Vehicle.js's init()).
+	// bodyNode sits at its own local offset within vehicleModel's frame
+	// (wherever the source model's "body" mesh itself was authored — not
+	// necessarily vehicleModel's own origin; see the createPivot() comment
+	// on why animating a pivot at that same original position/orientation
+	// is used instead of the node directly). bodyOffset subtracts that out
+	// of every layout coordinate below, so each one still lands at the
+	// exact same calibrated on-screen spot at rest as before — only the
+	// ATTACHMENT point (and therefore what motion it now follows) changes.
+	const anchorNode = vehicle.bodyNode || vehicleModel;
+	const bodyOffset = vehicle.bodyNode ? vehicle.bodyNode.position : null;
+
+	function anchoredPos( v ) {
+
+		if ( bodyOffset ) v.sub( bodyOffset );
+		return v;
+
+	}
 
 	// Headlights: warm-white point lights, lighting up the real room
 	// ahead in AR. Off by default — toggled by the player.
@@ -2148,14 +2177,21 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 		const baseDistance = 14;
 		const baseIntensity = 500;
 		const light = new THREE.SpotLight( 0xfff2cc, baseIntensity, baseDistance, Math.PI / 8, 0.35, 2 );
-		const basePosition = sidePos( layout.headlightSpot, side ); // clear above the roof, open air
+		const basePosition = anchoredPos( sidePos( layout.headlightSpot, side ) ); // clear above the roof, open air
 		light.position.copy( basePosition );
 		light.visible = false;
 
+		// The aim target stays under vehicleModel (NOT anchorNode/bodyNode)
+		// on purpose — it's a point far ahead (z in the tens of units), so
+		// even the small rotation bodyNode's own launch-pitch animation
+		// applies would swing it sideways by a wildly amplified arc length
+		// at that distance. Only the light SOURCE needs to move with the
+		// body; letting just that shift the beam's angle relative to a
+		// fixed-ahead aim point is enough to read as "mounted on the car".
 		const target = new THREE.Object3D();
 		const baseTargetPosition = sidePos( layout.headlightSpotTarget, side ); // far ahead, gentle downward slope
 		target.position.copy( baseTargetPosition );
-		anchorNode.add( target );
+		vehicleModel.add( target );
 		light.target = target;
 
 		anchorNode.add( light );
@@ -2173,7 +2209,7 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 	for ( const side of [ -1, 1 ] ) {
 
 		const group = new THREE.Group();
-		const basePosition = sidePos( layout.headlightLens, side );
+		const basePosition = anchoredPos( sidePos( layout.headlightLens, side ) );
 		group.position.copy( basePosition );
 		group.userData.basePosition = basePosition;
 		group.visible = false;
@@ -2210,7 +2246,7 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 		const baseDistance = 0.9;
 		const baseIntensity = 0.8;
 		const light = new THREE.PointLight( 0xff3b30, baseIntensity, baseDistance, 2 );
-		const basePosition = sidePos( layout.taillight, side );
+		const basePosition = anchoredPos( sidePos( layout.taillight, side ) );
 		light.position.copy( basePosition );
 		anchorNode.add( light );
 		taillights.push( { light, basePosition, baseDistance, baseIntensity } );
@@ -2237,7 +2273,7 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 	const reverseLights = [];
 	for ( const side of [ -1, 1 ] ) {
 
-		const basePosition = sidePos( layout.reverseLight, side );
+		const basePosition = anchoredPos( sidePos( layout.reverseLight, side ) );
 		const group = new THREE.Group();
 		group.position.copy( basePosition );
 		group.rotation.y = Math.PI; // face backward, out through the taillight bump
@@ -2284,7 +2320,7 @@ function addVehicleLights( vehicleGroup, realHazards = false ) {
 	const hazards = [];
 	for ( const [ x, y, z ] of layout.hazards ) {
 
-		const basePosition = new THREE.Vector3( x, y, z );
+		const basePosition = anchoredPos( new THREE.Vector3( x, y, z ) );
 
 		if ( realHazards ) {
 
@@ -3247,16 +3283,14 @@ function setupWebAIExtras( aiDrivers, idPrefix ) {
 
 	return aiDrivers.map( ( d, i ) => {
 
-		const group = d.vehicle.container;
-
-		const lights = addVehicleLights( group );
+		const lights = addVehicleLights( d.vehicle );
 		lights.hazardsOn = true;
 		lights.headlights.forEach( ( h ) => { h.light.removeFromParent(); h.target.removeFromParent(); } );
 		lights.headlightLenses.forEach( ( lens ) => lens.removeFromParent() );
 		lights.taillights.forEach( ( t ) => t.light.removeFromParent() );
 		lights.reverseLights.forEach( ( r ) => r.group.removeFromParent() );
 
-		const flag = addVehicleFlag( group, aiFlagUrl );
+		const flag = addVehicleFlag( d.vehicle, aiFlagUrl );
 		const driftMarks = new DriftMarks( scene, idPrefix + '-' + i, 1, AI_DRIFT_MARK_LIFETIME );
 
 		return { lights, flag, driftMarks };
@@ -3525,11 +3559,11 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
 	scene.add( vehicleGroup );
 	addCustomTextDecals( vehicleGroup, customText );
-	const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
+	const vehicleLights = addVehicleLights( vehicle, true ); // true: this is the player's own car — real hazard lights
 	// flagImage comes from the main menu's image picker (a data: URL, see
 	// createModeMenu) — falls back to the placeholder banner in Flag.js
 	// if the player didn't pick one.
-	const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+	const vehicleFlag = addVehicleFlag( vehicle, flagImage );
 
 	dirLight.target = vehicleGroup;
 
@@ -4641,8 +4675,8 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			// needed at all.
 			arRoot.add( vehicleGroup );
 			addCustomTextDecals( vehicleGroup, customText );
-			const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
-			const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+			const vehicleLights = addVehicleLights( vehicle, true ); // true: this is the player's own car — real hazard lights
+			const vehicleFlag = addVehicleFlag( vehicle, flagImage );
 			// Real-world meters, same as vehicleLights' own position values
 			// above — arRoot's single shrink transform scales this down in
 			// sync with everything else, no extra scale math needed here.
@@ -4731,10 +4765,9 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			const aiFlagUrl = createSaudiFlagDataUrl();
 			const aiExtras = aiDrivers.map( ( d, i ) => {
 
-				const group = d.vehicle.container;
-				const lights = addVehicleLights( group );
+				const lights = addVehicleLights( d.vehicle );
 				lights.hazardsOn = true; // AI always shows hazard/emergency blinkers
-				const flag = addVehicleFlag( group, aiFlagUrl );
+				const flag = addVehicleFlag( d.vehicle, aiFlagUrl );
 				const marks = new DriftMarks( scene, 'ar-floating-track-ai-' + i, FIXED_SCALE, DRIFT_MARK_LIFETIME );
 				return { lights, driftMarks: marks, flag };
 
@@ -5382,8 +5415,8 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		// transform needed anywhere in this function.
 		arenaGroup.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
-		const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
-		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+		const vehicleLights = addVehicleLights( vehicle, true ); // true: this is the player's own car — real hazard lights
+		const vehicleFlag = addVehicleFlag( vehicle, flagImage );
 		// Same reasoning as the floating track's identical call — real-world
 		// meters, arenaGroup's own shrink transform handles the rest.
 		addARContactShadow( vehicleGroup );
@@ -5438,10 +5471,9 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		const aiFlagUrl = createSaudiFlagDataUrl();
 		const aiExtras = aiDrivers.map( ( d, i ) => {
 
-			const group = d.vehicle.container;
-			const lights = addVehicleLights( group );
+			const lights = addVehicleLights( d.vehicle );
 			lights.hazardsOn = true; // AI always shows hazard/emergency blinkers
-			const flag = addVehicleFlag( group, aiFlagUrl );
+			const flag = addVehicleFlag( d.vehicle, aiFlagUrl );
 			const marks = new DriftMarks( scene, 'ar-floating-arena-ai-' + i, FIXED_SCALE, DRIFT_MARK_LIFETIME );
 			return { lights, driftMarks: marks, flag };
 
@@ -5599,8 +5631,8 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
 		scene.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
-		const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
-		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
+		const vehicleLights = addVehicleLights( vehicle, true ); // true: this is the player's own car — real hazard lights
+		const vehicleFlag = addVehicleFlag( vehicle, flagImage );
 		// Parented under vehicleGroup (not vehicleModel) — vehicleGroup's own
 		// origin is always pinned at true ground level regardless of resize
 		// (see the comment below), so the shadow doesn't need the same
