@@ -1899,20 +1899,20 @@ function createTextTexture( text ) {
 // separately calibrated against those models' own measured proportions.
 // Simpler, and nothing left to break at runtime.
 // ✏️ RETUNING KNOB — headlightLens/taillight/hazards' y and flag's y each
-// nudged up +0.6 total (0.03, 0.03, 0.06, 0.12, 0.36 — five passes) per
-// feedback that the front lighting, hazards, and flag were all sitting a
-// bit low. headlightSpot's y raised by the same amount to keep the actual
-// light source aligned with the (now higher) visible lens;
-// headlightSpotTarget (far-ahead aim point) and reverseLight are
-// unaffected — same reasoning as the z-only headlightSpot nudge below.
-// headlightLens' (and the matching front hazard pair's) z also pulled
-// forward +0.1 per feedback that they needed to be more visible/prominent
-// against the body.
+// nudged up +0.45 total net (0.03, 0.03, 0.06, 0.12, 0.36, then back down
+// 0.15 — six passes) per feedback that the front lighting, hazards, and
+// flag were all sitting a bit low, then a touch too high. headlightSpot's
+// y raised/lowered by the same amount to keep the actual light source
+// aligned with the visible lens; headlightSpotTarget (far-ahead aim point)
+// and reverseLight are unaffected — same reasoning as the z-only
+// headlightSpot nudge below. headlightLens' (and the matching front hazard
+// pair's) z also pulled forward +0.1 per feedback that they needed to be
+// more visible/prominent against the body.
 const TRUCK_LAYOUT = {
-	headlightLens: [ 0.3975, 0.899, 1.5 ],
-	taillight: [ 0.3975, 1.029, -1.33 ],
+	headlightLens: [ 0.3975, 0.749, 1.5 ],
+	taillight: [ 0.3975, 0.879, -1.33 ],
 	reverseLight: [ 0.24975, 0.429, -1.3398 ],
-	flag: [ -0.6, 0.743, -1.358 ],
+	flag: [ -0.6, 0.593, -1.358 ],
 	windshieldDecal: [ 0, 0.663, 0.574 ],
 	// Nudged up (+0.05, ≈10% of the decal's own 0.5-unit height — same
 	// nudge applied to all 3 vehicles below) per feedback that the custom
@@ -1931,11 +1931,11 @@ const TRUCK_LAYOUT = {
 	// source sat noticeably outboard of the visible lens it's supposed to
 	// shine from. headlightSpotTarget.x moved the same amount so the beam
 	// still aims straight ahead rather than on an inward slant.
-	headlightSpot: [ 0.3975, 2.6995, 1.7612 ],
+	headlightSpot: [ 0.3975, 2.5495, 1.7612 ],
 	headlightSpotTarget: [ 0.3975, 0.2002, 18.004 ],
 	hazards: [
-		[ -0.3975, 0.899, 1.5 ], [ 0.3975, 0.899, 1.5 ],
-		[ -0.3975, 1.029, -1.33 ], [ 0.3975, 1.029, -1.33 ],
+		[ -0.3975, 0.749, 1.5 ], [ 0.3975, 0.749, 1.5 ],
+		[ -0.3975, 0.879, -1.33 ], [ 0.3975, 0.879, -1.33 ],
 	],
 };
 
@@ -1950,14 +1950,14 @@ const TRUCK_LAYOUT = {
 // reverseLight keeps the same x/y/z ratio to taillight the truck's own
 // numbers already use (×0.628 / ×1 / ×1.0074) — there's no dedicated
 // reverse-light graphic on either model to sample directly.
-// ✏️ Same +0.6 total lift and +0.1 forward nudge as TRUCK_LAYOUT above
+// ✏️ Same +0.45 total net lift and +0.1 forward nudge as TRUCK_LAYOUT above
 // (headlightLens/taillight/hazards/flag y, headlightSpot y, headlightLens/
 // front-hazards z) — see its comment for why.
 const CAMRY_LAYOUT = {
-	headlightLens: [ 0.6535, 1.1198, 2.314 ],
-	taillight: [ 0.7639, 1.3748, -2.3324 ],
+	headlightLens: [ 0.6535, 0.9698, 2.314 ],
+	taillight: [ 0.7639, 1.2248, -2.3324 ],
 	reverseLight: [ 0.4797, 0.7748, -2.3496 ],
-	flag: [ -0.8744, 0.6342, -2.5813 ],
+	flag: [ -0.8744, 0.4842, -2.5813 ],
 	windshieldDecal: [ 0, 0.6635, 1.0567 ],
 	// Nudged up — see the identical nudge in TRUCK_LAYOUT above for why.
 	tailgateDecal: [ 0, 0.2573, -2.6611 ],
@@ -1970,33 +1970,33 @@ const CAMRY_LAYOUT = {
 	// comparable proportion.
 	// x corrected to headlightLens.x (0.6535) — see the identical fix in
 	// TRUCK_LAYOUT above for why (it had been flag.x's 0.8744 instead).
-	headlightSpot: [ 0.6535, 3.0018, 2.8763 ],
+	headlightSpot: [ 0.6535, 2.8518, 2.8763 ],
 	headlightSpotTarget: [ 0.6535, 0.1034, 33.1454 ],
 	hazards: [
-		[ -0.6535, 1.1198, 2.314 ], [ 0.6535, 1.1198, 2.314 ],
-		[ -0.7639, 1.3748, -2.3324 ], [ 0.7639, 1.3748, -2.3324 ],
+		[ -0.6535, 0.9698, 2.314 ], [ 0.6535, 0.9698, 2.314 ],
+		[ -0.7639, 1.2248, -2.3324 ], [ 0.7639, 1.2248, -2.3324 ],
 	],
 };
 
-// ✏️ Same +0.6 total lift and +0.1 forward nudge as TRUCK_LAYOUT above
+// ✏️ Same +0.45 total net lift and +0.1 forward nudge as TRUCK_LAYOUT above
 // (headlightLens/taillight/hazards/flag y, headlightSpot y, headlightLens/
 // front-hazards z) — see its comment for why.
 const CAMARO_LAYOUT = {
-	headlightLens: [ 0.3584, 0.936, 1.4312 ],
-	taillight: [ 0.3123, 0.9876, -1.5104 ],
+	headlightLens: [ 0.3584, 0.786, 1.4312 ],
+	taillight: [ 0.3123, 0.8376, -1.5104 ],
 	reverseLight: [ 0.1961, 0.3876, -1.5215 ],
-	flag: [ -0.4603, 0.6862, -1.4774 ],
+	flag: [ -0.4603, 0.5362, -1.4774 ],
 	windshieldDecal: [ 0, 0.4013, 0.569 ],
 	// Nudged up — see the identical nudge in TRUCK_LAYOUT above for why.
 	tailgateDecal: [ 0, 0.2229, -1.5231 ],
 	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
 	// x corrected to headlightLens.x (0.3584) — see the identical fix in
 	// TRUCK_LAYOUT above for why (it had been flag.x's 0.4603 instead).
-	headlightSpot: [ 0.3584, 1.7519, 1.7232 ],
+	headlightSpot: [ 0.3584, 1.6019, 1.7232 ],
 	headlightSpotTarget: [ 0.3584, 0.1209, 17.8476 ],
 	hazards: [
-		[ -0.3584, 0.936, 1.4312 ], [ 0.3584, 0.936, 1.4312 ],
-		[ -0.3123, 0.9876, -1.5104 ], [ 0.3123, 0.9876, -1.5104 ],
+		[ -0.3584, 0.786, 1.4312 ], [ 0.3584, 0.786, 1.4312 ],
+		[ -0.3123, 0.8376, -1.5104 ], [ 0.3123, 0.8376, -1.5104 ],
 	],
 };
 
