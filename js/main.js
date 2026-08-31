@@ -1985,10 +1985,16 @@ const CAMRY_LAYOUT = {
 };
 
 // ✏️ Same +0.45 total net lift and headlightLens y/z adjustment as
-// TRUCK_LAYOUT above — see its comment for why.
+// TRUCK_LAYOUT above — see its comment for why. Camaro-ONLY from here:
+// per explicit request, headlights + hazards lowered another -0.12 (flag
+// deliberately left untouched, unlike the shared passes above). taillight
+// lowered the same -0.12 alongside the rear hazard pair to keep them
+// co-located — same reasoning as everywhere else in this file that the two
+// stay in sync. Truck/Camry are completely unaffected — this table is
+// fully independent of theirs.
 const CAMARO_LAYOUT = {
-	headlightLens: [ 0.3584, 0.756, 1.3512 ],
-	taillight: [ 0.3123, 0.8376, -1.5104 ],
+	headlightLens: [ 0.3584, 0.636, 1.3512 ],
+	taillight: [ 0.3123, 0.7176, -1.5104 ],
 	reverseLight: [ 0.1961, 0.3876, -1.5215 ],
 	flag: [ -0.4603, 0.5362, -1.4774 ],
 	windshieldDecal: [ 0, 0.4013, 0.569 ],
@@ -1997,11 +2003,11 @@ const CAMARO_LAYOUT = {
 	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
 	// x corrected to headlightLens.x (0.3584) — see the identical fix in
 	// TRUCK_LAYOUT above for why (it had been flag.x's 0.4603 instead).
-	headlightSpot: [ 0.3584, 1.5719, 1.7232 ],
+	headlightSpot: [ 0.3584, 1.4519, 1.7232 ],
 	headlightSpotTarget: [ 0.3584, 0.1209, 17.8476 ],
 	hazards: [
-		[ -0.3584, 0.786, 1.4312 ], [ 0.3584, 0.786, 1.4312 ],
-		[ -0.3123, 0.8376, -1.5104 ], [ 0.3123, 0.8376, -1.5104 ],
+		[ -0.3584, 0.666, 1.4312 ], [ 0.3584, 0.666, 1.4312 ],
+		[ -0.3123, 0.7176, -1.5104 ], [ 0.3123, 0.7176, -1.5104 ],
 	],
 };
 
