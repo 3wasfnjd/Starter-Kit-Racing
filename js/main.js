@@ -5556,9 +5556,16 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		// shared across the player AND all 3 AI every frame).
 		// emitMultiplier halved again (0.15 -> 0.075, 0.06 -> 0.03) per
 		// feedback that the arena's smoke was still causing stutter.
-		const particles = new SmokeTrails( scene, FIXED_SCALE * 0.7, 0.075 );
+		// The puff-size ratio (SmokeTrails' own `scale` param, 2nd arg)
+		// also cut 0.7 -> 0.3 per follow-up feedback: FIXED_SCALE itself
+		// went up (0.05 -> 0.08, see its own comment) to match the
+		// reference project's car size, and this ratio hadn't been
+		// re-tuned to match — puffs were growing right along with it and
+		// ended up visibly bigger than the car itself, reading as fog
+		// covering it rather than a trailing smoke puff.
+		const particles = new SmokeTrails( scene, FIXED_SCALE * 0.3, 0.075 );
 		// Same AI-gets-its-own-lighter-pool split as startARFloatingTrack.
-		const aiParticles = new SmokeTrails( scene, FIXED_SCALE * 0.7, 0.03 );
+		const aiParticles = new SmokeTrails( scene, FIXED_SCALE * 0.3, 0.03 );
 		// Drift marks fade out after DRIFT_MARK_LIFETIME seconds — see the
 		// identical note in startARFloatingTrack.
 		const driftMarks = new DriftMarks( scene, 'ar-floating-arena', FIXED_SCALE, DRIFT_MARK_LIFETIME );
