@@ -1905,11 +1905,15 @@ function createTextTexture( text ) {
 // y raised/lowered by the same amount to keep the actual light source
 // aligned with the visible lens; headlightSpotTarget (far-ahead aim point)
 // and reverseLight are unaffected — same reasoning as the z-only
-// headlightSpot nudge below. headlightLens' (and the matching front hazard
-// pair's) z also pulled forward +0.1 per feedback that they needed to be
-// more visible/prominent against the body.
+// headlightSpot nudge below.
+// headlightLens' own z was pulled forward +0.1, then per feedback that it
+// no longer sat flush against the model's own headlight-lens bump, pulled
+// back -0.05 (net +0.05 from the original). The front hazard PAIR's z is
+// deliberately left at the prior +0.1 value below (per explicit feedback:
+// hazards/flag are fine, don't touch them) — hazards and headlightLens no
+// longer share an identical z as a result, unlike every other coordinate.
 const TRUCK_LAYOUT = {
-	headlightLens: [ 0.3975, 0.749, 1.5 ],
+	headlightLens: [ 0.3975, 0.749, 1.45 ],
 	taillight: [ 0.3975, 0.879, -1.33 ],
 	reverseLight: [ 0.24975, 0.429, -1.3398 ],
 	flag: [ -0.6, 0.593, -1.358 ],
@@ -1950,11 +1954,11 @@ const TRUCK_LAYOUT = {
 // reverseLight keeps the same x/y/z ratio to taillight the truck's own
 // numbers already use (×0.628 / ×1 / ×1.0074) — there's no dedicated
 // reverse-light graphic on either model to sample directly.
-// ✏️ Same +0.45 total net lift and +0.1 forward nudge as TRUCK_LAYOUT above
-// (headlightLens/taillight/hazards/flag y, headlightSpot y, headlightLens/
-// front-hazards z) — see its comment for why.
+// ✏️ Same +0.45 total net lift and headlightLens z adjustment (+0.1 then
+// -0.05, net +0.05, front hazards left at the prior value) as TRUCK_LAYOUT
+// above — see its comment for why.
 const CAMRY_LAYOUT = {
-	headlightLens: [ 0.6535, 0.9698, 2.314 ],
+	headlightLens: [ 0.6535, 0.9698, 2.264 ],
 	taillight: [ 0.7639, 1.2248, -2.3324 ],
 	reverseLight: [ 0.4797, 0.7748, -2.3496 ],
 	flag: [ -0.8744, 0.4842, -2.5813 ],
@@ -1978,11 +1982,11 @@ const CAMRY_LAYOUT = {
 	],
 };
 
-// ✏️ Same +0.45 total net lift and +0.1 forward nudge as TRUCK_LAYOUT above
-// (headlightLens/taillight/hazards/flag y, headlightSpot y, headlightLens/
-// front-hazards z) — see its comment for why.
+// ✏️ Same +0.45 total net lift and headlightLens z adjustment (+0.1 then
+// -0.05, net +0.05, front hazards left at the prior value) as TRUCK_LAYOUT
+// above — see its comment for why.
 const CAMARO_LAYOUT = {
-	headlightLens: [ 0.3584, 0.786, 1.4312 ],
+	headlightLens: [ 0.3584, 0.786, 1.3812 ],
 	taillight: [ 0.3123, 0.8376, -1.5104 ],
 	reverseLight: [ 0.1961, 0.3876, -1.5215 ],
 	flag: [ -0.4603, 0.5362, -1.4774 ],
