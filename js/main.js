@@ -1985,29 +1985,41 @@ const CAMRY_LAYOUT = {
 };
 
 // ✏️ Same +0.45 total net lift and headlightLens y/z adjustment as
-// TRUCK_LAYOUT above — see its comment for why. Camaro-ONLY from here:
-// per explicit request, headlights + hazards lowered another -0.12 (flag
-// deliberately left untouched, unlike the shared passes above). taillight
-// lowered the same -0.12 alongside the rear hazard pair to keep them
-// co-located — same reasoning as everywhere else in this file that the two
-// stay in sync. Truck/Camry are completely unaffected — this table is
-// fully independent of theirs.
+// TRUCK_LAYOUT above — see its comment for why. Camaro-ONLY from here —
+// Truck/Camry are completely unaffected, this table is fully independent
+// of theirs:
+// - headlightLens/headlightSpot y lowered another -0.24 (double the prior
+//   -0.12 step).
+// - hazards (all 4 corners) lowered -0.48 (double THAT amount) so there's
+//   a clear, deliberate gap with headlights sitting above and hazards
+//   below, per explicit request — previously they sat almost level.
+//   taillight lowered the same -0.48 alongside the rear hazard pair to
+//   keep the two co-located, same reasoning as everywhere else in this
+//   file.
+// - flag pulled forward (z toward the car, +0.1) and lowered (-0.05).
+// - headlightLens' LEFT side only (side===-1 in addVehicleLights, i.e.
+//   headlightLensLeftXOffset below) nudged further left/outward; the
+//   right side is untouched — see addVehicleLights()'s own comment on why
+//   this needed a new asymmetric-offset mechanism instead of the usual
+//   mirrored `sidePos()`.
 const CAMARO_LAYOUT = {
-	headlightLens: [ 0.3584, 0.636, 1.3512 ],
-	taillight: [ 0.3123, 0.7176, -1.5104 ],
+	headlightLens: [ 0.3584, 0.396, 1.3512 ],
+	// Left headlightLens only — see addVehicleLights()'s own comment.
+	headlightLensLeftXOffset: -0.05,
+	taillight: [ 0.3123, 0.2376, -1.5104 ],
 	reverseLight: [ 0.1961, 0.3876, -1.5215 ],
-	flag: [ -0.4603, 0.5362, -1.4774 ],
+	flag: [ -0.4603, 0.4862, -1.3774 ],
 	windshieldDecal: [ 0, 0.4013, 0.569 ],
 	// Nudged up — see the identical nudge in TRUCK_LAYOUT above for why.
 	tailgateDecal: [ 0, 0.2229, -1.5231 ],
 	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
 	// x corrected to headlightLens.x (0.3584) — see the identical fix in
 	// TRUCK_LAYOUT above for why (it had been flag.x's 0.4603 instead).
-	headlightSpot: [ 0.3584, 1.4519, 1.7232 ],
+	headlightSpot: [ 0.3584, 1.2119, 1.7232 ],
 	headlightSpotTarget: [ 0.3584, 0.1209, 17.8476 ],
 	hazards: [
-		[ -0.3584, 0.666, 1.4312 ], [ 0.3584, 0.666, 1.4312 ],
-		[ -0.3123, 0.7176, -1.5104 ], [ 0.3123, 0.7176, -1.5104 ],
+		[ -0.3584, 0.186, 1.4312 ], [ 0.3584, 0.186, 1.4312 ],
+		[ -0.3123, 0.2376, -1.5104 ], [ 0.3123, 0.2376, -1.5104 ],
 	],
 };
 
@@ -2152,6 +2164,21 @@ function addVehicleLights( vehicle, realHazards = false ) {
 
 	}
 
+	// Optional per-vehicle asymmetric nudge, LEFT side (side===-1) only —
+	// e.g. CAMARO_LAYOUT's headlightLensLeftXOffset. Every other coordinate
+	// in these layout tables mirrors symmetrically via sidePos()'s own side
+	// multiplier; this is the one deliberate exception, added to nudge just
+	// the driver's-side headlight further outward without moving its
+	// mirror on the right. Applied to both the visible lens and the actual
+	// illuminating spot, so they stay aligned with each other like every
+	// other headlight coordinate in this file.
+	function applyLeftOffset( v, side ) {
+
+		if ( side === -1 && layout.headlightLensLeftXOffset ) v.x += layout.headlightLensLeftXOffset;
+		return v;
+
+	}
+
 	// Headlights: warm-white point lights, lighting up the real room
 	// ahead in AR. Off by default — toggled by the player.
 	// Mounted well above and ahead of the car (like a roof light bar)
@@ -2188,7 +2215,7 @@ function addVehicleLights( vehicle, realHazards = false ) {
 		const baseDistance = 14;
 		const baseIntensity = 500;
 		const light = new THREE.SpotLight( 0xfff2cc, baseIntensity, baseDistance, Math.PI / 8, 0.35, 2 );
-		const basePosition = anchoredPos( sidePos( layout.headlightSpot, side ) ); // clear above the roof, open air
+		const basePosition = applyLeftOffset( anchoredPos( sidePos( layout.headlightSpot, side ) ), side ); // clear above the roof, open air
 		light.position.copy( basePosition );
 		light.visible = false;
 
@@ -2220,7 +2247,7 @@ function addVehicleLights( vehicle, realHazards = false ) {
 	for ( const side of [ -1, 1 ] ) {
 
 		const group = new THREE.Group();
-		const basePosition = anchoredPos( sidePos( layout.headlightLens, side ) );
+		const basePosition = applyLeftOffset( anchoredPos( sidePos( layout.headlightLens, side ) ), side );
 		group.position.copy( basePosition );
 		group.userData.basePosition = basePosition;
 		group.visible = false;
