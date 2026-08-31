@@ -2114,15 +2114,25 @@ function addVehicleFlag( vehicle, imageUrl ) {
 	const layout = layoutFor( vehicleModel );
 
 	// Anchored to the body pivot, same as addVehicleLights() — see its own
-	// comment on anchorNode/bodyOffset for why.
+	// comment on anchorNode/_bodyInvMatrix for why this has to go through
+	// a proper world-space matrix conversion, not a plain position
+	// subtraction (which put the flag entirely inside the Camry's body —
+	// same root cause as the headlights).
 	const anchorNode = vehicle.bodyNode || vehicleModel;
-	const bodyOffset = vehicle.bodyNode ? vehicle.bodyNode.position : null;
+	const _bodyInvMatrix = new THREE.Matrix4();
+	if ( vehicle.bodyNode ) {
+
+		vehicleModel.updateMatrixWorld( true );
+		vehicle.bodyNode.updateMatrixWorld( true );
+		_bodyInvMatrix.copy( vehicle.bodyNode.matrixWorld ).invert();
+
+	}
 
 	const flag = createFlag( imageUrl );
 	// Pole planted right at the rear bumper — pulled left (clear of the
 	// bumper's width) and just past its depth, not floating away from it.
 	const flagPosition = new THREE.Vector3( ...layout.flag );
-	if ( bodyOffset ) flagPosition.sub( bodyOffset );
+	if ( vehicle.bodyNode ) flagPosition.applyMatrix4( vehicleModel.matrixWorld ).applyMatrix4( _bodyInvMatrix );
 	flag.group.position.copy( flagPosition );
 	anchorNode.add( flag.group );
 
@@ -2160,20 +2170,40 @@ function addVehicleLights( vehicle, realHazards = false ) {
 	// the lighting stayed put, reading as detached from the car). Falls
 	// back to vehicleModel itself for any model with no recognizable
 	// "body" node (bodyNode stays null — see Vehicle.js's init()).
-	// bodyNode sits at its own local offset within vehicleModel's frame
-	// (wherever the source model's "body" mesh itself was authored — not
-	// necessarily vehicleModel's own origin; see the createPivot() comment
-	// on why animating a pivot at that same original position/orientation
-	// is used instead of the node directly). bodyOffset subtracts that out
-	// of every layout coordinate below, so each one still lands at the
-	// exact same calibrated on-screen spot at rest as before — only the
-	// ATTACHMENT point (and therefore what motion it now follows) changes.
+	//
+	// bodyNode is a child of bodyChild's own immediate parent, which is
+	// NOT necessarily vehicleModel itself — createPivot(bodyChild) inserts
+	// the pivot exactly where bodyChild already lived, and vehicleModel's
+	// traverse() in Vehicle.js's init() finds "body" wherever it sits in
+	// the whole descendant tree, however many levels deep. For Camry
+	// specifically that's several levels down through nodes carrying their
+	// own extra scale (a ~100x centimeters-vs-meters artifact — see
+	// Vehicle.js's own _bodySuspensionSinkLocal comment for the full
+	// story), so bodyNode's local units are NOT the same size as
+	// vehicleModel's own local units there. A first version of this
+	// compensated only by subtracting bodyNode.position (a pure
+	// translation) — correct for Truck/Camaro (no such extra scale, so a
+	// no-op difference from doing it "right"), but on Camry it put every
+	// light/decal/flag position wildly off (reported: entirely inside the
+	// car body, invisible) because a translation-only fix can't correct
+	// for a scale mismatch between the two frames. anchoredPos() below
+	// instead converts properly through world space (vehicleModel's own
+	// matrixWorld out, bodyNode's inverse matrixWorld in), which is
+	// correct regardless of any scale/rotation/nesting differences between
+	// the two frames — not just a Camry-specific patch.
 	const anchorNode = vehicle.bodyNode || vehicleModel;
-	const bodyOffset = vehicle.bodyNode ? vehicle.bodyNode.position : null;
+	const _bodyInvMatrix = new THREE.Matrix4();
+	if ( vehicle.bodyNode ) {
+
+		vehicleModel.updateMatrixWorld( true );
+		vehicle.bodyNode.updateMatrixWorld( true );
+		_bodyInvMatrix.copy( vehicle.bodyNode.matrixWorld ).invert();
+
+	}
 
 	function anchoredPos( v ) {
 
-		if ( bodyOffset ) v.sub( bodyOffset );
+		if ( vehicle.bodyNode ) v.applyMatrix4( vehicleModel.matrixWorld ).applyMatrix4( _bodyInvMatrix );
 		return v;
 
 	}
@@ -2229,7 +2259,7 @@ function addVehicleLights( vehicle, realHazards = false ) {
 		const baseDistance = 14;
 		const baseIntensity = 500;
 		const light = new THREE.SpotLight( 0xfff2cc, baseIntensity, baseDistance, Math.PI / 8, 0.35, 2 );
-		const basePosition = applyLeftOffset( anchoredPos( sidePos( layout.headlightSpot, side ) ), side ); // clear above the roof, open air
+		const basePosition = anchoredPos( applyLeftOffset( sidePos( layout.headlightSpot, side ), side ) ); // clear above the roof, open air
 		light.position.copy( basePosition );
 		light.visible = false;
 
@@ -2261,7 +2291,7 @@ function addVehicleLights( vehicle, realHazards = false ) {
 	for ( const side of [ -1, 1 ] ) {
 
 		const group = new THREE.Group();
-		const basePosition = applyLeftOffset( anchoredPos( sidePos( layout.headlightLens, side ) ), side );
+		const basePosition = anchoredPos( applyLeftOffset( sidePos( layout.headlightLens, side ), side ) );
 		group.position.copy( basePosition );
 		group.userData.basePosition = basePosition;
 		group.visible = false;
