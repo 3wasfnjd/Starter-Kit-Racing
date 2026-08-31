@@ -5344,12 +5344,19 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	// of FIXED_SCALE being the one, consistent size knob) and why they're
 	// all safe to change freely (purely cosmetic/pacing, no
 	// physics-stability impact).
-	// Bumped up (0.03 → 0.039 → 0.05, ~28% this time) — same reasoning
-	// and same relative bump as the identical change in
-	// startARFloatingTrack.
+	// Bumped up again (0.03 → 0.039 → 0.05 → 0.08) to match the car/arena
+	// AR tabletop size used by the reference "Drifting" project's own
+	// drift-arena AR mode (its AR_CONTENT_SCALE constant) — since the
+	// player's sphere radius here is a fixed real-world 0.5 (createSphereBody's
+	// own default, unscaled — this mode's physics runs at full real scale,
+	// see lockInAndStart() below), FIXED_SCALE alone already sets the
+	// car's real-world tabletop diameter directly (0.5×2×FIXED_SCALE), so
+	// matching that one number reproduces the same car size Drifting uses
+	// (0.08m); the arena footprint scales the same way from PAD_HALF_X/Z,
+	// which are unchanged.
 	// Declared before buildDriftPad() (moved up from below) so it can be
 	// forwarded into the pole lights' distance/intensity scaling.
-	const FIXED_SCALE = 0.05;
+	const FIXED_SCALE = 0.08;
 	const arenaGroup = buildDriftPad( PAD_HALF_X, PAD_HALF_Z, models, FIXED_SCALE );
 
 	// buildDriftPad() starts at identity transform (no internal offset
