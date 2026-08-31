@@ -1908,12 +1908,15 @@ function createTextTexture( text ) {
 // headlightSpot nudge below.
 // headlightLens' own z was pulled forward +0.1, then per feedback that it
 // no longer sat flush against the model's own headlight-lens bump, pulled
-// back -0.05 (net +0.05 from the original). The front hazard PAIR's z is
-// deliberately left at the prior +0.1 value below (per explicit feedback:
+// back -0.05, then -0.03 more (net +0.02 from the original). Its y was
+// also lowered -0.03 in this same pass. The front hazard PAIR's z/y are
+// deliberately left at their prior values below (per explicit feedback:
 // hazards/flag are fine, don't touch them) — hazards and headlightLens no
-// longer share an identical z as a result, unlike every other coordinate.
+// longer share identical y/z as a result, unlike every other coordinate.
+// headlightSpot's y is kept in sync with headlightLens' own y (same
+// reasoning as the original total-lift passes above); its z is untouched.
 const TRUCK_LAYOUT = {
-	headlightLens: [ 0.3975, 0.749, 1.45 ],
+	headlightLens: [ 0.3975, 0.719, 1.42 ],
 	taillight: [ 0.3975, 0.879, -1.33 ],
 	reverseLight: [ 0.24975, 0.429, -1.3398 ],
 	flag: [ -0.6, 0.593, -1.358 ],
@@ -1935,7 +1938,7 @@ const TRUCK_LAYOUT = {
 	// source sat noticeably outboard of the visible lens it's supposed to
 	// shine from. headlightSpotTarget.x moved the same amount so the beam
 	// still aims straight ahead rather than on an inward slant.
-	headlightSpot: [ 0.3975, 2.5495, 1.7612 ],
+	headlightSpot: [ 0.3975, 2.5195, 1.7612 ],
 	headlightSpotTarget: [ 0.3975, 0.2002, 18.004 ],
 	hazards: [
 		[ -0.3975, 0.749, 1.5 ], [ 0.3975, 0.749, 1.5 ],
@@ -1954,11 +1957,10 @@ const TRUCK_LAYOUT = {
 // reverseLight keeps the same x/y/z ratio to taillight the truck's own
 // numbers already use (×0.628 / ×1 / ×1.0074) — there's no dedicated
 // reverse-light graphic on either model to sample directly.
-// ✏️ Same +0.45 total net lift and headlightLens z adjustment (+0.1 then
-// -0.05, net +0.05, front hazards left at the prior value) as TRUCK_LAYOUT
-// above — see its comment for why.
+// ✏️ Same +0.45 total net lift and headlightLens y/z adjustment as
+// TRUCK_LAYOUT above — see its comment for why.
 const CAMRY_LAYOUT = {
-	headlightLens: [ 0.6535, 0.9698, 2.264 ],
+	headlightLens: [ 0.6535, 0.9398, 2.234 ],
 	taillight: [ 0.7639, 1.2248, -2.3324 ],
 	reverseLight: [ 0.4797, 0.7748, -2.3496 ],
 	flag: [ -0.8744, 0.4842, -2.5813 ],
@@ -1974,7 +1976,7 @@ const CAMRY_LAYOUT = {
 	// comparable proportion.
 	// x corrected to headlightLens.x (0.6535) — see the identical fix in
 	// TRUCK_LAYOUT above for why (it had been flag.x's 0.8744 instead).
-	headlightSpot: [ 0.6535, 2.8518, 2.8763 ],
+	headlightSpot: [ 0.6535, 2.8218, 2.8763 ],
 	headlightSpotTarget: [ 0.6535, 0.1034, 33.1454 ],
 	hazards: [
 		[ -0.6535, 0.9698, 2.314 ], [ 0.6535, 0.9698, 2.314 ],
@@ -1982,11 +1984,10 @@ const CAMRY_LAYOUT = {
 	],
 };
 
-// ✏️ Same +0.45 total net lift and headlightLens z adjustment (+0.1 then
-// -0.05, net +0.05, front hazards left at the prior value) as TRUCK_LAYOUT
-// above — see its comment for why.
+// ✏️ Same +0.45 total net lift and headlightLens y/z adjustment as
+// TRUCK_LAYOUT above — see its comment for why.
 const CAMARO_LAYOUT = {
-	headlightLens: [ 0.3584, 0.786, 1.3812 ],
+	headlightLens: [ 0.3584, 0.756, 1.3512 ],
 	taillight: [ 0.3123, 0.8376, -1.5104 ],
 	reverseLight: [ 0.1961, 0.3876, -1.5215 ],
 	flag: [ -0.4603, 0.5362, -1.4774 ],
@@ -1996,7 +1997,7 @@ const CAMARO_LAYOUT = {
 	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
 	// x corrected to headlightLens.x (0.3584) — see the identical fix in
 	// TRUCK_LAYOUT above for why (it had been flag.x's 0.4603 instead).
-	headlightSpot: [ 0.3584, 1.6019, 1.7232 ],
+	headlightSpot: [ 0.3584, 1.5719, 1.7232 ],
 	headlightSpotTarget: [ 0.3584, 0.1209, 17.8476 ],
 	hazards: [
 		[ -0.3584, 0.786, 1.4312 ], [ 0.3584, 0.786, 1.4312 ],
