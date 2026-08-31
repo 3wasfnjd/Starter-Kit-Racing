@@ -1996,17 +1996,19 @@ const CAMRY_LAYOUT = {
 //   taillight lowered the same -0.48 alongside the rear hazard pair to
 //   keep the two co-located, same reasoning as everywhere else in this
 //   file.
-// - flag pulled forward (z toward the car, +0.1) and lowered (-0.05).
+// - flag pulled forward (z toward the car, +0.1) and lowered (-0.05); per
+//   follow-up feedback the flag is now right, so it's untouched below.
 // - headlightLens' LEFT side only (side===-1 in addVehicleLights, i.e.
 //   headlightLensLeftXOffset below) nudged further left/outward; the
 //   right side is untouched — see addVehicleLights()'s own comment on why
 //   this needed a new asymmetric-offset mechanism instead of the usual
-//   mirrored `sidePos()`.
+//   mirrored `sidePos()`. Nudged again -0.03 in the same follow-up pass
+//   that lowered headlightLens/headlightSpot/hazards a bit further.
 const CAMARO_LAYOUT = {
-	headlightLens: [ 0.3584, 0.396, 1.3512 ],
+	headlightLens: [ 0.3584, 0.366, 1.3512 ],
 	// Left headlightLens only — see addVehicleLights()'s own comment.
-	headlightLensLeftXOffset: -0.05,
-	taillight: [ 0.3123, 0.2376, -1.5104 ],
+	headlightLensLeftXOffset: -0.08,
+	taillight: [ 0.3123, 0.2076, -1.5104 ],
 	reverseLight: [ 0.1961, 0.3876, -1.5215 ],
 	flag: [ -0.4603, 0.4862, -1.3774 ],
 	windshieldDecal: [ 0, 0.4013, 0.569 ],
@@ -2015,11 +2017,11 @@ const CAMARO_LAYOUT = {
 	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
 	// x corrected to headlightLens.x (0.3584) — see the identical fix in
 	// TRUCK_LAYOUT above for why (it had been flag.x's 0.4603 instead).
-	headlightSpot: [ 0.3584, 1.2119, 1.7232 ],
+	headlightSpot: [ 0.3584, 1.1819, 1.7232 ],
 	headlightSpotTarget: [ 0.3584, 0.1209, 17.8476 ],
 	hazards: [
-		[ -0.3584, 0.186, 1.4312 ], [ 0.3584, 0.186, 1.4312 ],
-		[ -0.3123, 0.2376, -1.5104 ], [ 0.3123, 0.2376, -1.5104 ],
+		[ -0.3584, 0.156, 1.4312 ], [ 0.3584, 0.156, 1.4312 ],
+		[ -0.3123, 0.2076, -1.5104 ], [ 0.3123, 0.2076, -1.5104 ],
 	],
 };
 
