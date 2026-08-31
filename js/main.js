@@ -4287,7 +4287,36 @@ async function startARWithFloatingMenu( { mapParam, customCells, customText, veh
 	// responsible for bright lights blowing out into an overwhelming
 	// glow, since bloom amplifies bright pixels heavily.
 	renderer.setEffects( [] );
-	arManager.session.addEventListener( 'end', () => { renderer.setEffects( [ bloomPass ] ); } );
+	// Fires on ANY session end, not just the ones this file triggers
+	// itself. openExitConfirm() and showAR3DRaceResults() below both call
+	// arManager.session.end() from inside the app and handle their own
+	// stash+reload back to the AR mode picker — but a WebXR session can
+	// also end from OUTSIDE the app entirely (the headset's own "exit AR"
+	// system gesture, taking the headset off long enough to auto-end the
+	// session, an underlying WebXR error) with no in-app trigger at all.
+	// Previously that case had no handler at all: ARManager.update()
+	// already no-ops once session is null, but each submode's own
+	// frameUpdate() kept calling renderer.render() every frame regardless
+	// — meaning the page would just sit frozen on the last AR frame with
+	// no way back, instead of returning to the menu the way an
+	// intentional exit does. Doing the same stash+reload here
+	// unconditionally covers that case too; on the two explicit exit
+	// paths this fires redundantly alongside their own reload, which is
+	// harmless (the second reload call is a no-op once the page is
+	// already navigating away).
+	arManager.session.addEventListener( 'end', () => {
+
+		renderer.setEffects( [ bloomPass ] );
+
+		try {
+
+			sessionStorage.setItem( 'hwReturnToArMenu', JSON.stringify( { customText, vehicleKey, flagImage } ) );
+
+		} catch ( e ) { /* ignore — falls back to the game's main menu */ }
+
+		window.location.reload();
+
+	} );
 
 	const placeholderCamera = new THREE.PerspectiveCamera();
 	const menuCtx = {};
