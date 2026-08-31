@@ -244,8 +244,6 @@ export function buildTrack( scene, models, customCells, { compactDeco = false, s
 				if ( ! child.isMesh ) return;
 
 				const inst = new THREE.InstancedMesh( child.geometry, child.material, count );
-				inst.castShadow = true;
-				inst.receiveShadow = true;
 
 				for ( let i = 0; i < count; i ++ ) {
 
@@ -276,17 +274,6 @@ export function buildTrack( scene, models, customCells, { compactDeco = false, s
 
 	trackGroup.updateMatrixWorld( true );
 
-	trackGroup.traverse( ( child ) => {
-
-		if ( child.isMesh ) {
-
-			child.castShadow = true;
-			child.receiveShadow = true;
-
-		}
-
-	} );
-
 	if ( ! customCells && ! skipDeco ) {
 
 		for ( const [ key, x, y, z, rotDeg ] of NPC_TRUCKS ) {
@@ -297,16 +284,6 @@ export function buildTrack( scene, models, customCells, { compactDeco = false, s
 			const npc = src.clone();
 			npc.position.set( x, y, z );
 			npc.rotation.y = THREE.MathUtils.degToRad( rotDeg + 180 );
-			npc.traverse( ( c ) => {
-
-				if ( c.isMesh ) {
-
-					c.castShadow = true;
-					c.receiveShadow = true;
-
-				}
-
-			} );
 			scene.add( npc );
 
 		}

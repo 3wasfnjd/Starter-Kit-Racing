@@ -3755,48 +3755,14 @@ for ( const key of [ 'room', 'track', 'arena' ] ) {
 
 }
 
-// Labels for mode keys that have no illustrative photo (models/Textures/
-// mode-*.jpeg) yet — drawn as a plain text card instead (same technique
-// showExitConfirm's makeCard() uses), same portrait footprint as the
-// photo cards so it doesn't look out of place in the same row.
-const MODE_CARD_TEXT_LABELS = {};
-
 function createModeCard( textureKey ) {
 
-	if ( modeCardTextures[ textureKey ] ) {
-
-		// Portrait aspect ratio matching the source images (≈469:768) —
-		// title text is already baked into the image itself, so no canvas
-		// text overlay needed here.
-		return new THREE.Mesh(
-			new THREE.PlaneGeometry( 0.22, 0.36 ),
-			new THREE.MeshBasicMaterial( { map: modeCardTextures[ textureKey ], side: THREE.DoubleSide } )
-		);
-
-	}
-
-	// No photo for this mode — draw a plain text card at the same
-	// portrait aspect ratio instead.
-	const canvas = document.createElement( 'canvas' );
-	canvas.width = 293; canvas.height = 480;
-	const ctx = canvas.getContext( '2d' );
-	ctx.fillStyle = '#2a1f3d';
-	ctx.fillRect( 0, 0, canvas.width, canvas.height );
-	ctx.strokeStyle = '#8B5FBF';
-	ctx.lineWidth = 6;
-	ctx.strokeRect( 3, 3, canvas.width - 6, canvas.height - 6 );
-	ctx.fillStyle = '#fff';
-	ctx.font = 'bold 40px "Segoe UI", Tahoma, Arial, sans-serif';
-	ctx.textAlign = 'center';
-	ctx.textBaseline = 'middle';
-	ctx.direction = 'rtl';
-	ctx.fillText( MODE_CARD_TEXT_LABELS[ textureKey ] || textureKey, canvas.width / 2, canvas.height / 2 );
-	const texture = new THREE.CanvasTexture( canvas );
-	texture.colorSpace = THREE.SRGBColorSpace;
-
+	// Portrait aspect ratio matching the source images (≈469:768) — title
+	// text is already baked into the image itself, so no canvas text
+	// overlay needed here.
 	return new THREE.Mesh(
 		new THREE.PlaneGeometry( 0.22, 0.36 ),
-		new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide } )
+		new THREE.MeshBasicMaterial( { map: modeCardTextures[ textureKey ], side: THREE.DoubleSide } )
 	);
 
 }

@@ -104,14 +104,6 @@ export class Vehicle {
 		this.justLaunched = false;
 		this._launchArmed = true;
 
-		// Both null/true = today's exact behavior (world +Y is "up",
-		// steering is flattened onto the world XZ plane) for every mode
-		// that never touches them. AR climb mode is the only caller that
-		// sets these, to a surface normal / false respectively, once it
-		// exists — see update()'s use of each below.
-		this.upVector = null;
-		this.autoLevelToUp = true;
-
 	}
 
 	init( model ) {
@@ -136,13 +128,6 @@ export class Vehicle {
 			} else if ( name.includes( 'wheel' ) ) {
 
 				wheelChildren.push( child );
-
-			}
-
-			if ( child.isMesh ) {
-
-				child.castShadow = true;
-				child.receiveShadow = true;
 
 			}
 
@@ -317,7 +302,7 @@ export class Vehicle {
 
 		_tmpVec.set( 0, 1, 0 ).applyQuaternion( this.container.quaternion );
 
-		if ( this.autoLevelToUp && _tmpVec.y > 0.5 ) {
+		if ( _tmpVec.y > 0.5 ) {
 
 			const targetQuat = this.alignWithY( this.container.quaternion, _up );
 			this.container.quaternion.slerp( targetQuat, 0.2 );
@@ -332,21 +317,12 @@ export class Vehicle {
 
 		if ( this.rigidBody ) {
 
-			// Flattened onto the plane perpendicular to upVector (defaults
-			// to world +Y, i.e. this.upVector === null) instead of a flat
-			// `.y = 0` — identical result for every mode that never sets
-			// upVector (see the equivalence: projecting onto the plane
-			// perpendicular to (0,1,0) is exactly "zero the y component"),
-			// but lets AR climb mode steer correctly on a non-flat surface
-			// (e.g. a wall) by pointing upVector at that surface's normal.
-			const effectiveUp = this.upVector || _up;
-
 			_forward.set( 0, 0, 1 ).applyQuaternion( this.container.quaternion );
-			_forward.addScaledVector( effectiveUp, - _forward.dot( effectiveUp ) );
+			_forward.y = 0;
 			_forward.normalize();
 
 			_right.set( 1, 0, 0 ).applyQuaternion( this.container.quaternion );
-			_right.addScaledVector( effectiveUp, - _right.dot( effectiveUp ) );
+			_right.y = 0;
 			_right.normalize();
 
 			const angvel = this.rigidBody.motionProperties.angularVelocity;
