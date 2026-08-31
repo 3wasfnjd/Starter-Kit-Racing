@@ -11,10 +11,20 @@ export class Camera {
 	// open space (e.g. the free-roam arena) fits in frame. far: clip plane,
 	// needs raising alongside distanceScale or a pulled-back camera would
 	// itself sit past the default 60-unit far plane, or leave the arena's
-	// far edge clipped/invisible instead of fading out through fog.
-	constructor( { distanceScale = 1, far = 60 } = {} ) {
+	// far edge clipped/invisible instead of fading out through fog. near:
+	// raise this together with far, not just far alone — a non-logarithmic
+	// depth buffer spreads its precision across the near/far RANGE, so
+	// pushing far way out while leaving near at the default 0.1 stretches
+	// that ratio thin and starves precision at distance, which showed up as
+	// flickering dark stripes/banding across the ground the moment the
+	// camera pulled back far enough to see it (reported on video: z-fighting
+	// between the ground plane and its skid-mark/edge decal overlays, whose
+	// Y offsets from it are only ~0.001 apart). Every mode using the tight
+	// default distance is unaffected either way (far=60/near=0.1 was already
+	// a comfortable ratio for that range).
+	constructor( { distanceScale = 1, far = 60, near = 0.1 } = {} ) {
 
-		this.camera = new THREE.PerspectiveCamera( 40, window.innerWidth / window.innerHeight, 0.1, far );
+		this.camera = new THREE.PerspectiveCamera( 40, window.innerWidth / window.innerHeight, near, far );
 
 		// Matches Godot View: 45° azimuth, 35° elevation, distance 16 (×distanceScale)
 		this.offset = new THREE.Vector3( 9.27, 9.18, 9.27 ).multiplyScalar( distanceScale );

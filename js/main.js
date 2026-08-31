@@ -3525,7 +3525,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	// Free-roam ("الحلبة") pulls the chase cam back so a much larger part
 	// of the open arena is visible at once, instead of the classic track
 	// mode's tighter, closer-in default view.
-	const cam = freeRoam ? new Camera( { distanceScale: 3, far: 250 } ) : new Camera();
+	const cam = freeRoam ? new Camera( { distanceScale: 3, far: 250, near: 2 } ) : new Camera();
 	scene.add( cam.debug );
 
 	const controls = new Controls();
