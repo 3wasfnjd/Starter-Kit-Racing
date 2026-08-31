@@ -5066,6 +5066,7 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 					if ( arManager.getHazardToggle() ) toggleHazards( raceCtx.vehicleLights );
 					setHighBeam( raceCtx.vehicleLights, arManager.getHighBeamHold(), raceCtx.arScale );
 					raceCtx.audio.setHorn( arManager.getHornHold() );
+					if ( arManager.getMusicToggle() ) bgMusic.muted = ! bgMusic.muted;
 
 					// AI opponents: same real pure-pursuit driving as
 					// NORMAL mode's own race AI, plus the same lights/
@@ -5704,6 +5705,7 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 					if ( arManager.getHazardToggle() ) toggleHazards( raceCtx.vehicleLights );
 					setHighBeam( raceCtx.vehicleLights, arManager.getHighBeamHold(), raceCtx.arScale );
 					raceCtx.audio.setHorn( arManager.getHornHold() );
+					if ( arManager.getMusicToggle() ) bgMusic.muted = ! bgMusic.muted;
 
 					// AI opponents: same wandering/drifting free-roam AI as
 					// NORMAL mode, plus the same lights/flag/smoke/drift-
@@ -5897,6 +5899,7 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 					if ( arManager.getHazardToggle() ) toggleHazards( gameState.vehicleLights );
 					setHighBeam( gameState.vehicleLights, arManager.getHighBeamHold(), gameState.vehicleScale );
 					gameState.audio.setHorn( arManager.getHornHold() );
+					if ( arManager.getMusicToggle() ) bgMusic.muted = ! bgMusic.muted;
 
 					if ( gameState.vehicleLights ) {
 

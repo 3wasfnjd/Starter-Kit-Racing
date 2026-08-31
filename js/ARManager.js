@@ -45,6 +45,7 @@ export class ARManager {
 		this._prevTrigger = { left: false, right: false };
 		this._prevHeadlightButton = false;
 		this._prevHazardButton = false;
+		this._prevMusicButton = false;
 
 		this.controllerModelFactory = new XRControllerModelFactory();
 		this._setupControllers();
@@ -716,13 +717,27 @@ export class ARManager {
 
 	}
 
-	// Left thumbstick click (xr-standard index 3) — unused elsewhere,
-	// repurposed for the handbrake. Held not toggled, like a real
-	// handbrake lever.
+	// Left X button (xr-standard index 4) — moved off the left thumbstick
+	// click per request, freeing that stick click up again. Held not
+	// toggled, like a real handbrake lever.
 	getHandbrakeHold() {
 
 		const left = this.gamepads.left;
-		return left && left.buttons[ 3 ] ? left.buttons[ 3 ].pressed : false;
+		return left && left.buttons[ 4 ] ? left.buttons[ 4 ].pressed : false;
+
+	}
+
+	// Left Y button (xr-standard index 5) — music mute toggle. Rising-edge
+	// only, matching getHeadlightToggle()/getHazardToggle() above; main.js
+	// flips bgMusic.muted on each edge, reusing the same flag the on-screen
+	// music button (setupMusicToggle()) already drives.
+	getMusicToggle() {
+
+		const left = this.gamepads.left;
+		const pressed = left && left.buttons[ 5 ] ? left.buttons[ 5 ].pressed : false;
+		const edge = pressed && ! this._prevMusicButton;
+		this._prevMusicButton = pressed;
+		return edge;
 
 	}
 
