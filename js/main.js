@@ -5335,8 +5335,15 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	// same ~1.3× per side (≈75% more floor area). Every wall/ground
 	// collider and visual dressing below is already derived from these
 	// two constants, so nothing else needs to change to match.
-	const PAD_HALF_X = 21;
-	const PAD_HALF_Z = 13;
+	// Bumped up again (~20% per side) per feedback that the arena still
+	// felt small — every wall/ground collider, floodlight pole, barrier,
+	// and corner decoration below is derived from these two constants
+	// (buildDriftPad/scatterCornerDecor/createFreeRoamAI/lockInAndStart's
+	// own colliders all take halfX/halfZ as parameters), so widening the
+	// arena moves all of that dressing out along with it automatically —
+	// nothing else needed to change to match.
+	const PAD_HALF_X = 25;
+	const PAD_HALF_Z = 16;
 
 	// ✏️ EASY RETUNING KNOBS — see the identical comment in
 	// startARFloatingTrack for what each one does (including TIME_SCALE,
@@ -5547,9 +5554,11 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		// startARFloatingTrack (defaulting to scale=1 caused the reported
 		// freeze/hang: real-meter-sized puffs, at default emission rate,
 		// shared across the player AND all 3 AI every frame).
-		const particles = new SmokeTrails( scene, FIXED_SCALE * 0.7, 0.15 );
+		// emitMultiplier halved again (0.15 -> 0.075, 0.06 -> 0.03) per
+		// feedback that the arena's smoke was still causing stutter.
+		const particles = new SmokeTrails( scene, FIXED_SCALE * 0.7, 0.075 );
 		// Same AI-gets-its-own-lighter-pool split as startARFloatingTrack.
-		const aiParticles = new SmokeTrails( scene, FIXED_SCALE * 0.7, 0.06 );
+		const aiParticles = new SmokeTrails( scene, FIXED_SCALE * 0.7, 0.03 );
 		// Drift marks fade out after DRIFT_MARK_LIFETIME seconds — see the
 		// identical note in startARFloatingTrack.
 		const driftMarks = new DriftMarks( scene, 'ar-floating-arena', FIXED_SCALE, DRIFT_MARK_LIFETIME );
@@ -5590,7 +5599,15 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		const aiExtras = aiDrivers.map( ( d, i ) => {
 
 			const lights = addVehicleLights( d.vehicle );
-			lights.hazardsOn = true; // AI always shows hazard/emergency blinkers
+			// AI always shows hazard/emergency blinkers, but started on a
+			// short delay instead of the instant lock-in creates them — per
+			// feedback that the arena visibly hitches for a moment right at
+			// lock-in, and hazards were suspected. This alone can't remove
+			// the actual creation cost (the hazard lens/glow meshes for all
+			// 3 AI cars are still built synchronously above, same as
+			// everything else lock-in builds in one go), but it keeps the
+			// blink state from also kicking in on that exact frame.
+			setTimeout( () => { lights.hazardsOn = true; }, 400 );
 			const flag = addVehicleFlag( d.vehicle, aiFlagUrl );
 			const marks = new DriftMarks( scene, 'ar-floating-arena-ai-' + i, FIXED_SCALE, DRIFT_MARK_LIFETIME );
 			return { lights, driftMarks: marks, flag };
