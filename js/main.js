@@ -3650,11 +3650,40 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	dirLight.target = vehicleGroup;
 
-	// Free-roam ("الحلبة") pulls the chase cam back so a much larger part
-	// of the open arena is visible at once, instead of the classic track
-	// mode's tighter, closer-in default view.
-	const cam = freeRoam ? new Camera( { distanceScale: 3, far: 250, near: 2 } ) : new Camera();
+	// Free-roam ("الحلبة") pulls the chase cam back so a larger part of the
+	// open arena is visible at once than the classic track mode's tighter,
+	// closer-in default view — pulled in some from an earlier, farther
+	// 3x per feedback that it read as too distant.
+	const cam = freeRoam ? new Camera( { distanceScale: 2.2, far: 250, near: 2 } ) : new Camera();
 	scene.add( cam.debug );
+
+	// Free-roam-only cinematic opening shot: a wide, elevated drone-style
+	// sweep down onto the parked car before handing control to the player,
+	// instead of just cutting straight to the normal chase cam. Sweeps
+	// radius/elevation/azimuth (spherical, around the car) from a dramatic
+	// starting pose down to cam's own normal offset, so the last frame
+	// lines up with where cam.update() would put the camera anyway —
+	// no visible snap when control is handed back. Track mode keeps its
+	// existing instant start (it already has its own countdown beat).
+	let cinematic = null;
+	if ( freeRoam ) {
+
+		const finalOffset = cam.offset;
+		const finalRadius = finalOffset.length();
+		const finalElevation = Math.asin( finalOffset.y / finalRadius );
+		const finalAzimuth = Math.atan2( finalOffset.z, finalOffset.x );
+
+		cinematic = {
+			active: true,
+			t: 0,
+			duration: 2.6,
+			finalRadius, finalElevation, finalAzimuth,
+			startRadius: finalRadius * 2.6,
+			startElevation: Math.min( finalElevation + 0.5, 1.45 ),
+			startAzimuth: finalAzimuth - Math.PI * 0.85,
+		};
+
+	}
 
 	const controls = new Controls();
 
@@ -3748,7 +3777,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 			}
 
-			const racing = raceState.phase === 'racing';
+			const racing = raceState.phase === 'racing' && ! ( cinematic && cinematic.active );
 			const rawInput = controls.update();
 			const input = racing ? rawInput : { x: 0, z: 0, touchActive: false };
 
@@ -3834,7 +3863,32 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 			const mv = vehicle.modelVelocity;
 			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
-			cam.update( dt, vehicle.spherePos, _camLead );
+
+			if ( cinematic && cinematic.active ) {
+
+				cinematic.t = Math.min( cinematic.t + dt, cinematic.duration );
+				const p = cinematic.t / cinematic.duration;
+				const e = p * p * ( 3 - 2 * p ); // smoothstep easing
+
+				const radius = THREE.MathUtils.lerp( cinematic.startRadius, cinematic.finalRadius, e );
+				const elevation = THREE.MathUtils.lerp( cinematic.startElevation, cinematic.finalElevation, e );
+				const azimuth = THREE.MathUtils.lerp( cinematic.startAzimuth, cinematic.finalAzimuth, e );
+
+				const horiz = radius * Math.cos( elevation );
+				const ox = horiz * Math.cos( azimuth );
+				const oy = radius * Math.sin( elevation );
+				const oz = horiz * Math.sin( azimuth );
+
+				cam.camera.position.set( vehicle.spherePos.x + ox, vehicle.spherePos.y + oy, vehicle.spherePos.z + oz );
+				cam.camera.lookAt( vehicle.spherePos.x, vehicle.spherePos.y + 0.5, vehicle.spherePos.z );
+
+				if ( cinematic.t >= cinematic.duration ) cinematic.active = false;
+
+			} else {
+
+				cam.update( dt, vehicle.spherePos, _camLead );
+
+			}
 
 			renderer.render( scene, cam.camera );
 
